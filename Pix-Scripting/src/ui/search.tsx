@@ -29,7 +29,7 @@ import {
   PAGE_TOOLBAR_BACKGROUND,
   PAGE_TOOLBAR_BACKGROUND_VISIBILITY,
 } from "./components/pageChrome"
-import { AppNavigationLink, useDualRoute } from "./DualRouteContext"
+import { AppNavigationLink, SearchNavigationScope, useDualRoute } from "./DualRouteContext"
 import {
   nextIllustrations,
   nextNovels,
@@ -1357,113 +1357,115 @@ export function SearchView(props: { onClose: () => void; active?: boolean }) {
       : baseNavTitle
 
   return (
-    <ZStack
-      navigationTitle={navTitle}
-      navigationBarTitleDisplayMode="inline"
-      toolbarBackground={PAGE_TOOLBAR_BACKGROUND}
-      toolbarBackgroundVisibility={PAGE_TOOLBAR_BACKGROUND_VISIBILITY}
-      navigationDestination={destinationElement}
-      sheet={{
-        isPresented: isAdvancedSheetOpen,
-        onChanged: (presented: boolean) => setIsAdvancedSheetOpen(presented),
-        content: (
-          <SearchAdvancedSheet
-            key={`advanced-sheet-${advancedSheetKey}`}
-            currentParams={advancedParams}
-            settings={loadSettings()}
-            onApply={(params: any) => {
-              setAdvancedParams(params)
-              setScope(params.scope)
-              setSort(params.sort)
-              const trimmedWord = params.word.trim()
-              if (trimmedWord) {
-                setQuery("")
-                setSubmitted(trimmedWord)
-                addSearchHistory(trimmedWord, params.scope)
-              } else {
-                setQuery("")
-                setSubmitted("")
-              }
-              tagSeq.current += 1
-              userSeq.current += 1
-              debouncedTagAutocomplete.cancel()
-              debouncedUserAutocomplete.cancel()
-              setTagSuggestions([])
-              setUserSuggestions([])
-              setTagSuggestionsLoading(false)
-              setUserSuggestionsLoading(false)
-              setIsSearchingMode(false)
-              setSearchPresented(false)
-              setIsAdvancedSheetOpen(false)
-            }}
-            onCancel={() => setIsAdvancedSheetOpen(false)}
-          />
-        ),
-      }}
-      toolbar={searchToolbar({
-        scope,
-        hideNovels,
-        isAppleMusic,
-        isCompact,
-        isSplitViewActive,
-        isFullScreenPad,
-        submitted,
-        onClose: props.onClose,
-        onScopeChange: handleScopeChange,
-        sort,
-        onSortChange: selectSort,
-        onAdvanced: () => {
-          const currentWord = query.trim() || submitted || advancedParams.word
-          setAdvancedParams((prev) => ({
-            ...prev,
-            word: currentWord,
-            scope: scope === "user" ? "illust" : scope,
-            sort,
-            category: categoryFromParams(
-              scope === "user" ? "illust" : scope,
-              prev.mediaFilter
-            ),
-          }))
-          setAdvancedSheetKey((k) => k + 1)
-          setIsAdvancedSheetOpen(true)
-        },
-      })}
-      searchable={{
-        value: query,
-        onChanged: onQueryChanged,
-        placement: "navigationBarDrawer",
-        prompt: "输入关键词",
-        presented: {
-          value: searchPresented,
-          onChanged: (val: boolean) => {
-            setSearchPresented(val)
-            if (val) {
-              setIsSearchingMode(true)
-            }
+    <SearchNavigationScope>
+      <ZStack
+        navigationTitle={navTitle}
+        navigationBarTitleDisplayMode="inline"
+        toolbarBackground={PAGE_TOOLBAR_BACKGROUND}
+        toolbarBackgroundVisibility={PAGE_TOOLBAR_BACKGROUND_VISIBILITY}
+        navigationDestination={destinationElement}
+        sheet={{
+          isPresented: isAdvancedSheetOpen,
+          onChanged: (presented: boolean) => setIsAdvancedSheetOpen(presented),
+          content: (
+            <SearchAdvancedSheet
+              key={`advanced-sheet-${advancedSheetKey}`}
+              currentParams={advancedParams}
+              settings={loadSettings()}
+              onApply={(params: any) => {
+                setAdvancedParams(params)
+                setScope(params.scope)
+                setSort(params.sort)
+                const trimmedWord = params.word.trim()
+                if (trimmedWord) {
+                  setQuery("")
+                  setSubmitted(trimmedWord)
+                  addSearchHistory(trimmedWord, params.scope)
+                } else {
+                  setQuery("")
+                  setSubmitted("")
+                }
+                tagSeq.current += 1
+                userSeq.current += 1
+                debouncedTagAutocomplete.cancel()
+                debouncedUserAutocomplete.cancel()
+                setTagSuggestions([])
+                setUserSuggestions([])
+                setTagSuggestionsLoading(false)
+                setUserSuggestionsLoading(false)
+                setIsSearchingMode(false)
+                setSearchPresented(false)
+                setIsAdvancedSheetOpen(false)
+              }}
+              onCancel={() => setIsAdvancedSheetOpen(false)}
+            />
+          ),
+        }}
+        toolbar={searchToolbar({
+          scope,
+          hideNovels,
+          isAppleMusic,
+          isCompact,
+          isSplitViewActive,
+          isFullScreenPad,
+          submitted,
+          onClose: props.onClose,
+          onScopeChange: handleScopeChange,
+          sort,
+          onSortChange: selectSort,
+          onAdvanced: () => {
+            const currentWord = query.trim() || submitted || advancedParams.word
+            setAdvancedParams((prev) => ({
+              ...prev,
+              word: currentWord,
+              scope: scope === "user" ? "illust" : scope,
+              sort,
+              category: categoryFromParams(
+                scope === "user" ? "illust" : scope,
+                prev.mediaFilter
+              ),
+            }))
+            setAdvancedSheetKey((k) => k + 1)
+            setIsAdvancedSheetOpen(true)
           },
-        },
-      }}
-      onSubmit={{ triggers: "search" as const, action: () => submitSearch(query) }}
-      submitLabel="search"
-      background={ambientBackground}
-      frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
-    >
-      {(["illust", "novel", "user"] as const).map((s) => {
-        if (!visitedScopes.has(s)) return null
-        const isCurrent = scope === s
-        return (
-          <VStack
-            key={s}
-            frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
-            opacity={isCurrent ? 1 : 0}
-            zIndex={isCurrent ? 1 : 0}
-            allowsHitTesting={isCurrent}
-          >
-            {renderScopeScrollFeed(s)}
-          </VStack>
-        )
-      })}
-    </ZStack>
+        })}
+        searchable={{
+          value: query,
+          onChanged: onQueryChanged,
+          placement: "navigationBarDrawer",
+          prompt: "输入关键词",
+          presented: {
+            value: searchPresented,
+            onChanged: (val: boolean) => {
+              setSearchPresented(val)
+              if (val) {
+                setIsSearchingMode(true)
+              }
+            },
+          },
+        }}
+        onSubmit={{ triggers: "search" as const, action: () => submitSearch(query) }}
+        submitLabel="search"
+        background={ambientBackground}
+        frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+      >
+        {(["illust", "novel", "user"] as const).map((s) => {
+          if (!visitedScopes.has(s)) return null
+          const isCurrent = scope === s
+          return (
+            <VStack
+              key={s}
+              frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+              opacity={isCurrent ? 1 : 0}
+              zIndex={isCurrent ? 1 : 0}
+              allowsHitTesting={isCurrent}
+            >
+              {renderScopeScrollFeed(s)}
+            </VStack>
+          )
+        })}
+      </ZStack>
+    </SearchNavigationScope>
   )
 }
 
@@ -1634,6 +1636,7 @@ function DirectRouteSection(props: {
                 value={routeValue}
                 frame={{ maxWidth: "infinity", alignment: "leading" }}
                 contentShape="rect"
+                onTap={onSelect}
               >
                 <HStack
                   alignment="center"

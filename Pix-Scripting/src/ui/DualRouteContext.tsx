@@ -33,6 +33,7 @@ import {
   requestPixivRoute,
   setDualRouteDispatcher,
   useIsCurrentTab,
+  type PixivTabKind,
 } from "../store/routeNavigation"
 import { session } from "../api/session"
 import { DetailBottomAccessoryHost } from "./bottomAccessory"
@@ -108,6 +109,8 @@ export interface DualRouteContextValue {
     type: "illust" | "novel" | "user" | "pixivision" | "mangaSeries" | "novelSeries" | "tag" | "other",
     id: number | string
   ) => boolean
+  preferProgrammaticPush?: boolean
+  pushTabKind?: PixivTabKind
 }
 
 export const DualRouteContext = createContext<DualRouteContextValue | null>()
@@ -126,16 +129,45 @@ export function useDualRoute(): DualRouteContextValue {
     closeDetail: () => {},
     isRouteActive: () => false,
     isItemActive: () => false,
+    preferProgrammaticPush: false,
+    pushTabKind: undefined,
   }
+}
+
+/**
+ * 搜索专用导航作用域
+ *
+ * 在搜索作用域内，由于页面挂载了 searchable 且 Tab 带有 role="search"，
+ * 单栏模式下直接点击 NavigationLink 会被系统 UISearchController 内部手势冲突吞掉 push 转场动画。
+ * 本组件注入 preferProgrammaticPush=true，使内部的 AppNavigationLink 在单栏模式下
+ * 自动走 requestPixivRoute(targetRoute, "search") 状态压栈，完美恢复原生的 120fps Push 转场动画。
+ */
+export function SearchNavigationScope(props: { children: any }) {
+  const parent = useDualRoute()
+  const value = useMemo<DualRouteContextValue>(
+    () => ({
+      ...parent,
+      preferProgrammaticPush: true,
+      pushTabKind: "search",
+    }),
+    [parent]
+  )
+
+  return (
+    <DualRouteContext.Provider value={value}>
+      {props.children}
+    </DualRouteContext.Provider>
+  )
 }
 
 /**
  * 统一卡片与列表项路由跳转组件
  *
- * 三种分流：
- *  1. 单栏 / 手机 → 原生 NavigationLink 深度入栈（维持现状）
- *  2. 分栏 + 路由属于右栏 → openDetailRoute（右栏内容；右栏内部会被重定向为「入栈」以保留返回箭头）
- *  3. 分栏 + 其余路由 → requestPixivRoute（全局分发器不认领 → 落到当前 Tab 的导航栈，即左栏）
+ * 四种分流：
+ *  1. 分栏 + 路由属于右栏 → openDetailRoute（右栏内容；右栏内部会被重定向为「入栈」以保留返回箭头）
+ *  2. 分栏 + 其余路由 → requestPixivRoute（全局分发器不认领 → 落到当前 Tab 的导航栈，即左栏）
+ *  3. 搜索等需规避 searchable 冲突上下文（单栏）→ requestPixivRoute(targetRoute, "search") 编程式状态压栈，解锁原生 Push 转场
+ *  4. 普通单栏 / 手机 → 原生 NavigationLink 深度入栈（维持现状）
  */
 export function AppNavigationLink(props: {
   value: string
@@ -145,7 +177,8 @@ export function AppNavigationLink(props: {
   buttonStyle?: any
   onTap?: () => void
 }) {
-  const { isSplitViewActive, openDetailRoute } = useDualRoute()
+  const { isSplitViewActive, openDetailRoute, preferProgrammaticPush, pushTabKind } =
+    useDualRoute()
   const targetRoute = useMemo(() => normalizeRoute(props.value), [props.value])
 
   if (isSplitViewActive && targetRoute) {
@@ -160,6 +193,23 @@ export function AppNavigationLink(props: {
             // 不直接 push：交给全局分发器统一裁决（dispatcher 不认领时自动落到左栏栈）
             requestPixivRoute(targetRoute)
           }
+          props.onTap?.()
+        }}
+        contextMenu={props.contextMenu}
+        frame={props.frame}
+      >
+        {props.children}
+      </Button>
+    )
+  }
+
+  // 搜索等需要规避 searchable 动画抑制的上下文：单栏下走编程式状态驱动压栈
+  if (preferProgrammaticPush && targetRoute) {
+    return (
+      <Button
+        buttonStyle={props.buttonStyle ?? "plain"}
+        action={() => {
+          requestPixivRoute(targetRoute, pushTabKind ?? "search")
           props.onTap?.()
         }}
         contextMenu={props.contextMenu}
