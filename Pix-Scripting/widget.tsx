@@ -75,13 +75,13 @@ function PureArtworkWidgetView(props: {
     (artwork?.sourceType === "pixivision"
       ? `pixivision:${artwork.id}`
       : artwork
-      ? `illust:${artwork.id}`
-      : undefined)
+        ? `illust:${artwork.id}`
+        : undefined)
 
   const runUrl = targetRoute
     ? Script.createRunURLScheme("Pix-Scripting", {
-        route: targetRoute,
-      })
+      route: targetRoute,
+    })
     : undefined
 
   return (

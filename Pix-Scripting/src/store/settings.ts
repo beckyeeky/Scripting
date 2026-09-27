@@ -46,6 +46,12 @@ export type ExperimentalAmbientAlgorithm = "transcend" | "geminiA" | "geminiB"
 export type AmbientAlgorithm = BaseAmbientAlgorithm | ExperimentalAmbientAlgorithm
 export type GeminiMotionSpeed = "fast" | "official" | "calm"
 export type LaunchPage = "discovery" | "ranking" | "following"
+export type HapticFeedbackPreference = "full" | "compact" | "off"
+export const HAPTIC_FEEDBACK_PREFERENCE_VALUES: ReadonlyArray<HapticFeedbackPreference> = [
+  "full",
+  "compact",
+  "off",
+]
 export type ImageBatchConcurrency = number
 export type AITranslateConcurrency = number
 export type ImageFadeInDuration = number
@@ -230,6 +236,7 @@ export interface AppSettings {
   quickActionButtonEnabled: boolean
   quickActionButtonAction: QuickActionButtonAction
   quickActionButtonPosition: QuickActionButtonPosition
+  hapticFeedbackPreference: HapticFeedbackPreference
   novelImmersiveReaderEnabled: boolean
   imageSourceMode: ImageSourceMode
   customImageBaseUrl: string
@@ -355,6 +362,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   quickActionButtonEnabled: true,
   quickActionButtonAction: "bookmark",
   quickActionButtonPosition: "leading",
+  hapticFeedbackPreference: "full",
   novelImmersiveReaderEnabled: false,
   imageSourceMode: "official",
   customImageBaseUrl: "",
@@ -933,6 +941,12 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
     )
       ? stored.quickActionButtonPosition
       : DEFAULT_SETTINGS.quickActionButtonPosition,
+    hapticFeedbackPreference: isOneOf(
+      stored?.hapticFeedbackPreference,
+      HAPTIC_FEEDBACK_PREFERENCE_VALUES
+    )
+      ? stored.hapticFeedbackPreference
+      : DEFAULT_SETTINGS.hapticFeedbackPreference,
     novelImmersiveReaderEnabled: stored?.novelImmersiveReaderEnabled === true,
     imageSourceMode: isOneOf(stored?.imageSourceMode, IMAGE_SOURCE_MODE_VALUES)
       ? stored.imageSourceMode

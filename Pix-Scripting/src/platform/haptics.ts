@@ -1,4 +1,5 @@
 import { isScriptingProUser } from "./pro"
+import { loadSettings } from "../store/settings"
 
 export { isScriptingProUser }
 
@@ -35,44 +36,19 @@ function isCoreHapticsAvailable(): boolean {
   }
 }
 
-/**
- * 触发标准 UIKit 原生触觉反馈（轻量、低功耗、全员 100% 零弹窗）
- */
+// UIKit 原生触觉反馈
 function triggerStandardUIKitHaptic(type: HapticFeedbackType): void {
   if (typeof HapticFeedback === "undefined") return
-
-  switch (type) {
-    case "selection":
-      HapticFeedback.selection?.()
-      break
-    case "light":
-      HapticFeedback.lightImpact?.()
-      break
-    case "medium":
-      HapticFeedback.mediumImpact?.()
-      break
-    case "heavy":
-      HapticFeedback.heavyImpact?.()
-      break
-    case "soft":
-      HapticFeedback.softImpact?.()
-      break
-    case "rigid":
-      HapticFeedback.rigidImpact?.()
-      break
-    case "success":
-      HapticFeedback.notificationSuccess?.()
-      break
-    case "warning":
-      HapticFeedback.notificationWarning?.()
-      break
-    case "error":
-      HapticFeedback.notificationError?.()
-      break
-    default:
-      HapticFeedback.lightImpact?.()
-      break
-  }
+  if (type === "selection") HapticFeedback.selection?.()
+  else if (type === "light") HapticFeedback.lightImpact?.()
+  else if (type === "medium") HapticFeedback.mediumImpact?.()
+  else if (type === "heavy") HapticFeedback.heavyImpact?.()
+  else if (type === "soft") HapticFeedback.softImpact?.()
+  else if (type === "rigid") HapticFeedback.rigidImpact?.()
+  else if (type === "success") HapticFeedback.notificationSuccess?.()
+  else if (type === "warning") HapticFeedback.notificationWarning?.()
+  else if (type === "error") HapticFeedback.notificationError?.()
+  else HapticFeedback.lightImpact?.()
 }
 
 /**
@@ -158,12 +134,19 @@ export function triggerHaptic(type?: HapticFeedbackType): void
 export function triggerHaptic(intensity?: number, sharpness?: number): void
 export function triggerHaptic(arg1?: HapticFeedbackType | number, arg2?: number): void {
   try {
+    const pref = loadSettings().hapticFeedbackPreference ?? "full"
+    if (pref === "off") return
+
     const coreHapticsReady = isCoreHapticsAvailable()
 
     // A. 浮点自定义触觉模式
     if (typeof arg1 === "number") {
       const intensity = arg1
       const sharpness = typeof arg2 === "number" ? arg2 : undefined
+
+      if (pref === "compact" && intensity < 0.45) {
+        return
+      }
 
       if (coreHapticsReady) {
         void Haptics.transient(intensity, sharpness)
@@ -185,6 +168,16 @@ export function triggerHaptic(arg1?: HapticFeedbackType | number, arg2?: number)
 
     // B. 标准语义触觉模式
     const hapticType = (arg1 as HapticFeedbackType) || "light"
+
+    if (pref === "compact") {
+      switch (hapticType) {
+        case "selection":
+        case "light":
+        case "soft":
+        case "rigid":
+          return
+      }
+    }
 
     if (coreHapticsReady) {
       triggerProCoreHaptic(hapticType)

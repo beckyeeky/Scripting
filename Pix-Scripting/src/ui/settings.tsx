@@ -57,6 +57,7 @@ import {
   type PrivacyShieldMaterial,
   type QuickActionButtonAction,
   type QuickActionButtonPosition,
+  type HapticFeedbackPreference,
   type TopBarEffect,
   type WidgetDefaultSource,
 } from "../store/settings"
@@ -720,6 +721,34 @@ export function SettingsView() {
           <Picker title="关闭按钮行为" value={settings.closeButtonAction} onChanged={(value: string) => update({ closeButtonAction: value as "minimize" | "exit" })}>
             <Text tag="minimize">后台运行</Text>
             <Text tag="exit">完全关闭</Text>
+          </Picker>
+          <Picker
+            label={
+              <VStack alignment="leading" spacing={2}>
+                <Text>触觉反馈</Text>
+                {settings.hapticFeedbackPreference === "compact" ? (
+                  <Text font="caption2" foregroundStyle="secondaryLabel">
+                    关键操作反馈
+                  </Text>
+                ) : settings.hapticFeedbackPreference === "full" ? (
+                  <Text font="caption2" foregroundStyle="secondaryLabel">
+                    {isScriptingPro() ? "全量细腻触感" : "全量系统触感"}
+                  </Text>
+                ) : null}
+              </VStack>
+            }
+            value={settings.hapticFeedbackPreference}
+            onChanged={(value: string) => {
+              const next = value as HapticFeedbackPreference
+              update({ hapticFeedbackPreference: next })
+              if (next !== "off") {
+                triggerHaptic("selection")
+              }
+            }}
+          >
+            <Text tag="full">饱满</Text>
+            <Text tag="compact">克制</Text>
+            <Text tag="off">关闭</Text>
           </Picker>
           <Toggle
             title="关注后推荐相似创作者"
