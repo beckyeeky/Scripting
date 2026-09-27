@@ -342,6 +342,47 @@ export async function deleteIllust(
 
 // ---------- 搜索 ----------
 
+/**
+ * Pixiv 社区公认的 users入り 收藏数阶梯里程碑常量（升序）
+ */
+export const BOOKMARK_TIERS = [300, 500, 1000, 5000, 10000, 20000, 30000, 50000, 100000] as const
+
+/**
+ * 从搜索词中彻底清洗现有的 users入り 过滤语法（兼容布尔 OR 括号复合语法及单一标签）
+ */
+export function stripBookmarkFilterFromWord(word: string): string {
+  return word
+    .replace(/\s*\(\s*\d+users入り(?:\s+OR\s+\d+users入り)*\s*\)/gi, "")
+    .replace(/\s*\d+users入り/gi, "")
+    .trim()
+}
+
+/**
+ * 依据目标最低收藏数，组装多梯度布尔 OR 语法表达式
+ * 例如输入 5000，拼装为：(5000users入り OR 10000users入り OR 20000users入り OR 30000users入り OR 50000users入り OR 100000users入り)
+ * 实现数学意义上的「>= 最低收藏数」检索，杜绝因高赞作品仅打高阶标签而漏搜
+ */
+export function buildBookmarkFilterWord(word: string, threshold?: number): string {
+  const cleanWord = stripBookmarkFilterFromWord(word)
+  if (!threshold || threshold <= 0) {
+    return cleanWord
+  }
+
+  const higherTiers = BOOKMARK_TIERS.filter((tier) => tier >= threshold)
+  if (higherTiers.length === 0) {
+    return cleanWord ? `${cleanWord} ${threshold}users入り` : `${threshold}users入り`
+  }
+
+  let bookmarkExpr: string
+  if (higherTiers.length === 1) {
+    bookmarkExpr = `${higherTiers[0]}users入り`
+  } else {
+    bookmarkExpr = `(${higherTiers.map((t) => `${t}users入り`).join(" OR ")})`
+  }
+
+  return cleanWord ? `${cleanWord} ${bookmarkExpr}` : bookmarkExpr
+}
+
 export async function searchIllustrations(
   options: SearchOptions,
   accessToken: string
@@ -349,8 +390,7 @@ export async function searchIllustrations(
   let target = options.target
   let word = options.word
   if (options.bookmarkThreshold && options.bookmarkThreshold > 0) {
-    const cleanWord = word.replace(/\s*\d+users入り/gi, "").trim()
-    word = cleanWord ? `${cleanWord} ${options.bookmarkThreshold}users入り` : `${options.bookmarkThreshold}users入り`
+    word = buildBookmarkFilterWord(word, options.bookmarkThreshold)
     if (target === "exact_match_for_tags") {
       target = "partial_match_for_tags"
     }
@@ -1413,8 +1453,7 @@ export async function searchNovels(
   let target = options.target || "partial_match_for_tags"
   let word = options.word
   if (options.bookmarkThreshold && options.bookmarkThreshold > 0) {
-    const cleanWord = word.replace(/\s*\d+users入り/gi, "").trim()
-    word = cleanWord ? `${cleanWord} ${options.bookmarkThreshold}users入り` : `${options.bookmarkThreshold}users入り`
+    word = buildBookmarkFilterWord(word, options.bookmarkThreshold)
     if (target === "exact_match_for_tags") {
       target = "partial_match_for_tags"
     }

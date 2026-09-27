@@ -665,6 +665,7 @@ export type BookmarkThreshold =
   | 20000
   | 30000
   | 50000
+  | 100000
 
 export interface SearchOptions {
   target: string

@@ -477,6 +477,7 @@ export function SearchAdvancedSheet(props: {
             <Text tag="20000">至少 20,000 收藏</Text>
             <Text tag="30000">至少 30,000 收藏</Text>
             <Text tag="50000">至少 50,000 收藏</Text>
+            <Text tag="100000">至少 100,000 收藏</Text>
           </Picker>
         </Section>
 
