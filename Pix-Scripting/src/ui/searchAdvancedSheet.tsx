@@ -2,6 +2,7 @@ import {
   Button,
   DatePicker,
   HStack,
+  Image,
   Label,
   List,
   NavigationStack,
@@ -11,10 +12,12 @@ import {
   Text,
   TextField,
   Toggle,
+  VStack,
   useEffect,
   useMemo,
   useState,
 } from "scripting"
+import { compileSearchQuery, stripBookmarkFilterFromWord } from "../api/pixiv"
 import { session } from "../api/session"
 import { sheetTopBar } from "./components/pageChrome"
 import type {
@@ -36,6 +39,169 @@ export function formatDateToPixivDate(timestamp: number): string {
   const m = String(d.getMonth() + 1).padStart(2, "0")
   const day = String(d.getDate()).padStart(2, "0")
   return `${y}-${m}-${day}`
+}
+
+export interface SearchQueryInspection {
+  shouldShow: boolean
+  compiled: string
+  humanSummary: string
+  warnings: string[]
+  hasError: boolean
+}
+
+function findUnspacedHyphenWarnings(normalized: string): string[] {
+  const warnings: string[] = []
+  const chunks = normalized.split(/[\s()|/]+/).filter(Boolean)
+  for (const chunk of chunks) {
+    const body = chunk.replace(/^-+/, "")
+    if (!body.includes("-")) continue
+    if (/^(?:R-18G?|R-15)$/i.test(body)) continue
+
+    const hasCjk = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(body)
+    const hasR18Suffix = /-R-18G?/i.test(body)
+    const hasCommonExclude = /-(?:AI|R18G?|NTR|BL|GL|3D)$/i.test(body)
+    const isSingleCharChain = /^[A-Za-z0-9](?:-[A-Za-z0-9])+$/.test(body)
+
+    if (hasR18Suffix) {
+      warnings.push("「-R-18」前未留空格，将被当作整体词；若需排除请在 - 前加空格")
+    } else if (hasCjk || hasCommonExclude || isSingleCharChain) {
+      const firstHyphenIdx = body.indexOf("-")
+      const rightPart = body.slice(firstHyphenIdx)
+      warnings.push(`「${rightPart}」前未留空格，将被当作整体词；若需排除请在 - 前加空格`)
+    }
+  }
+  return warnings
+}
+
+function buildHumanSummary(compiled: string): string {
+  if (!compiled) return ""
+  const topTokens: string[] = []
+  let depth = 0
+  let cur = ""
+  for (let i = 0; i < compiled.length; i++) {
+    const ch = compiled[i]
+    if (ch === "(") {
+      if (depth === 0 && cur.trim()) {
+        topTokens.push(...cur.trim().split(/\s+/))
+        cur = ""
+      }
+      cur += ch
+      depth++
+    } else if (ch === ")") {
+      cur += ch
+      depth--
+      if (depth === 0) {
+        topTokens.push(cur.trim())
+        cur = ""
+      }
+    } else {
+      cur += ch
+    }
+  }
+  if (cur.trim()) {
+    topTokens.push(...cur.trim().split(/\s+/))
+  }
+
+  const mustInclude: string[] = []
+  const mustExclude: string[] = []
+
+  for (const t of topTokens) {
+    if (!t || t === "OR") continue
+    if (t.startsWith("-") && t.length > 1) {
+      mustExclude.push(`「${t.slice(1)}」`)
+    } else if (t.startsWith("(") && t.endsWith(")")) {
+      const inner = t.slice(1, -1).trim()
+      if (!inner) continue
+      const parts = inner.split(/\s+OR\s+/)
+      if (parts.length > 1) {
+        mustInclude.push(`「${parts.join(" 或 ")}」任一`)
+      } else {
+        mustInclude.push(`「${inner}」`)
+      }
+    } else {
+      mustInclude.push(`「${t}」`)
+    }
+  }
+
+  const segments: string[] = []
+  if (mustInclude.length === 1) {
+    segments.push(`包含${mustInclude[0]}`)
+  } else if (mustInclude.length > 1) {
+    segments.push(`同时包含${mustInclude.join("、")}`)
+  }
+
+  if (mustExclude.length > 0) {
+    segments.push(`排除${mustExclude.join("、")}`)
+  }
+
+  return segments.join("；")
+}
+
+export function inspectSearchQuery(rawQuery: string): SearchQueryInspection {
+  const cleanRaw = stripBookmarkFilterFromWord(rawQuery || "")
+  if (!cleanRaw) {
+    return { shouldShow: false, compiled: "", humanSummary: "", warnings: [], hasError: false }
+  }
+
+  const normalized = cleanRaw
+    .replace(/\u3000/g, " ")
+    .replace(/（/g, "(")
+    .replace(/）/g, ")")
+    .replace(/｜/g, "|")
+    .replace(/／/g, "/")
+    .replace(/＋/g, "+")
+    .replace(/[—－]/g, "-")
+
+  const warnings: string[] = []
+  warnings.push(...findUnspacedHyphenWarnings(normalized))
+
+  if (/\(\s*\)/.test(normalized)) {
+    warnings.push("包含空括号 ()，搜索时将自动忽略")
+  }
+
+  let openCount = 0
+  let extraClose = 0
+  for (const ch of normalized) {
+    if (ch === "(") openCount++
+    else if (ch === ")") {
+      if (openCount > 0) openCount--
+      else extraClose++
+    }
+  }
+  if (extraClose > 0) {
+    warnings.push("存在未配对的右括号 )，搜索时将自动忽略")
+  }
+  if (openCount > 0) {
+    warnings.push("左括号 ( 未闭合，搜索时将自动在末尾补齐 )")
+  }
+
+  if (/^\s*(?:\||\/|\+|\b(?:or|and)\b)/i.test(normalized)) {
+    warnings.push("开头存在多余的逻辑连接符，搜索时将自动忽略")
+  }
+  if (/(?:\||\/|\+|[-]|\b(?:or|and|not))\s*$/i.test(normalized)) {
+    warnings.push("末尾运算符后缺少关键词，请继续输入或删除该符号")
+  }
+
+  const compiled = compileSearchQuery(cleanRaw)
+  const humanSummary = buildHumanSummary(compiled)
+
+  if (compiled && !warnings.some((w) => w.includes("末尾运算符"))) {
+    const tokens = compiled.split(/\s+/).filter(Boolean)
+    if (tokens.length > 0 && tokens.every((t) => t.startsWith("-"))) {
+      warnings.push("不能仅包含排除词，请至少输入一个正向搜索关键词")
+    }
+  }
+
+  const hasOperators = /[\s+|/()]|^[-]|(^|[\s(])(?:or|and|not)([\s)]|$)/i.test(normalized)
+  const shouldShow = hasOperators || warnings.length > 0
+
+  return {
+    shouldShow,
+    compiled,
+    humanSummary,
+    warnings,
+    hasError: warnings.length > 0,
+  }
 }
 
 export function categoryFromParams(
@@ -199,6 +365,7 @@ export function SearchAdvancedSheet(props: {
   const [shouldAutoFocus, setShouldAutoFocus] = useState<boolean>(
     () => !currentParams.word?.trim()
   )
+  const queryInspection = useMemo(() => inspectSearchQuery(word), [word])
 
   useEffect(() => {
     setWord(currentParams.word)
@@ -332,7 +499,14 @@ export function SearchAdvancedSheet(props: {
           ],
         }}
       >
-        <Section header={<Text>搜索关键词</Text>}>
+        <Section
+          header={<Text>搜索关键词</Text>}
+          footer={
+            <Text>
+              技巧：空格、+ 或 and 表示且；|、/ 或 or 表示或；空格加 - 或 not 表示排除；支持用 () 组合优先级，例：(初音 or 巡音) 桜 -R-18。
+            </Text>
+          }
+        >
           <TextField
             title="关键词"
             prompt="输入搜索关键词…"
@@ -345,6 +519,49 @@ export function SearchAdvancedSheet(props: {
             }}
             autofocus={shouldAutoFocus}
           />
+          {queryInspection.shouldShow ? (
+            <VStack alignment="leading" spacing={6} padding={{ top: 4, bottom: 4 }}>
+              {queryInspection.humanSummary ? (
+                <HStack alignment="top" spacing={6}>
+                  <Image
+                    systemName="sparkles"
+                    font="caption"
+                    foregroundStyle="systemYellow"
+                    padding={{ top: 2 }}
+                  />
+                  <Text font="caption" foregroundStyle="label">
+                    搜索语义：{queryInspection.humanSummary}
+                  </Text>
+                </HStack>
+              ) : null}
+              {queryInspection.compiled ? (
+                <HStack alignment="top" spacing={6}>
+                  <Image
+                    systemName="magnifyingglass"
+                    font="caption"
+                    foregroundStyle="systemBlue"
+                    padding={{ top: 2 }}
+                  />
+                  <Text font="caption" foregroundStyle="secondaryLabel">
+                    最终检索：{queryInspection.compiled}
+                  </Text>
+                </HStack>
+              ) : null}
+              {queryInspection.warnings.map((warn, idx) => (
+                <HStack key={`warn-${idx}`} alignment="top" spacing={6}>
+                  <Image
+                    systemName="exclamationmark.triangle.fill"
+                    font="caption"
+                    foregroundStyle="systemOrange"
+                    padding={{ top: 2 }}
+                  />
+                  <Text font="caption" foregroundStyle="systemOrange">
+                    {warn}
+                  </Text>
+                </HStack>
+              ))}
+            </VStack>
+          ) : null}
         </Section>
 
         {lockScope === "novel" ? null : (

@@ -343,6 +343,167 @@ export async function deleteIllust(
 // ---------- 搜索 ----------
 
 /**
+ * 格式化未加括号的连续 OR 词链
+ */
+function formatOrCluster(cluster: string[]): string {
+  while (cluster[0] === "OR") cluster.shift()
+  while (cluster[cluster.length - 1] === "OR") cluster.pop()
+  if (cluster.length <= 1) return cluster.join(" ")
+  return `(${cluster.join(" ")})`
+}
+
+/**
+ * 将顶层未被显式括号包裹的 OR 连续链自动加上优先级括号保护
+ * 例如 "初音 OR 巡音 桜" 自动转译为 "(初音 OR 巡音) 桜"
+ */
+function wrapUnparenthesizedOrChains(text: string): string {
+  if (!/\bOR\b/.test(text)) return text
+
+  const placeholders: string[] = []
+  let depth = 0
+  let currentGroup = ""
+  let topLevel = ""
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (ch === "(") {
+      currentGroup += "("
+      depth++
+    } else if (ch === ")") {
+      depth--
+      currentGroup += ")"
+      if (depth === 0) {
+        const ph = `__PH_${placeholders.length}__`
+        placeholders.push(currentGroup)
+        topLevel += ph
+        currentGroup = ""
+      }
+    } else {
+      if (depth > 0) {
+        currentGroup += ch
+      } else {
+        topLevel += ch
+      }
+    }
+  }
+
+  if (/\bOR\b/.test(topLevel)) {
+    const tokens = topLevel.split(/\s+/).filter(Boolean)
+    const resultTokens: string[] = []
+    let orCluster: string[] = []
+
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i]
+      if (t === "OR") {
+        orCluster.push("OR")
+      } else {
+        const prevIsOr = tokens[i - 1] === "OR"
+        const nextIsOr = tokens[i + 1] === "OR"
+        if (prevIsOr) {
+          orCluster.push(t)
+          if (!nextIsOr) {
+            resultTokens.push(formatOrCluster(orCluster))
+            orCluster = []
+          }
+        } else if (nextIsOr) {
+          if (orCluster.length > 0) {
+            resultTokens.push(formatOrCluster(orCluster))
+            orCluster = []
+          }
+          orCluster.push(t)
+        } else {
+          if (orCluster.length > 0) {
+            resultTokens.push(formatOrCluster(orCluster))
+            orCluster = []
+          }
+          resultTokens.push(t)
+        }
+      }
+    }
+    if (orCluster.length > 0) {
+      resultTokens.push(formatOrCluster(orCluster))
+    }
+    topLevel = resultTokens.join(" ")
+  }
+
+  placeholders.forEach((phContent, idx) => {
+    topLevel = topLevel.replace(`__PH_${idx}__`, phContent)
+  })
+
+  return topLevel
+}
+
+/**
+ * 查询转译引擎：将用户输入的布尔运算符、英文逻辑词与符号编译为 Pixiv 服务端标准检索式
+ * - 且（AND）：空格、+、and
+ * - 或（OR）：|、/、or、OR（自动安全括号化）
+ * - 排除（NOT）：-、not、全角负号（支持 "A - B" 空格吸附）
+ * - 优先级与容错：支持中文全角括号转换、手滑漏右括号自动闭合平衡
+ */
+export function compileSearchQuery(query: string): string {
+  if (!query || typeof query !== "string") return ""
+  let q = query.trim()
+  if (!q) return ""
+
+  // 1. 全角字符归一化
+  q = q
+    .replace(/\u3000/g, " ")
+    .replace(/（/g, "(")
+    .replace(/）/g, ")")
+    .replace(/｜/g, "|")
+    .replace(/／/g, "/")
+    .replace(/＋/g, "+")
+    .replace(/[—－]/g, "-")
+
+  // 2. 减号智能吸附: "A - B" -> "A -B", "( - B" -> "(-B", "^- B" -> "-B"
+  q = q.replace(/(^|[\s(])[-]\s+(\S+)/g, "$1-$2")
+
+  // 3. 加号归一化为 AND (空格): "A + B" -> "A B", "+A" -> "A"
+  q = q.replace(/(^|[\s(])\+\s*(\S+)/g, "$1$2")
+  q = q.replace(/\s*\+\s*/g, " ")
+
+  // 4. 英文 not 转译为减号: "not B" -> "-B", "not -B" -> "-B"
+  q = q.replace(/(^|[\s(])not\s+-?(\S+)/gi, "$1-$2")
+
+  // 5. 符号 | 与 / 转译为 OR (避免破坏 url)
+  q = q.replace(/(?<!:)\s*(?:\||\/)\s*/g, " OR ")
+
+  // 6. 独立成词的英文 or / and 转译
+  q = q.replace(/(^|[\s(])or([\s)]|$)/gi, "$1OR$2")
+  q = q.replace(/(^|[\s(])and([\s)]|$)/gi, "$1 $2")
+
+  // 7. 括号平衡自愈 (Auto-Balance)
+  let balanced = ""
+  let openCount = 0
+  for (let i = 0; i < q.length; i++) {
+    const ch = q[i]
+    if (ch === "(") {
+      openCount++
+      balanced += ch
+    } else if (ch === ")") {
+      if (openCount > 0) {
+        openCount--
+        balanced += ch
+      }
+    } else {
+      balanced += ch
+    }
+  }
+  while (openCount > 0) {
+    balanced += ")"
+    openCount--
+  }
+
+  // 8. 规范化相邻括号间隙、空格与未括号化的 OR 链安全包裹
+  balanced = balanced.replace(/\(\s*\)/g, " ")
+  balanced = balanced.replace(/\)\s*\(/g, ") (")
+  balanced = balanced.replace(/\s+/g, " ").trim()
+  balanced = wrapUnparenthesizedOrChains(balanced)
+
+  return balanced.replace(/\s+/g, " ").trim()
+}
+
+/**
  * Pixiv 社区公认的 users入り 收藏数阶梯里程碑常量（升序）
  */
 export const BOOKMARK_TIERS = [300, 500, 1000, 5000, 10000, 20000, 30000, 50000, 100000] as const
@@ -388,7 +549,7 @@ export async function searchIllustrations(
   accessToken: string
 ): Promise<PixivPage<PixivIllustration>> {
   let target = options.target
-  let word = options.word
+  let word = compileSearchQuery(options.word)
   if (options.bookmarkThreshold && options.bookmarkThreshold > 0) {
     word = buildBookmarkFilterWord(word, options.bookmarkThreshold)
     if (target === "exact_match_for_tags") {
@@ -1451,7 +1612,7 @@ export async function searchNovels(
   accessToken: string
 ): Promise<PixivPage<PixivNovel>> {
   let target = options.target || "partial_match_for_tags"
-  let word = options.word
+  let word = compileSearchQuery(options.word)
   if (options.bookmarkThreshold && options.bookmarkThreshold > 0) {
     word = buildBookmarkFilterWord(word, options.bookmarkThreshold)
     if (target === "exact_match_for_tags") {
