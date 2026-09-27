@@ -170,8 +170,9 @@ export function SearchAdvancedSheet(props: {
   settings: AppSettings
   onApply: (params: AdvancedSearchParams) => void
   onCancel: () => void
+  lockScope?: "illust" | "novel"
 }) {
-  const { currentParams, settings, onApply, onCancel } = props
+  const { currentParams, settings, onApply, onCancel, lockScope } = props
 
   const [word, setWord] = useState(currentParams.word)
   const [category, setCategory] = useState<SearchCategory>(() =>
@@ -228,6 +229,26 @@ export function SearchAdvancedSheet(props: {
 
   const minTimestamp = useMemo(() => new Date("2007-09-09").getTime(), [])
   const maxTimestamp = useMemo(() => Date.now(), [])
+
+  function handleTargetChange(val: string) {
+    if (val === "exact_match_for_tags" && bookmarkThreshold > 0) {
+      try {
+        triggerHaptic("selection")
+      } catch {}
+      setBookmarkThreshold(0)
+    }
+    setTarget(val)
+  }
+
+  function handleBookmarkThresholdChange(val: BookmarkThreshold) {
+    setBookmarkThreshold(val)
+    if (val > 0 && target === "exact_match_for_tags") {
+      try {
+        triggerHaptic("selection")
+      } catch {}
+      setTarget("partial_match_for_tags")
+    }
+  }
 
   function handleCategoryChange(nextCategory: SearchCategory) {
     setCategory(nextCategory)
@@ -326,41 +347,43 @@ export function SearchAdvancedSheet(props: {
           />
         </Section>
 
-        <Section header={<Text>搜索范围</Text>}>
-          <Picker
-            title="范围"
-            value={category}
-            onChanged={(val: string) =>
-              handleCategoryChange(val as SearchCategory)
-            }
-          >
-            <Label
-              tag="all_illust"
-              title="插画·漫画·动图"
-              systemImage="photo.stack"
-            />
-            <Label tag="illust" title="插画" systemImage="photo" />
-            <Label
-              tag="manga"
-              title="漫画"
-              systemImage="photo.on.rectangle"
-            />
-            <Label
-              tag="ugoira"
-              title="动图"
-              systemImage="play.circle"
-            />
-            {settings.hideNovels ? null : (
-              <Label tag="novel" title="小说" systemImage="book" />
-            )}
-          </Picker>
-        </Section>
+        {lockScope === "novel" ? null : (
+          <Section header={<Text>搜索范围</Text>}>
+            <Picker
+              title="范围"
+              value={category}
+              onChanged={(val: string) =>
+                handleCategoryChange(val as SearchCategory)
+              }
+            >
+              <Label
+                tag="all_illust"
+                title="插画·漫画·动图"
+                systemImage="photo.stack"
+              />
+              <Label tag="illust" title="插画" systemImage="photo" />
+              <Label
+                tag="manga"
+                title="漫画"
+                systemImage="photo.on.rectangle"
+              />
+              <Label
+                tag="ugoira"
+                title="动图"
+                systemImage="play.circle"
+              />
+              {settings.hideNovels || lockScope === "illust" ? null : (
+                <Label tag="novel" title="小说" systemImage="book" />
+              )}
+            </Picker>
+          </Section>
+        )}
 
         <Section header={<Text>匹配维度与排序</Text>}>
           <Picker
             title="匹配目标"
             value={target}
-            onChanged={(val: string) => setTarget(val)}
+            onChanged={(val: string) => handleTargetChange(val)}
           >
             <Label
               tag="partial_match_for_tags"
@@ -428,12 +451,21 @@ export function SearchAdvancedSheet(props: {
           </Picker>
         </Section>
 
-        <Section header={<Text>收藏数筛选</Text>}>
+        <Section
+          header={<Text>收藏数筛选</Text>}
+          footer={
+            bookmarkThreshold > 0 ? (
+              <Text font="caption" foregroundStyle="secondaryLabel">
+                按收藏数筛选将自动采用「标签部分一致」检索，以匹配含 users入り 复合标签的高赞作品。
+              </Text>
+            ) : undefined
+          }
+        >
           <Picker
             title="最低收藏数"
             value={String(bookmarkThreshold)}
             onChanged={(val: string) =>
-              setBookmarkThreshold(Number(val) as BookmarkThreshold)
+              handleBookmarkThresholdChange(Number(val) as BookmarkThreshold)
             }
           >
             <Text tag="0">不限</Text>

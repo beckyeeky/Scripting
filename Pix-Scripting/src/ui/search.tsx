@@ -1413,6 +1413,19 @@ export function SearchView(props: { onClose: () => void; active?: boolean }) {
           onScopeChange: handleScopeChange,
           sort,
           onSortChange: selectSort,
+          hasAdvancedFilters:
+            advancedParams.bookmarkThreshold > 0 ||
+            Boolean(
+              advancedParams.useDateRange &&
+                (advancedParams.startDate || advancedParams.startTimestamp)
+            ) ||
+            (advancedParams.mediaFilter &&
+              advancedParams.mediaFilter !== "all" &&
+              scope === "illust") ||
+            (scope === "novel"
+              ? advancedParams.target === "keyword" ||
+                advancedParams.target === "text"
+              : advancedParams.target === "title_and_caption"),
           onAdvanced: () => {
             const currentWord = query.trim() || submitted || advancedParams.word
             setAdvancedParams((prev) => ({
@@ -1477,6 +1490,7 @@ function searchToolbar(props: {
   isSplitViewActive?: boolean
   isFullScreenPad?: boolean
   submitted?: string
+  hasAdvancedFilters?: boolean
   onClose: () => void
   onScopeChange: (scope: SearchScope) => void
   sort: SearchSort
@@ -1570,7 +1584,11 @@ function searchToolbar(props: {
     </HStack>
   )
 
-  const menuLabel = isFullScreenPad ? wideMenuLabel : <Image systemName="ellipsis.circle" />
+  const menuIconName = props.hasAdvancedFilters
+    ? "line.3.horizontal.decrease.circle.fill"
+    : "ellipsis.circle"
+
+  const menuLabel = isFullScreenPad ? wideMenuLabel : <Image systemName={menuIconName} />
 
   const searchMenuNode = (
     <Menu key="search-main-menu" label={menuLabel}>

@@ -232,6 +232,13 @@ export function getActiveAccessoryKey(
   if (top.startsWith("rankingCustomPicker:")) return top
   if (top === "settings") return "settings"
   if (top === "customAISettings") return "customAISettings"
+  if (
+    top.startsWith("tag:") ||
+    top.startsWith("novelTag:") ||
+    top.startsWith("pixivisionTag:") ||
+    top.startsWith("pixivision-tag:")
+  )
+    return top
   return null
 }
 
@@ -1353,19 +1360,46 @@ export function SeriesDetailDockBar(props: {
   return <DockActionBar items={items} />
 }
 
-export function TagFeedDockBar(props: { tagName: string }) {
-  const { tagName } = props
+type TagAdvancedSearchListener = (tag: string, kind?: "illust" | "novel") => void
+const tagAdvancedSearchListeners = new Set<TagAdvancedSearchListener>()
+
+export function notifyOpenTagAdvancedSearch(tag: string, kind?: "illust" | "novel") {
+  for (const fn of tagAdvancedSearchListeners) {
+    try {
+      fn(tag, kind)
+    } catch {}
+  }
+}
+
+export function onOpenTagAdvancedSearch(listener: TagAdvancedSearchListener): () => void {
+  tagAdvancedSearchListeners.add(listener)
+  return () => {
+    tagAdvancedSearchListeners.delete(listener)
+  }
+}
+
+export function TagFeedDockBar(props: {
+  tagName: string
+  kind?: "illust" | "novel"
+  onTap?: () => void
+  hasActiveFilters?: boolean
+}) {
+  const { tagName, kind, onTap, hasActiveFilters } = props
   const contextMenu = useMemo(() => renderTagContextMenu(tagName), [tagName])
   const items: DockActionItem[] = [
     {
       key: "tag",
       label: tagName || "标签",
-      icon: "number",
+      icon: hasActiveFilters ? "line.3.horizontal.decrease.circle.fill" : "number",
       color: "systemBlue",
       action: () => {
         try {
           triggerHaptic("selection")
         } catch {}
+        if (onTap) {
+          onTap()
+        }
+        notifyOpenTagAdvancedSearch(tagName, kind)
       },
       contextMenu,
     },
@@ -1398,7 +1432,14 @@ export function renderRouteInfoBar(top: string) {
       decoded = decoded.split("?")[0]
     }
     decoded = decoded.replace(/^#+/, "").trim()
-    return <TagFeedDockBar key={`tag-${decoded}`} tagName={decoded} />
+    const isNovel = top.startsWith("novelTag:")
+    return (
+      <TagFeedDockBar
+        key={`tag-${decoded}`}
+        tagName={decoded}
+        kind={isNovel ? "novel" : "illust"}
+      />
+    )
   }
 
   // 2. 相关作品

@@ -44,6 +44,7 @@ import {
   EmptyView,
   ErrorView,
   formatDate,
+  LinkedDescription,
   LoadingView,
   LoadMoreTrigger,
 } from "./components"
@@ -52,9 +53,13 @@ import {
   PIXIV_STAMP_CATEGORIES,
   ALL_PIXIV_STAMPS,
   tokenizeCommentText,
+  hasPixivEmoji,
+  tokenizeCommentLine,
+  splitTextIntoSafeChunks,
+  CommentMixedToken,
   PixivStampItem,
 } from "./PixivEmotes"
-import { formatNumber } from "./components/formatUtils"
+import { formatNumber, presentExternalURL } from "./components/formatUtils"
 
 interface ReplyState {
   items: PixivComment[]
@@ -887,6 +892,102 @@ function SubCommentRow(props: {
   )
 }
 
+type CommentRenderItem =
+  | { kind: "emoji"; key: string; url: string }
+  | { kind: "link"; key: string; text: string; target: string | null }
+  | { kind: "text"; key: string; text: string }
+
+function flattenCommentTokens(tokens: CommentMixedToken[]): CommentRenderItem[] {
+  const items: CommentRenderItem[] = []
+  for (let i = 0; i < tokens.length; i++) {
+    const tok = tokens[i]
+    if (tok.type === "emoji") {
+      items.push({ kind: "emoji", key: `em_${i}`, url: tok.url })
+    } else if (tok.type === "link") {
+      if (tok.label.length <= 16) {
+        items.push({
+          kind: "link",
+          key: `lk_${i}`,
+          text: tok.label,
+          target: tok.target,
+        })
+      } else {
+        const chunks = splitTextIntoSafeChunks(tok.label, 12)
+        for (let j = 0; j < chunks.length; j++) {
+          items.push({
+            kind: "link",
+            key: `lk_${i}_${j}`,
+            text: chunks[j],
+            target: tok.target,
+          })
+        }
+      }
+    } else {
+      const chunks = splitTextIntoSafeChunks(tok.text, 4)
+      for (let j = 0; j < chunks.length; j++) {
+        items.push({
+          kind: "text",
+          key: `tx_${i}_${j}`,
+          text: chunks[j],
+        })
+      }
+    }
+  }
+  return items
+}
+
+function CommentFlowLine(props: { line: string }) {
+  const { line } = props
+  const tokens = tokenizeCommentLine(line)
+  const items = flattenCommentTokens(tokens)
+
+  return (
+    <FlowLayout horizontalSpacing={0} verticalSpacing={3}>
+      {items.map((item) => {
+        if (item.kind === "emoji") {
+          return (
+            <CachedImage
+              key={item.key}
+              url={item.url}
+              frame={{ width: 18, height: 18 }}
+              cornerRadius={0}
+              aspectRatioValue={1}
+              contentMode="fit"
+              padding={{ horizontal: 1 }}
+            />
+          )
+        }
+        if (item.kind === "link") {
+          const handleTap = () => {
+            if (!item.target) return
+            if (item.target.startsWith("http")) {
+              void presentExternalURL(item.target)
+            } else {
+              requestPixivRoute(item.target)
+            }
+          }
+          return (
+            <Button key={item.key} buttonStyle="plain" action={handleTap}>
+              <Text
+                font="footnote"
+                foregroundStyle="systemBlue"
+                underline="systemBlue"
+              >
+                {item.text}
+              </Text>
+            </Button>
+          )
+        }
+        return (
+          <Text key={item.key} font="footnote">
+            {item.text}
+          </Text>
+        )
+      })}
+    </FlowLayout>
+  )
+}
+
 function CommentBody(props: { comment: PixivComment }) {
   const { comment } = props
 
@@ -903,21 +1004,24 @@ function CommentBody(props: { comment: PixivComment }) {
   }
 
   const rawComment = comment.comment ?? ""
-  const tokens = tokenizeCommentText(rawComment)
-  const hasEmoji = tokens.some((t) => t.type === "emoji")
+  if (!rawComment.trim()) {
+    return null
+  }
 
-  if (!hasEmoji) {
+  const containsEmoji = hasPixivEmoji(rawComment)
+
+  // 1. 无表情评论：100% 走 LinkedDescription，享有系统级 StyledText 排版、划选复制与全量 8 大类链接识别与跳转
+  if (!containsEmoji) {
     return (
-      <Text
+      <LinkedDescription
+        html={rawComment}
         font="footnote"
-        multilineTextAlignment="leading"
-        frame={{ maxWidth: "infinity", alignment: "leading" }}
-      >
-        {rawComment}
-      </Text>
+        lineSpacing={2}
+      />
     )
   }
 
+  // 2. 带表情评论：按行拆分，无表情行直接走 LinkedDescription，含表情行走防超宽细粒度 FlowLayout
   const lines = rawComment.replace(/\r\n|\r/g, "\n").split("\n")
 
   return (
@@ -927,52 +1031,23 @@ function CommentBody(props: { comment: PixivComment }) {
       frame={{ maxWidth: "infinity", alignment: "leading" }}
     >
       {lines.map((line, lineIdx) => {
-        if (!line) {
+        if (!line.trim()) {
           return <Spacer key={lineIdx} frame={{ height: 4 }} />
         }
-        const lineTokens = tokenizeCommentText(line)
-        const lineHasEmoji = lineTokens.some((t) => t.type === "emoji")
 
+        const lineHasEmoji = hasPixivEmoji(line)
         if (!lineHasEmoji) {
           return (
-            <Text
+            <LinkedDescription
               key={lineIdx}
+              html={line}
               font="footnote"
-              multilineTextAlignment="leading"
-              frame={{ maxWidth: "infinity", alignment: "leading" }}
-            >
-              {line}
-            </Text>
+              lineSpacing={2}
+            />
           )
         }
 
-        return (
-          <FlowLayout
-            key={lineIdx}
-            horizontalSpacing={2}
-            verticalSpacing={2}
-          >
-            {lineTokens.map((tok, tokIdx) => {
-              if (tok.type === "text") {
-                return (
-                  <Text key={tokIdx} font="footnote">
-                    {tok.text}
-                  </Text>
-                )
-              }
-              return (
-                <CachedImage
-                  key={tokIdx}
-                  url={tok.url}
-                  frame={{ width: 18, height: 18 }}
-                  cornerRadius={0}
-                  aspectRatioValue={1}
-                  contentMode="fit"
-                />
-              )
-            })}
-          </FlowLayout>
-        )
+        return <CommentFlowLine key={lineIdx} line={line} />
       })}
     </VStack>
   )

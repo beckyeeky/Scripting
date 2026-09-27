@@ -87,9 +87,9 @@ export function LinkedDescription(props: {
 }
 
 
-type DescriptionSegment = { label: string; href: string }
+export type DescriptionSegment = { label: string; href: string }
 
-function descriptionSegments(html: string): DescriptionSegment[] {
+export function descriptionSegments(html: string): DescriptionSegment[] {
   const prepared = html
     .replace(/\r\n|\r/g, "\n")
     .replace(/<(?:\s*\/?\s*)br(?:\s*\/?\s*|\s+[^>]*)>(?:\r?\n)?/gi, "\n")

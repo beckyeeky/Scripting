@@ -1,3 +1,6 @@
+import { descriptionSegments } from "./components/LinkedDescription"
+import { routeForDescriptionLink } from "./components/formatUtils"
+
 export interface PixivEmojiItem {
   code: string
   id: string
@@ -90,9 +93,33 @@ export type CommentToken =
   | { type: "text"; text: string }
   | { type: "emoji"; code: string; url: string }
 
+export type CommentMixedToken =
+  | { type: "text"; text: string }
+  | { type: "link"; label: string; href: string; target: string | null }
+  | { type: "emoji"; code: string; url: string }
+
 const EMOJI_REGEX = /(\([a-zA-Z0-9_]+\))/g
 const tokenCache = new Map<string, CommentToken[]>()
 const MAX_TOKEN_CACHE_SIZE = 500
+
+export function hasPixivEmoji(text: string): boolean {
+  if (!text || !text.includes("(")) return false
+  const matches = text.match(/\([a-zA-Z0-9_]+\)/g)
+  if (!matches) return false
+  return matches.some((code) => EMOJI_CODE_TO_URL.has(code))
+}
+
+export function splitTextIntoSafeChunks(text: string, maxChunkLength: number = 4): string[] {
+  if (!text) return []
+  if (text.length <= maxChunkLength) return [text]
+  const chunks: string[] = []
+  let cursor = 0
+  while (cursor < text.length) {
+    chunks.push(text.slice(cursor, cursor + maxChunkLength))
+    cursor += maxChunkLength
+  }
+  return chunks
+}
 
 export function tokenizeCommentText(text: string): CommentToken[] {
   if (!text) return []
@@ -114,5 +141,48 @@ export function tokenizeCommentText(text: string): CommentToken[] {
     tokenCache.clear()
   }
   tokenCache.set(text, tokens)
+  return tokens
+}
+
+const mixedTokenCache = new Map<string, CommentMixedToken[]>()
+const MAX_MIXED_TOKEN_CACHE_SIZE = 500
+
+export function tokenizeCommentLine(line: string): CommentMixedToken[] {
+  if (!line) return []
+  const cached = mixedTokenCache.get(line)
+  if (cached) return cached
+
+  const segments = descriptionSegments(line)
+  const tokens: CommentMixedToken[] = []
+
+  for (const seg of segments) {
+    if (seg.href) {
+      const target =
+        routeForDescriptionLink(seg.href) ??
+        routeForDescriptionLink(seg.label)
+      tokens.push({
+        type: "link",
+        label: seg.label,
+        href: seg.href,
+        target,
+      })
+    } else {
+      const parts = seg.label.split(/(\([a-zA-Z0-9_]+\))/g)
+      for (const part of parts) {
+        if (!part) continue
+        const emojiUrl = EMOJI_CODE_TO_URL.get(part)
+        if (emojiUrl) {
+          tokens.push({ type: "emoji", code: part, url: emojiUrl })
+        } else {
+          tokens.push({ type: "text", text: part })
+        }
+      }
+    }
+  }
+
+  if (mixedTokenCache.size >= MAX_MIXED_TOKEN_CACHE_SIZE) {
+    mixedTokenCache.clear()
+  }
+  mixedTokenCache.set(line, tokens)
   return tokens
 }
