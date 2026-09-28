@@ -45,7 +45,9 @@ export interface SearchQueryInspection {
   shouldShow: boolean
   compiled: string
   humanSummary: string
+  hints: string[]
   warnings: string[]
+  errors: string[]
   hasError: boolean
 }
 
@@ -106,9 +108,9 @@ function buildHumanSummary(compiled: string): string {
   const mustExclude: string[] = []
 
   for (const t of topTokens) {
-    if (!t || t === "OR") continue
+    if (!t || t === "OR" || t === "-" || t === "+") continue
     if (t.startsWith("-") && t.length > 1) {
-      mustExclude.push(`「${t.slice(1)}」`)
+      mustExclude.push(`「${t.replace(/^-+/, "")}」`)
     } else if (t.startsWith("(") && t.endsWith(")")) {
       const inner = t.slice(1, -1).trim()
       if (!inner) continue
@@ -140,7 +142,7 @@ function buildHumanSummary(compiled: string): string {
 export function inspectSearchQuery(rawQuery: string): SearchQueryInspection {
   const cleanRaw = stripBookmarkFilterFromWord(rawQuery || "")
   if (!cleanRaw) {
-    return { shouldShow: false, compiled: "", humanSummary: "", warnings: [], hasError: false }
+    return { shouldShow: false, compiled: "", humanSummary: "", hints: [], warnings: [], errors: [], hasError: false }
   }
 
   const normalized = cleanRaw
@@ -155,52 +157,41 @@ export function inspectSearchQuery(rawQuery: string): SearchQueryInspection {
   const warnings: string[] = []
   warnings.push(...findUnspacedHyphenWarnings(normalized))
 
-  if (/\(\s*\)/.test(normalized)) {
-    warnings.push("包含空括号 ()，搜索时将自动忽略")
-  }
-
-  let openCount = 0
-  let extraClose = 0
-  for (const ch of normalized) {
-    if (ch === "(") openCount++
-    else if (ch === ")") {
-      if (openCount > 0) openCount--
-      else extraClose++
-    }
-  }
-  if (extraClose > 0) {
-    warnings.push("存在未配对的右括号 )，搜索时将自动忽略")
-  }
-  if (openCount > 0) {
-    warnings.push("左括号 ( 未闭合，搜索时将自动在末尾补齐 )")
-  }
-
-  if (/^\s*(?:\||\/|\+|\b(?:or|and)\b)/i.test(normalized)) {
-    warnings.push("开头存在多余的逻辑连接符，搜索时将自动忽略")
-  }
+  const errors: string[] = []
   if (/(?:\||\/|\+|[-]|\b(?:or|and|not))\s*$/i.test(normalized)) {
-    warnings.push("末尾运算符后缺少关键词，请继续输入或删除该符号")
+    errors.push("末尾运算符后缺少关键词，请继续输入或删除该符号")
   }
 
   const compiled = compileSearchQuery(cleanRaw)
   const humanSummary = buildHumanSummary(compiled)
 
-  if (compiled && !warnings.some((w) => w.includes("末尾运算符"))) {
+  const hints: string[] = []
+  const negatedMatch = normalized.match(/(?:^|[\s(])(?:-|not\s*)\(([^()]+)\)/i)
+  if (negatedMatch && negatedMatch[1]) {
+    const innerTerms = negatedMatch[1].replace(/\b(?:OR|and)\b|[|/,+]/gi, " ").trim().split(/\s+/).filter(Boolean)
+    if (innerTerms.length > 1) {
+      hints.push("提示：受 Pixiv 检索机制限制，复合排除将按分别排除处理（即同时排除所列标签）")
+    }
+  }
+
+  if (compiled && !errors.some((w) => w.includes("末尾运算符"))) {
     const tokens = compiled.split(/\s+/).filter(Boolean)
     if (tokens.length > 0 && tokens.every((t) => t.startsWith("-"))) {
-      warnings.push("不能仅包含排除词，请至少输入一个正向搜索关键词")
+      errors.push("不能仅包含排除词，请至少输入一个正向搜索关键词")
     }
   }
 
   const hasOperators = /[\s+|/()]|^[-]|(^|[\s(])(?:or|and|not)([\s)]|$)/i.test(normalized)
-  const shouldShow = hasOperators || warnings.length > 0
+  const shouldShow = hasOperators || warnings.length > 0 || errors.length > 0 || hints.length > 0
 
   return {
     shouldShow,
     compiled,
     humanSummary,
+    hints,
     warnings,
-    hasError: warnings.length > 0,
+    errors,
+    hasError: errors.length > 0,
   }
 }
 
@@ -439,6 +430,10 @@ export function SearchAdvancedSheet(props: {
   }
 
   function handleApply() {
+    if (queryInspection.hasError) {
+      triggerHaptic("error")
+      return
+    }
     const clampedStart = Math.max(
       minTimestamp,
       Math.min(startTimestamp, endTimestamp)
@@ -494,6 +489,7 @@ export function SearchAdvancedSheet(props: {
               title="搜索"
               systemImage="magnifyingglass"
               fontWeight="bold"
+              disabled={queryInspection.hasError}
               action={handleApply}
             />,
           ],
@@ -503,7 +499,7 @@ export function SearchAdvancedSheet(props: {
           header={<Text>搜索关键词</Text>}
           footer={
             <Text>
-              提示：空格、+ 或 and 表示且；|、/ 或 or 表示或；- 或 not 表示排除；支持用 () 组合优先级，例：(初音 or 巡音) 桜 -R-18。
+              {"提示：空格、+ 或 and 表示且；|、/ 或 or 表示或；- 或 not 表示排除；支持用 () 组合优先级。\n示例：(初音 or 巡音) 桜 -R-18"}
             </Text>
           }
         >
@@ -547,6 +543,19 @@ export function SearchAdvancedSheet(props: {
                   </Text>
                 </HStack>
               ) : null}
+              {queryInspection.hints.map((hint, idx) => (
+                <HStack key={`hint-${idx}`} alignment="top" spacing={6}>
+                  <Image
+                    systemName="info.circle"
+                    font="caption"
+                    foregroundStyle="secondaryLabel"
+                    padding={{ top: 2 }}
+                  />
+                  <Text font="caption" foregroundStyle="secondaryLabel">
+                    {hint}
+                  </Text>
+                </HStack>
+              ))}
               {queryInspection.warnings.map((warn, idx) => (
                 <HStack key={`warn-${idx}`} alignment="top" spacing={6}>
                   <Image
@@ -557,6 +566,19 @@ export function SearchAdvancedSheet(props: {
                   />
                   <Text font="caption" foregroundStyle="systemOrange">
                     {warn}
+                  </Text>
+                </HStack>
+              ))}
+              {queryInspection.errors.map((err, idx) => (
+                <HStack key={`err-${idx}`} alignment="top" spacing={6}>
+                  <Image
+                    systemName="exclamationmark.circle.fill"
+                    font="caption"
+                    foregroundStyle="systemRed"
+                    padding={{ top: 2 }}
+                  />
+                  <Text font="caption" foregroundStyle="systemRed">
+                    {err}
                   </Text>
                 </HStack>
               ))}

@@ -358,78 +358,49 @@ function formatOrCluster(cluster: string[]): string {
  */
 function wrapUnparenthesizedOrChains(text: string): string {
   if (!/\bOR\b/.test(text)) return text
-
   const placeholders: string[] = []
-  let depth = 0
-  let currentGroup = ""
-  let topLevel = ""
+  let depth = 0, currentGroup = "", topLevel = ""
 
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]
-    if (ch === "(") {
-      currentGroup += "("
-      depth++
-    } else if (ch === ")") {
+    if (ch === "(") { currentGroup += "("; depth++ }
+    else if (ch === ")") {
       depth--
       currentGroup += ")"
       if (depth === 0) {
-        const ph = `__PH_${placeholders.length}__`
         placeholders.push(currentGroup)
-        topLevel += ph
+        topLevel += `__PH_${placeholders.length - 1}__`
         currentGroup = ""
       }
     } else {
-      if (depth > 0) {
-        currentGroup += ch
-      } else {
-        topLevel += ch
-      }
+      if (depth > 0) currentGroup += ch
+      else topLevel += ch
     }
   }
 
   if (/\bOR\b/.test(topLevel)) {
     const tokens = topLevel.split(/\s+/).filter(Boolean)
     const resultTokens: string[] = []
-    let orCluster: string[] = []
-
+    let cluster: string[] = []
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i]
-      if (t === "OR") {
-        orCluster.push("OR")
-      } else {
-        const prevIsOr = tokens[i - 1] === "OR"
-        const nextIsOr = tokens[i + 1] === "OR"
-        if (prevIsOr) {
-          orCluster.push(t)
-          if (!nextIsOr) {
-            resultTokens.push(formatOrCluster(orCluster))
-            orCluster = []
-          }
-        } else if (nextIsOr) {
-          if (orCluster.length > 0) {
-            resultTokens.push(formatOrCluster(orCluster))
-            orCluster = []
-          }
-          orCluster.push(t)
-        } else {
-          if (orCluster.length > 0) {
-            resultTokens.push(formatOrCluster(orCluster))
-            orCluster = []
-          }
-          resultTokens.push(t)
+      if (t === "OR") cluster.push("OR")
+      else if (tokens[i - 1] === "OR" || tokens[i + 1] === "OR") {
+        cluster.push(t)
+        if (tokens[i + 1] !== "OR") {
+          resultTokens.push(formatOrCluster(cluster))
+          cluster = []
         }
+      } else {
+        if (cluster.length) { resultTokens.push(formatOrCluster(cluster)); cluster = [] }
+        resultTokens.push(t)
       }
     }
-    if (orCluster.length > 0) {
-      resultTokens.push(formatOrCluster(orCluster))
-    }
+    if (cluster.length) resultTokens.push(formatOrCluster(cluster))
     topLevel = resultTokens.join(" ")
   }
 
-  placeholders.forEach((phContent, idx) => {
-    topLevel = topLevel.replace(`__PH_${idx}__`, phContent)
-  })
-
+  placeholders.forEach((ph, idx) => { topLevel = topLevel.replace(`__PH_${idx}__`, ph) })
   return topLevel
 }
 
@@ -494,7 +465,15 @@ export function compileSearchQuery(query: string): string {
     openCount--
   }
 
-  // 8. 规范化相邻括号间隙、空格与未括号化的 OR 链安全包裹
+  // 8. 前置排除括号自动平铺展开（例：-(C D) -> -C -D）
+  if (balanced.includes("(") && (balanced.includes("-") || /not/i.test(balanced))) {
+    balanced = balanced.replace(/(^|\s)(?:-|not\s*)\(([^()]+)\)/gi, (_, p, inner) => {
+      const terms = inner.replace(/\b(?:OR|and)\b|[|/,+]/gi, " ").trim().split(/\s+/).filter(Boolean)
+      return terms.length ? `${p}${terms.map((t: string) => `-${t.replace(/^-+/, "")}`).join(" ")}` : (p ? p.trimEnd() : "")
+    })
+  }
+
+  // 9. 规范化相邻括号间隙、空格与未括号化的 OR 链安全包裹
   balanced = balanced.replace(/\(\s*\)/g, " ")
   balanced = balanced.replace(/\)\s*\(/g, ") (")
   balanced = balanced.replace(/\s+/g, " ").trim()
