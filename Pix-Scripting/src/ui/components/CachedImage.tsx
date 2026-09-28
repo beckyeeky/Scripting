@@ -148,6 +148,57 @@ export function useCachedImage(
   return { path, isTargetLoaded: Boolean(targetPath), failed, cacheRevision }
 }
 
+function cropUIImage(
+  path: string | null,
+  centerCropSquare: boolean,
+  centerCropAspect?: number,
+  cropAnchor: "center" | "top" = "center"
+): UIImage | null {
+  if (!path) return null
+  try {
+    const image = UIImage.fromFile(path)
+    if (!image || image.width <= 0 || image.height <= 0) return null
+
+    if (centerCropSquare) {
+      const side = Math.min(image.width, image.height)
+      const cropY = cropAnchor === "top" ? 0 : (image.height - side) / 2
+      return image.croppedTo({
+        x: (image.width - side) / 2,
+        y: cropY,
+        width: side,
+        height: side,
+      })
+    }
+
+    if (centerCropAspect != null && centerCropAspect > 0) {
+      const currentAspect = image.width / image.height
+      if (Math.abs(currentAspect - centerCropAspect) > 0.01) {
+        if (currentAspect > centerCropAspect) {
+          const targetWidth = image.height * centerCropAspect
+          return image.croppedTo({
+            x: (image.width - targetWidth) / 2,
+            y: 0,
+            width: targetWidth,
+            height: image.height,
+          })
+        } else {
+          const targetHeight = image.width / centerCropAspect
+          const cropY = cropAnchor === "top" ? 0 : (image.height - targetHeight) / 2
+          return image.croppedTo({
+            x: 0,
+            y: cropY,
+            width: image.width,
+            height: targetHeight,
+          })
+        }
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 // 异步图片（对标 Hanairo RemoteImageView 设计与 Telegram 渐进式模糊预览）：
 // 容器宽高比由元数据严格固定，加载过程与展示过程保持零布局重排（Zero Layout Shift）。
 // 底层常驻纯净骨架占位色块；瀑布流普通卡片支持平滑淡入（由设置控制），详情大图支持 previewUrl 模糊垫底并即时平滑消融。
@@ -302,99 +353,16 @@ export function CachedImage(props: {
   }, [isTargetLoaded, showPreview, underlayPath, crossFadeDuration, fadeDuration, sharpenDuration, isSharpMode, transitionCompleted, disableFadeIn, isNoneMode])
 
   const croppedImage = useMemo(() => {
-    if (!path) return null
-    if (centerCropSquare) {
-      try {
-        const image = UIImage.fromFile(path)
-        if (!image || image.width <= 0 || image.height <= 0) return null
-        const side = Math.min(image.width, image.height)
-        const cropY = cropAnchor === "top" ? 0 : (image.height - side) / 2
-        return image.croppedTo({
-          x: (image.width - side) / 2,
-          y: cropY,
-          width: side,
-          height: side,
-        })
-      } catch {
-        return null
-      }
-    }
-    if (centerCropAspect != null && centerCropAspect > 0) {
-      try {
-        const image = UIImage.fromFile(path)
-        if (!image || image.width <= 0 || image.height <= 0) return null
-        const currentAspect = image.width / image.height
-        // 若图片纵横比与目标纵横比差异大于 1%，则进行裁切
-        if (Math.abs(currentAspect - centerCropAspect) > 0.01) {
-          if (currentAspect > centerCropAspect) {
-            // 图片更宽（例如超宽横图封面），截取横向正中间部分
-            const targetWidth = image.height * centerCropAspect
-            return image.croppedTo({
-              x: (image.width - targetWidth) / 2,
-              y: 0,
-              width: targetWidth,
-              height: image.height,
-            })
-          } else {
-            // 图片更高，根据 cropAnchor 截取顶部（y=0）或居中部分
-            const targetHeight = image.width / centerCropAspect
-            const cropY = cropAnchor === "top" ? 0 : (image.height - targetHeight) / 2
-            return image.croppedTo({
-              x: 0,
-              y: cropY,
-              width: image.width,
-              height: targetHeight,
-            })
-          }
-        }
-      } catch {
-        return null
-      }
-    }
-    return null
+    return cropUIImage(path, centerCropSquare, centerCropAspect, cropAnchor)
   }, [path, centerCropSquare, centerCropAspect, cropAnchor])
 
   const previewRenderImage = useMemo(() => {
     if (!showPreview || !previewPath) return null
     try {
-      const image = UIImage.fromFile(previewPath)
-      if (!image || image.width <= 0 || image.height <= 0) return null
-      let targetImg = image
-      if (centerCropSquare) {
-        const side = Math.min(image.width, image.height)
-        const cropY = cropAnchor === "top" ? 0 : (image.height - side) / 2
-        const cropped = image.croppedTo({
-          x: (image.width - side) / 2,
-          y: cropY,
-          width: side,
-          height: side,
-        })
-        if (cropped) targetImg = cropped
-      } else if (centerCropAspect != null && centerCropAspect > 0) {
-        const currentAspect = image.width / image.height
-        if (Math.abs(currentAspect - centerCropAspect) > 0.01) {
-          if (currentAspect > centerCropAspect) {
-            const targetWidth = image.height * centerCropAspect
-            const cropped = image.croppedTo({
-              x: (image.width - targetWidth) / 2,
-              y: 0,
-              width: targetWidth,
-              height: image.height,
-            })
-            if (cropped) targetImg = cropped
-          } else {
-            const targetHeight = image.width / centerCropAspect
-            const cropY = cropAnchor === "top" ? 0 : (image.height - targetHeight) / 2
-            const cropped = image.croppedTo({
-              x: 0,
-              y: cropY,
-              width: image.width,
-              height: targetHeight,
-            })
-            if (cropped) targetImg = cropped
-          }
-        }
-      }
+      const cropped = cropUIImage(previewPath, centerCropSquare, centerCropAspect, cropAnchor)
+      const targetImg = cropped ?? UIImage.fromFile(previewPath)
+      if (!targetImg || targetImg.width <= 0 || targetImg.height <= 0) return null
+
       if (isSharpMode) {
         if (resolvedSharpenBlurRadius > 0) {
           return targetImg.blurred(resolvedSharpenBlurRadius) ?? targetImg
@@ -412,52 +380,7 @@ export function CachedImage(props: {
 
   const underlayCroppedImage = useMemo(() => {
     if (!underlayPath) return null
-    if (centerCropSquare) {
-      try {
-        const image = UIImage.fromFile(underlayPath)
-        if (!image || image.width <= 0 || image.height <= 0) return null
-        const side = Math.min(image.width, image.height)
-        const cropY = cropAnchor === "top" ? 0 : (image.height - side) / 2
-        return image.croppedTo({
-          x: (image.width - side) / 2,
-          y: cropY,
-          width: side,
-          height: side,
-        })
-      } catch {
-        return null
-      }
-    }
-    if (centerCropAspect != null && centerCropAspect > 0) {
-      try {
-        const image = UIImage.fromFile(underlayPath)
-        if (!image || image.width <= 0 || image.height <= 0) return null
-        const currentAspect = image.width / image.height
-        if (Math.abs(currentAspect - centerCropAspect) > 0.01) {
-          if (currentAspect > centerCropAspect) {
-            const targetWidth = image.height * centerCropAspect
-            return image.croppedTo({
-              x: (image.width - targetWidth) / 2,
-              y: 0,
-              width: targetWidth,
-              height: image.height,
-            })
-          } else {
-            const targetHeight = image.width / centerCropAspect
-            const cropY = cropAnchor === "top" ? 0 : (image.height - targetHeight) / 2
-            return image.croppedTo({
-              x: 0,
-              y: cropY,
-              width: image.width,
-              height: targetHeight,
-            })
-          }
-        }
-      } catch {
-        return null
-      }
-    }
-    return null
+    return cropUIImage(underlayPath, centerCropSquare, centerCropAspect, cropAnchor)
   }, [underlayPath, centerCropSquare, centerCropAspect, cropAnchor])
 
   // 优先使用已就绪的图片文件（高清大图优先，垫底大图次之，缩略图即时兜底）提取真实物理宽高比，

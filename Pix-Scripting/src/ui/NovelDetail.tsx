@@ -106,14 +106,15 @@ import {
   ExpandableIntroduction,
   formatDate,
   formatNumber,
+  formatWordCount,
   LoadingView,
   LoadMoreTrigger,
   NovelCard,
   RelatedSection,
   RelatedUsersSheet,
-  SeriesEpisodePager,
   TagChip,
 } from "./components"
+import { SeriesEpisodePager } from "./SeriesEpisodePager"
 import { NovelReaderView, NovelReaderWebView } from "./NovelReader"
 import { ConnectionRow } from "./components/ConnectionRow"
 import { NovelImmersiveReaderView } from "./NovelImmersiveReader"
@@ -1674,7 +1675,7 @@ export function NovelDetailView(props: { novelID: number }) {
               <HStack spacing={3}>
                 <Image systemName="character.cursor.ibeam" font="footnote" />
                 <Text font="footnote">
-                  {current.text_length ?? text.length}
+                  {formatWordCount(current.text_length ?? text.length)}
                 </Text>
               </HStack>
             )}
@@ -1820,10 +1821,7 @@ export function NovelDetailView(props: { novelID: number }) {
         </VStack>
 
         {/* 作者名片与作品橱窗 */}
-        <NovelAuthorCard
-          user={current.user}
-          currentWorkID={current.id}
-        />
+        <NovelAuthorCard user={current.user} />
 
         {/* 相关作品 */}
         <VStack key={`novel-related-${current.id}`}>
@@ -1972,8 +1970,8 @@ export function NovelDetailView(props: { novelID: number }) {
   )
 }
 
-function NovelAuthorCard(props: { user: PixivUser; currentWorkID: number }) {
-  const { user, currentWorkID } = props
+function NovelAuthorCard(props: { user: PixivUser }) {
+  const { user } = props
   const [novels, setNovels] = useState<PixivNovel[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -1982,7 +1980,7 @@ function NovelAuthorCard(props: { user: PixivUser; currentWorkID: number }) {
     setLoading(true)
     void session.call((t: string) => userNovels(user.id, t)).then((r) => {
       if (!ok) return
-      const list = (r.items ?? []).filter((it: PixivNovel) => it.id !== currentWorkID)
+      const list = r.items ?? []
       setNovels(list)
       setLoading(false)
       if (list.length) prefetch(list.slice(0, 3).map(novelThumbUrlOf))
@@ -1990,7 +1988,7 @@ function NovelAuthorCard(props: { user: PixivUser; currentWorkID: number }) {
       if (ok) setLoading(false)
     })
     return () => { ok = false }
-  }, [user.id, currentWorkID])
+  }, [user.id])
 
   const preview: PixivUserPreview = { user, illusts: [], novels, is_muted: false }
 

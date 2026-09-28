@@ -64,7 +64,9 @@ import {
   AvatarImage,
   EmptyView,
   ErrorView,
+  estimateReadingTime,
   ExpandableIntroduction,
+  formatWordCount,
   ImageNumberBadge,
   ImmersiveHeaderBanner,
   LoadingView,
@@ -227,6 +229,8 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
   const authorRef = useRef<PixivUser | null>(null)
   authorRef.current = author
   const [workCount, setWorkCount] = useState<number | null>(null)
+  const [totalCharacterCount, setTotalCharacterCount] = useState<number | null>(null)
+  const [isConcluded, setIsConcluded] = useState<boolean | null>(null)
   const [isWatched, setIsWatched] = useSeriesWatchlist(seriesID, kind, false)
   const [watchLoading, setWatchLoading] = useState(false)
   const [isAscending, setIsAscending] = useState(
@@ -365,6 +369,16 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
         )
         mappedItems = novels
         totalCount = detail.content_count ?? allRawNovels.length
+
+        const totalChars =
+          (detail as any).total_character_count ??
+          allRawNovels.reduce((sum, n) => sum + (n.text_length ?? 0), 0)
+        if (totalChars > 0) {
+          setTotalCharacterCount(totalChars)
+        }
+        if (detail.is_concluded != null) {
+          setIsConcluded(Boolean(detail.is_concluded))
+        }
       }
 
       // 提取通用系列元信息
@@ -716,16 +730,59 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
               padding={{ top: 28, horizontal: 16, bottom: 8 }}
               frame={{ maxWidth: "infinity" }}
             >
-              {workCount != null ? (
-                <Text
-                  font="caption"
-                  foregroundStyle="secondaryLabel"
-                  multilineTextAlignment="center"
-                  frame={{ maxWidth: "infinity", alignment: "center" }}
-                >
-                  {`共 ${workCount} 话`}
-                </Text>
-              ) : null}
+              <HStack
+                spacing={6}
+                alignment="center"
+                frame={{ maxWidth: "infinity", alignment: "center" }}
+              >
+                {workCount != null ? (
+                  <Text
+                    font="caption"
+                    foregroundStyle="secondaryLabel"
+                  >
+                    {`共 ${workCount} 话`}
+                  </Text>
+                ) : null}
+
+                {kind === "novel" && totalCharacterCount != null && totalCharacterCount > 0 ? (
+                  <>
+                    <Text font="caption" foregroundStyle="tertiaryLabel">·</Text>
+                    <HStack spacing={2} alignment="center">
+                      <Image
+                        systemName="character.cursor.ibeam"
+                        font="caption2"
+                        foregroundStyle="secondaryLabel"
+                      />
+                      <Text font="caption" foregroundStyle="secondaryLabel">
+                        {formatWordCount(totalCharacterCount)}
+                      </Text>
+                    </HStack>
+                    <Text font="caption" foregroundStyle="tertiaryLabel">·</Text>
+                    <HStack spacing={2} alignment="center">
+                      <Image
+                        systemName="clock"
+                        font="caption2"
+                        foregroundStyle="secondaryLabel"
+                      />
+                      <Text font="caption" foregroundStyle="secondaryLabel">
+                        {estimateReadingTime(totalCharacterCount)}
+                      </Text>
+                    </HStack>
+                  </>
+                ) : null}
+
+                {kind === "novel" && isConcluded != null ? (
+                  <>
+                    <Text font="caption" foregroundStyle="tertiaryLabel">·</Text>
+                    <Text
+                      font="caption"
+                      foregroundStyle="secondaryLabel"
+                    >
+                      {isConcluded ? "已完结" : "连载中"}
+                    </Text>
+                  </>
+                ) : null}
+              </HStack>
 
               {caption.trim() ? (
                 <VStack

@@ -374,7 +374,6 @@ export function ConnectionNovelThumbnail(props: {
   const novelElement = (
     <ZStack
       alignment="bottom"
-      background="systemGray6"
       clipShape={{ type: "rect", cornerRadius: 6 }}
       frame={{ width: props.side, height: props.side }}
     >

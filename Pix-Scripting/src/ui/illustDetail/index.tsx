@@ -213,7 +213,6 @@ export function IllustDetailView(props: { illustID: number }) {
           {/* 作者名片与作品橱窗 */}
           <IllustAuthorCard
             user={current.user}
-            currentWorkID={current.id}
             illustType={current.type}
           />
 

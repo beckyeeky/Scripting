@@ -55,6 +55,7 @@ import { illustrationDetail, novelDetail, novelViewerData } from "../api/pixiv"
 import { getCachedNovel, cacheNovel } from "../store/novelCache"
 import { recordNovelHistory } from "../store/history"
 import { useSeriesEpisodeNav, type SeriesEpisodeNavState } from "./SeriesEpisodePager"
+import { triggerHaptic } from "../platform/haptics"
 
 function isVirtualNode(v: unknown): v is VirtualNode {
   return !!v && typeof v === "object" && ("render" in v || "isInternal" in v || "props" in v)
@@ -1882,12 +1883,14 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
 
   // 关闭处理器：回传最终所在的 activeNovelId 与阅读位置
   const handleClose = useCallback(() => {
+    triggerHaptic("light")
     onClose(currentChunkIdRef.current, currentPage, activeNovelId)
   }, [onClose, currentPage, activeNovelId])
 
   // 切换书签
   const handleToggleMarker = useCallback(async () => {
     if (markerBusy || !onToggleMarker) return
+    triggerHaptic("medium")
     setMarkerBusy(true)
     try {
       await onToggleMarker()
@@ -1899,6 +1902,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
   // 跳页
   const handlePageChange = useCallback(
     (page: number) => {
+      triggerHaptic("selection")
       setCurrentPage(page)
       onJumpToPage?.(page)
       const ctrl = controllerRef.current
@@ -1918,6 +1922,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
   const handleSwitchEpisode = useCallback(
     async (targetNovelId: number, direction: "prev" | "next") => {
       if (targetNovelId === activeNovelId || switchingEpisode) return
+      triggerHaptic("light")
       setSwitchingEpisode(true)
       setSwitchHint(direction === "next" ? "正在载入下一话..." : "正在载入上一话...")
 
@@ -1968,7 +1973,9 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
             )
             .catch(() => {})
         }
+        triggerHaptic("success")
       } catch {
+        triggerHaptic("error")
         setSwitchHint("载入失败，请重试")
         setTimeout(() => setSwitchHint(null), 2000)
       } finally {
@@ -2017,6 +2024,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
         currentChunkIdRef.current = chunkId
       }
       if (page !== currentPageRef.current) {
+        triggerHaptic("selection")
         setCurrentPage(page)
       }
       const id = activeNovelIdRef.current
@@ -2269,7 +2277,13 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
           <Spacer />
 
           {/* 右上角：版式设置按钮（使用现有同款 a.square 图标） */}
-          <Button action={() => setShowTypography(true)} buttonStyle="plain">
+          <Button
+            action={() => {
+              triggerHaptic("light")
+              setShowTypography(true)
+            }}
+            buttonStyle="plain"
+          >
             <ZStack
               alignment="center"
               frame={{ width: 42, height: 42 }}

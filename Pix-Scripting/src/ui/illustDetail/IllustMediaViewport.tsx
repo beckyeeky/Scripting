@@ -4,7 +4,12 @@ import {
   VStack,
 } from "scripting"
 import type { PixivIllustration } from "../../types"
-import { cachedFilePath, imageUrlOf, loadImage, pageThumbUrlOf } from "../../image/imageLoader"
+import {
+  cachedFilePath,
+  maxConcurrentDownloads,
+  pageThumbUrlOf,
+  prefetch,
+} from "../../image/imageLoader"
 import { getDetailImageQuality, getFeedImageQuality } from "../../store/settings"
 import { CachedImage } from "../components/CachedImage"
 import { UgoiraPlayerView } from "../UgoiraView"
@@ -49,15 +54,26 @@ export function IllustMediaViewport(props: IllustMediaViewportProps) {
         ? "sharp"
         : "blur"
 
-  // 当为多页作品时，在详情页挂载的第一时间高优先级并发预热所有页面的缩略图（首图按画质设置预热，后续页预热轻量 medium），
-  // 确保用户滚动到后续各页之前所有缩略图已写入本地磁盘，首帧 0 延迟命中真实物理比例与底图
+  // 当为多页作品时，在详情页挂载的第一时间高优先级并发预热首批缩略图（首批数量跟随调试前台并发数设置），
+  // 已就绪落盘的文件直接跳过绝不重复请求；首图按画质设置预热，后续页预热轻量 medium。
+  // 退出详情页时通过 prefetch 取消句柄立即熔断未完成的预取，杜绝离开页面后后台偷跑流量。
   useEffect(() => {
     if (!illust || pageCount <= 1) return
-    for (let idx = 0; idx < pageCount; idx++) {
+    const warmLimit = Math.min(pageCount, maxConcurrentDownloads())
+    const urlsToPrefetch: string[] = []
+
+    for (let idx = 0; idx < warmLimit; idx++) {
       const thumb = pageThumbUrlOf(illust, idx, idx === 0 ? previewQuality : "medium")
       if (thumb && !cachedFilePath(thumb)) {
-        void loadImage(thumb, idx === 0 ? -6000 : -1000 + idx)
+        urlsToPrefetch.push(thumb)
       }
+    }
+
+    if (!urlsToPrefetch.length) return
+
+    const handle = prefetch(urlsToPrefetch)
+    return () => {
+      handle.cancel()
     }
   }, [illust, pageCount, previewQuality])
 

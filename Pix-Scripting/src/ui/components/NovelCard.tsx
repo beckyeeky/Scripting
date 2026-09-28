@@ -21,8 +21,7 @@ import { appGlass } from "./glass"
 import { AppNavigationLink, useDualRoute } from "../DualRouteContext"
 import { CachedImage } from "./CachedImage"
 import { BookmarkButton, BookmarkDetailSheet } from "./BookmarkDetailSheet"
-import { CORNER_ICON_SIZE, formatNumber } from "./formatUtils"
-import { IllustCardAction } from "./IllustCard"
+import { CORNER_ICON_SIZE, formatNumber, formatWordCount, type CardAction } from "./formatUtils"
 import { useLatest, useNovelBookmark } from "../Hooks"
 import { isUserFollowed, notifyUserFollowChanged } from "../../store/userFollow"
 import { recordNovelMarker } from "../../store/bookmarkSync"
@@ -34,6 +33,30 @@ import { novelThumbUrlOf } from "../../image/imageLoader"
 import { cacheNovel } from "../../store/novelCache"
 import type { PixivNovel } from "../../types"
 import { triggerHaptic } from "../../platform/haptics"
+function NovelStatItem(props: {
+  icon?: string
+  text: string | number
+  foregroundStyle?: any
+  spacing?: number
+}) {
+  const { icon, text, foregroundStyle = "secondaryLabel", spacing = 4 } = props
+  if (!icon) {
+    return (
+      <Text font="caption2" foregroundStyle={foregroundStyle} lineLimit={1}>
+        {text}
+      </Text>
+    )
+  }
+  return (
+    <HStack spacing={spacing}>
+      <Image systemName={icon} font="caption2" foregroundStyle={foregroundStyle} />
+      <Text font="caption2" foregroundStyle={foregroundStyle} lineLimit={1}>
+        {text}
+      </Text>
+    </HStack>
+  )
+}
+
 export function NovelCard(props: {
   novel: PixivNovel
   onAppear?: () => void
@@ -42,7 +65,7 @@ export function NovelCard(props: {
   footerText?: string
   markerPage?: number
   showEpisodeNumber?: boolean
-  topTrailingAction?: IllustCardAction
+  topTrailingAction?: CardAction
   contextMenu?: any
 }) {
   const {
@@ -227,44 +250,26 @@ export function NovelCard(props: {
                 <Spacer />
               </HStack>
               <HStack spacing={8} frame={{ maxWidth: "infinity" }}>
-                <HStack spacing={4}>
-                  <Image systemName="eye" font="caption2" foregroundStyle="secondaryLabel" />
-                  <Text font="caption2" foregroundStyle="secondaryLabel">
-                    {formatNumber(novel.total_view)}
-                  </Text>
-                </HStack>
-                <HStack spacing={4}>
-                  <Image systemName="heart" font="caption2" foregroundStyle="secondaryLabel" />
-                  <Text font="caption2" foregroundStyle="secondaryLabel">
-                    {formatNumber(novel.total_bookmarks)}
-                  </Text>
-                </HStack>
+                <NovelStatItem icon="eye" text={formatNumber(novel.total_view)} />
+                <NovelStatItem icon="heart" text={formatNumber(novel.total_bookmarks)} />
                 {novel.text_length != null ? (
-                  <HStack spacing={4}>
-                    <Image systemName="character.cursor.ibeam" font="caption2" foregroundStyle="secondaryLabel" />
-                    <Text font="caption2" foregroundStyle="secondaryLabel">
-                      {novel.text_length}
-                    </Text>
-                  </HStack>
+                  <NovelStatItem
+                    icon="character.cursor.ibeam"
+                    text={formatWordCount(novel.text_length)}
+                  />
                 ) : null}
                 {showEpisodeNumber && episodeNumber != null ? (
-                  <Text font="caption2" foregroundStyle="secondaryLabel">
-                    {`第${episodeNumber}话`}
-                  </Text>
+                  <NovelStatItem text={`第${episodeNumber}话`} />
                 ) : null}
                 {markerPage != null && markerPage > 0 ? (
-                  <HStack spacing={3}>
-                    <Image systemName="book.pages" font="caption2" foregroundStyle="systemBlue" />
-                    <Text font="caption2" foregroundStyle="systemBlue" lineLimit={1}>
-                      第 {markerPage} 页
-                    </Text>
-                  </HStack>
+                  <NovelStatItem
+                    icon="book.pages"
+                    text={`第 ${markerPage} 页`}
+                    foregroundStyle="systemBlue"
+                    spacing={3}
+                  />
                 ) : null}
-                {footerText ? (
-                  <Text font="caption2" foregroundStyle="secondaryLabel" lineLimit={1}>
-                    {footerText}
-                  </Text>
-                ) : null}
+                {footerText ? <NovelStatItem text={footerText} /> : null}
                 <Spacer />
               </HStack>
             </VStack>

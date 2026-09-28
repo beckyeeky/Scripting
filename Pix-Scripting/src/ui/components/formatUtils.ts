@@ -16,6 +16,35 @@ export function formatNumber(n: number | null | undefined): string {
   return String(value)
 }
 
+/**
+ * 格式化小说字数（中文表述习惯，不加逗号，不加“字”单位，由前置 SF Symbol 图标表示单位语义）：
+ * - < 10,000：纯数字（如 850、3500、8420）
+ * - >= 10,000：中文万进位，保留 1 位小数，整万去零（如 1.2万、3.8万、2万）
+ */
+export function formatWordCount(count: number | null | undefined): string {
+  if (count == null || count <= 0) return ""
+  if (count >= 10000) {
+    const wan = count / 10000
+    const rounded = Math.round(wan * 10) / 10
+    return `${rounded % 1 === 0 ? rounded.toFixed(0) : rounded.toFixed(1)}万`
+  }
+  return String(Math.round(count))
+}
+
+/**
+ * 预估阅读时长（按中文 500 字/分钟）：
+ * - < 60 分钟：约 18 分钟
+ * - >= 60 分钟：约 2 小时 15 分（整小时为 约 2 小时）
+ */
+export function estimateReadingTime(count: number | null | undefined): string {
+  if (count == null || count <= 0) return ""
+  const minutes = Math.max(1, Math.round(count / 500))
+  if (minutes < 60) return `约 ${minutes} 分钟`
+  const hours = Math.floor(minutes / 60)
+  const remainingMins = minutes % 60
+  return remainingMins > 0 ? `约 ${hours} 小时 ${remainingMins} 分` : `约 ${hours} 小时`
+}
+
 // HTML 实体映射（一次性解码，避免 &amp;lt; 被二次解码成 <）
 const HTML_ENTITIES: Record<string, string> = {
   amp: "&",
@@ -411,5 +440,13 @@ export function estimateVisualLines(text: string): number {
     totalLines += Math.max(1, Math.ceil(visualWeight / charsPerLine))
   }
   return totalLines
+}
+
+export interface CardAction {
+  title: string
+  systemImage: string
+  tint?: any
+  foregroundStyle?: any
+  action: () => void
 }
 

@@ -12,9 +12,9 @@ import {
   ExpandableIntroduction,
   formatDate,
   formatNumber,
-  SeriesEpisodePager,
   TagChip,
 } from "../components"
+import { SeriesEpisodePager } from "../SeriesEpisodePager"
 import { triggerHaptic } from "../../platform/haptics"
 import { renderDestination } from "../../store/routeNavigation"
 
