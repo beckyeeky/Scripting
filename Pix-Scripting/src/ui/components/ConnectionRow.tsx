@@ -91,6 +91,7 @@ export function ConnectionRow(props: {
   priority?: number
   isSprint?: boolean
   onNavigate?: (route: string) => void
+  loading?: boolean
 }) {
   const {
     preview,
@@ -166,6 +167,38 @@ export function ConnectionRow(props: {
     }
   }
 
+  const userHeaderContent = (
+    <HStack
+      spacing={8}
+      alignment="center"
+      frame={{ maxWidth: "infinity", alignment: "leading" }}
+      contentShape="rect"
+    >
+      <ZStack frame={{ width: 38, height: 38 }}>
+        <Circle
+          fill="rgba(255, 255, 255, 0.16)"
+          glassEffect={appGlassFlag()}
+          frame={{ width: 38, height: 38 }}
+        />
+        <AvatarImage
+          url={preview.user.profile_image_urls?.medium ?? null}
+          size={32}
+          priority={priority}
+          isSprint={isSprintRow}
+        />
+      </ZStack>
+      <VStack alignment="leading" spacing={2}>
+        <Text font="body" fontWeight="semibold" lineLimit={1}>
+          {preview.user.name}
+        </Text>
+        <Text font="caption" foregroundStyle="secondaryLabel" lineLimit={1}>
+          @{preview.user.account}
+        </Text>
+      </VStack>
+      <Spacer />
+    </HStack>
+  )
+
   return (
     <VStack
       alignment="leading"
@@ -183,35 +216,7 @@ export function ConnectionRow(props: {
             frame={{ maxWidth: "infinity", alignment: "leading" }}
             contentShape="rect"
           >
-            <HStack
-              spacing={8}
-              alignment="center"
-              frame={{ maxWidth: "infinity", alignment: "leading" }}
-              contentShape="rect"
-            >
-              <ZStack frame={{ width: 38, height: 38 }}>
-                <Circle
-                  fill="rgba(255, 255, 255, 0.16)"
-                  glassEffect={appGlassFlag()}
-                  frame={{ width: 38, height: 38 }}
-                />
-                <AvatarImage
-                  url={preview.user.profile_image_urls?.medium ?? null}
-                  size={32}
-                  priority={priority}
-                  isSprint={isSprintRow}
-                />
-              </ZStack>
-              <VStack alignment="leading" spacing={2}>
-                <Text font="body" fontWeight="semibold" lineLimit={1}>
-                  {preview.user.name}
-                </Text>
-                <Text font="caption" foregroundStyle="secondaryLabel" lineLimit={1}>
-                  @{preview.user.account}
-                </Text>
-              </VStack>
-              <Spacer />
-            </HStack>
+            {userHeaderContent}
           </Button>
         ) : (
           <AppNavigationLink
@@ -219,35 +224,7 @@ export function ConnectionRow(props: {
             frame={{ maxWidth: "infinity", alignment: "leading" }}
             contentShape="rect"
           >
-            <HStack
-              spacing={8}
-              alignment="center"
-              frame={{ maxWidth: "infinity", alignment: "leading" }}
-              contentShape="rect"
-            >
-              <ZStack frame={{ width: 38, height: 38 }}>
-                <Circle
-                  fill="rgba(255, 255, 255, 0.16)"
-                  glassEffect={appGlassFlag()}
-                  frame={{ width: 38, height: 38 }}
-                />
-                <AvatarImage
-                  url={preview.user.profile_image_urls?.medium ?? null}
-                  size={32}
-                  priority={priority}
-                  isSprint={isSprintRow}
-                />
-              </ZStack>
-              <VStack alignment="leading" spacing={2}>
-                <Text font="body" fontWeight="semibold" lineLimit={1}>
-                  {preview.user.name}
-                </Text>
-                <Text font="caption" foregroundStyle="secondaryLabel" lineLimit={1}>
-                  @{preview.user.account}
-                </Text>
-              </VStack>
-              <Spacer />
-            </HStack>
+            {userHeaderContent}
           </AppNavigationLink>
         )}
         {showFollowControl ? (
@@ -327,6 +304,17 @@ export function ConnectionRow(props: {
               />
             )
           )}
+        </HStack>
+      ) : props.loading ? (
+        <HStack spacing={CONNECTION_PREVIEW_GAP}>
+          {[0, 1, 2].map((idx) => (
+            <VStack
+              key={`placeholder-${idx}`}
+              background="tertiarySystemFill"
+              clipShape={{ type: "rect", cornerRadius: 6 }}
+              frame={{ width: previewSide, height: previewSide }}
+            />
+          ))}
         </HStack>
       ) : null}
     </VStack>

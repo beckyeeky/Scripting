@@ -21,7 +21,7 @@ export interface IllustAuthorCardProps {
 /**
  * 插画详情页作者展示卡片
  * 复用 ConnectionRow 视觉规范（毛玻璃底板、头像、昵称、@账号、圆形关注切换），
- * 后台异步拉取该画师的其他代表作并过滤当前作品，展示前 3 部缩略图。
+ * 首帧先画出 3 个纯净占位灰框避免布局跳动，后台异步拉取该画师的其他代表作并平滑淡入。
  */
 export function IllustAuthorCard(props: IllustAuthorCardProps) {
   const {
@@ -33,9 +33,11 @@ export function IllustAuthorCard(props: IllustAuthorCardProps) {
   } = props
 
   const [illusts, setIllusts] = useState<PixivIllustration[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let ok = true
+    setLoading(true)
     const type = illustType === "manga" ? "manga" : "illust"
     void session.call((t: string) => userWorks(user.id, type, t)).then(async (r) => {
       if (!ok) return
@@ -46,8 +48,11 @@ export function IllustAuthorCard(props: IllustAuthorCardProps) {
       }
       if (!ok) return
       setIllusts(list)
+      setLoading(false)
       if (list.length) prefetch(list.slice(0, 3).map(cardThumbUrlOf))
-    }).catch(() => {})
+    }).catch(() => {
+      if (ok) setLoading(false)
+    })
     return () => { ok = false }
   }, [user.id, illustType, currentWorkID])
 
@@ -65,6 +70,7 @@ export function IllustAuthorCard(props: IllustAuthorCardProps) {
       </Text>
       <ConnectionRow
         preview={preview}
+        loading={loading}
         priority={priority}
         isSprint={isSprint}
       />

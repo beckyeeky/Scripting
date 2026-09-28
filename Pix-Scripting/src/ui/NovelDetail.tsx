@@ -1975,15 +1975,20 @@ export function NovelDetailView(props: { novelID: number }) {
 function NovelAuthorCard(props: { user: PixivUser; currentWorkID: number }) {
   const { user, currentWorkID } = props
   const [novels, setNovels] = useState<PixivNovel[]>([])
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let ok = true
+    setLoading(true)
     void session.call((t: string) => userNovels(user.id, t)).then((r) => {
       if (!ok) return
       const list = (r.items ?? []).filter((it: PixivNovel) => it.id !== currentWorkID)
       setNovels(list)
+      setLoading(false)
       if (list.length) prefetch(list.slice(0, 3).map(novelThumbUrlOf))
-    }).catch(() => {})
+    }).catch(() => {
+      if (ok) setLoading(false)
+    })
     return () => { ok = false }
   }, [user.id, currentWorkID])
 
@@ -1992,7 +1997,7 @@ function NovelAuthorCard(props: { user: PixivUser; currentWorkID: number }) {
   return (
     <VStack alignment="leading" spacing={8} padding={{ horizontal: 14 }} frame={{ maxWidth: "infinity", alignment: "leading" }}>
       <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">创作者</Text>
-      <ConnectionRow preview={preview} />
+      <ConnectionRow preview={preview} loading={loading} />
     </VStack>
   )
 }
