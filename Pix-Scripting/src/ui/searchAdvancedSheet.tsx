@@ -104,7 +104,8 @@ function buildHumanSummary(compiled: string): string {
     topTokens.push(...cur.trim().split(/\s+/))
   }
 
-  const mustInclude: string[] = []
+  const plainIncludes: string[] = []
+  const orGroups: string[] = []
   const mustExclude: string[] = []
 
   for (const t of topTokens) {
@@ -116,22 +117,31 @@ function buildHumanSummary(compiled: string): string {
       if (!inner) continue
       const parts = inner.split(/\s+OR\s+/)
       if (parts.length > 1) {
-        mustInclude.push(`「${parts.join(" 或 ")}」任一`)
+        orGroups.push(`「${parts.join(" 或 ")}」的任一`)
       } else {
-        mustInclude.push(`「${inner}」`)
+        inner.split(/\s+/).filter(Boolean).forEach((term) => plainIncludes.push(`「${term}」`))
       }
     } else {
-      mustInclude.push(`「${t}」`)
+      plainIncludes.push(`「${t}」`)
     }
   }
 
-  const segments: string[] = []
-  if (mustInclude.length === 1) {
-    segments.push(`包含${mustInclude[0]}`)
-  } else if (mustInclude.length > 1) {
-    segments.push(`同时包含${mustInclude.join("、")}`)
+  const clauses: string[] = []
+  if (plainIncludes.length === 1) {
+    clauses.push(`包含${plainIncludes[0]}`)
+  } else if (plainIncludes.length > 1) {
+    clauses.push(`同时包含${plainIncludes.join("、")}`)
   }
 
+  if (orGroups.length > 0) {
+    const orText = orGroups.join("，且包含")
+    clauses.push(clauses.length > 0 ? `且包含${orText}` : `包含${orText}`)
+  }
+
+  const segments: string[] = []
+  if (clauses.length > 0) {
+    segments.push(clauses.join("，"))
+  }
   if (mustExclude.length > 0) {
     segments.push(`排除${mustExclude.join("、")}`)
   }
