@@ -46,6 +46,7 @@ import {
   relatedNovels,
   removeNovelBookmark,
   unfollowUser,
+  userNovels,
 } from "../api/pixiv"
 import { session } from "../api/session"
 import { triggerHaptic } from "../platform/haptics"
@@ -89,7 +90,7 @@ import {
   recordNovelMarker,
 } from "../store/bookmarkSync"
 import { cacheNovel, getCachedNovel } from "../store/novelCache"
-import type { PixivNovel, PixivNovelDetail, TextEmbeddedImage } from "../types"
+import type { PixivNovel, PixivNovelDetail, PixivUser, PixivUserPreview, TextEmbeddedImage } from "../types"
 import {
   loadSettings,
   onSettingsChanged,
@@ -114,6 +115,7 @@ import {
   TagChip,
 } from "./components"
 import { NovelReaderView, NovelReaderWebView } from "./NovelReader"
+import { ConnectionRow } from "./components/ConnectionRow"
 import { NovelImmersiveReaderView } from "./NovelImmersiveReader"
 import {
   PAGE_TOOLBAR_BACKGROUND,
@@ -1817,6 +1819,12 @@ export function NovelDetailView(props: { novelID: number }) {
           />
         </VStack>
 
+        {/* 作者名片与作品橱窗 */}
+        <NovelAuthorCard
+          user={current.user}
+          currentWorkID={current.id}
+        />
+
         {/* 相关作品 */}
         <VStack key={`novel-related-${current.id}`}>
           <RelatedNovelsSection
@@ -1961,6 +1969,31 @@ export function NovelDetailView(props: { novelID: number }) {
       </ScrollViewReader>
       {renderFloatingActionLayer()}
     </ZStack>
+  )
+}
+
+function NovelAuthorCard(props: { user: PixivUser; currentWorkID: number }) {
+  const { user, currentWorkID } = props
+  const [novels, setNovels] = useState<PixivNovel[]>([])
+
+  useEffect(() => {
+    let ok = true
+    void session.call((t: string) => userNovels(user.id, t)).then((r) => {
+      if (!ok) return
+      const list = (r.items ?? []).filter((it: PixivNovel) => it.id !== currentWorkID)
+      setNovels(list)
+      if (list.length) prefetch(list.slice(0, 3).map(novelThumbUrlOf))
+    }).catch(() => {})
+    return () => { ok = false }
+  }, [user.id, currentWorkID])
+
+  const preview: PixivUserPreview = { user, illusts: [], novels, is_muted: false }
+
+  return (
+    <VStack alignment="leading" spacing={8} padding={{ horizontal: 14 }} frame={{ maxWidth: "infinity", alignment: "leading" }}>
+      <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">创作者</Text>
+      <ConnectionRow preview={preview} />
+    </VStack>
   )
 }
 

@@ -13,7 +13,12 @@ import { useLayoutMetrics } from "../Hooks"
 import { addBookmark, bookmarkDetail, bookmarkTags } from "../../api/pixiv"
 import { session } from "../../api/session"
 import { updateHistoryBookmark } from "../../store/history"
-import { BookmarkDetailSheet, ErrorView, LoadingView, RelatedUsersSheet } from "../components"
+import {
+  BookmarkDetailSheet,
+  ErrorView,
+  LoadingView,
+  RelatedUsersSheet,
+} from "../components"
 import { CommentsSheet } from "../comments"
 import { IllustAISheet } from "../aiSheet"
 import { useIllustDetailState } from "./useIllustDetailState"
@@ -22,6 +27,7 @@ import { IllustMetaSection } from "./IllustMetaSection"
 import { IllustToolbarActionsProps, renderIllustToolbarActions } from "./IllustToolbarActions"
 import { IllustQuickActionButton } from "./IllustQuickActionButton"
 import { IllustRelatedSection } from "./IllustRelatedSection"
+import { IllustAuthorCard } from "./IllustAuthorCard"
 
 export function IllustDetailView(props: { illustID: number }) {
   const { state, actions } = useIllustDetailState(props.illustID)
@@ -202,6 +208,13 @@ export function IllustDetailView(props: { illustID: number }) {
             resolvedSeriesTitle={resolvedSeriesTitle}
             resolvedEpisodeNumber={resolvedEpisodeNumber}
             onOpenComments={() => actions.setShowComments(true)}
+          />
+
+          {/* 作者名片与作品橱窗 */}
+          <IllustAuthorCard
+            user={current.user}
+            currentWorkID={current.id}
+            illustType={current.type}
           />
 
           {/* 关联推荐作品流 */}
