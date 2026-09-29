@@ -30,6 +30,7 @@ import {
   unifiedTopBar,
 } from "./components/pageChrome"
 import { session } from "../api/session"
+import { loadSettings } from "../store/settings"
 import { useExperimentalAmbientPalette, useLastActiveAmbientImageUrl } from "./ambient"
 import {
   computeHistoryAnalytics,
@@ -304,8 +305,8 @@ function HourlyDistributionSection(props: {
 const HEATMAP_CELL_MIN = 12 // 基准格子边长（与旧版观感一致）
 const HEATMAP_CELL_MAX = 16 // 宽屏兜底放大上限，避免格子过大失衡
 const HEATMAP_CELL_GAP = 3.5
-/** 卡片可用内宽 = 容器宽度 − 页面 padding 16×2 − 卡片 padding 16×2 */
-const HEATMAP_CARD_H_PADDING = 64
+/** 卡片可用内宽 = 容器宽度 − 页面 padding 8×2 − 卡片 padding 16×2 */
+const HEATMAP_CARD_H_PADDING = 48
 
 /**
  * 按卡片真实内宽推导热力图排版
@@ -1281,7 +1282,7 @@ function HistoryAnalyticsBoard(props: {
     >
       <VStack
         spacing={12}
-        padding={{ horizontal: 16, top: 12, bottom: 32 }}
+        padding={{ horizontal: 8, bottom: Math.round(loadSettings().feedBottomInset / 2) }}
         frame={{ maxWidth: "infinity" }}
       >
         {/* 1. 核心概览指标 (共用单一毛玻璃背景卡片) */}
@@ -1307,7 +1308,7 @@ function HistoryAnalyticsBoard(props: {
 
         {/* 5. 题材偏好与创作者榜单 (大屏并排，小屏单列) */}
         {isWide ? (
-          <HStack alignment="top" spacing={16} frame={{ maxWidth: "infinity" }}>
+          <HStack alignment="top" spacing={12} frame={{ maxWidth: "infinity" }}>
             <TopTagsSection tags={data.topTags} onSelectTag={props.onSelectTag} />
             <TopCreatorsSection
               creators={data.topCreators}
@@ -1316,7 +1317,7 @@ function HistoryAnalyticsBoard(props: {
             />
           </HStack>
         ) : (
-          <VStack spacing={16} frame={{ maxWidth: "infinity" }}>
+          <VStack spacing={12} frame={{ maxWidth: "infinity" }}>
             <TopTagsSection tags={data.topTags} onSelectTag={props.onSelectTag} />
             <TopCreatorsSection
               creators={data.topCreators}

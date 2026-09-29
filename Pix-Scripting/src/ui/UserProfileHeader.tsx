@@ -428,7 +428,7 @@ export function UserProfileHeader(props: {
       <VStack
         alignment="leading"
         spacing={12}
-        padding={{ top: ringSize / 2 + 14, horizontal: 16, bottom: 8 }}
+        padding={{ top: ringSize / 2 + 14, horizontal: 8 }}
         frame={{ width: containerWidth }}
       >
         {/* 用户名称：居中毛玻璃胶囊 */}

@@ -234,7 +234,7 @@ function NotificationList(props: {
         <LazyVStack
           alignment="leading"
           spacing={8}
-          padding={{ horizontal: 10 }}
+          padding={{ horizontal: 8 }}
           frame={{ maxWidth: "infinity", alignment: "leading" }}
         >
           {paged.items.map((n, index) => (

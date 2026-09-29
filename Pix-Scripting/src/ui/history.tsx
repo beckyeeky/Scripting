@@ -1016,7 +1016,7 @@ function NovelHistoryContent(props: {
   return (
     <VStack alignment="leading" spacing={8} frame={{ minHeight: 500, maxWidth: "infinity" }}>
       {paged.hasFilteredContent ? <FilteredContentNotice isNovel={true} /> : null}
-      <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10 }}>
+      <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
         {paged.items.map((entry, index) => (
           <NovelCard
             key={entry.id}

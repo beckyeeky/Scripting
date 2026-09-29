@@ -69,6 +69,7 @@ declare const Pasteboard: any
 import { triggerHaptic } from "../platform/haptics"
 
 const FLOW_HORIZONTAL_PADDING = 12
+const SECTION_HORIZONTAL_PADDING = 8
 const MIN_FLOW_IMAGE_RATIO = 1 / 4
 const MAX_FLOW_IMAGE_RATIO = 2.5
 
@@ -609,7 +610,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                 key="section-header"
                 alignment="leading"
                 spacing={8}
-                padding={{ horizontal: FLOW_HORIZONTAL_PADDING }}
+                padding={{ horizontal: SECTION_HORIZONTAL_PADDING }}
                 frame={{ maxWidth: "infinity" }}
               >
                 <HStack spacing={8} frame={{ maxWidth: "infinity" }}>
@@ -638,7 +639,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
 
               {/* 2. 简介 */}
               {detail.lead ? (
-                <VStack key="section-lead" padding={{ horizontal: FLOW_HORIZONTAL_PADDING }} frame={{ maxWidth: "infinity" }}>
+                <VStack key="section-lead" padding={{ horizontal: SECTION_HORIZONTAL_PADDING }} frame={{ maxWidth: "infinity" }}>
                   <ExpandableIntroduction
                     title="编辑导语"
                     caption={detail.lead}
@@ -648,7 +649,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
               ) : null}
 
               {detail.description && detail.description !== detail.lead ? (
-                <VStack key="section-desc" padding={{ horizontal: FLOW_HORIZONTAL_PADDING }} frame={{ maxWidth: "infinity" }}>
+                <VStack key="section-desc" padding={{ horizontal: SECTION_HORIZONTAL_PADDING }} frame={{ maxWidth: "infinity" }}>
                   <ExpandableIntroduction
                     title="简介"
                     caption={detail.description}
@@ -663,12 +664,12 @@ export function PixivisionDetailView(props: { articleID: number }) {
                   key="section-tags"
                   alignment="leading"
                   spacing={6}
-                  padding={{ horizontal: FLOW_HORIZONTAL_PADDING }}
+                  padding={{ horizontal: SECTION_HORIZONTAL_PADDING }}
                 >
                   <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">
                     标签
                   </Text>
-                  <FlowLayout spacing={6}>
+                  <FlowLayout spacing={4}>
                     {detail.tags.map((tag) => {
                       const route = tag.id
                         ? `pixivision-tag:${tag.id}?name=${encodeURIComponent(tag.name)}`
@@ -691,7 +692,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
               {detail.tableOfContents && detail.tableOfContents.length > 0 ? (
                 <VStack
                   key="section-toc"
-                  padding={{ horizontal: FLOW_HORIZONTAL_PADDING }}
+                  padding={{ horizontal: SECTION_HORIZONTAL_PADDING }}
                   frame={{ maxWidth: "infinity" }}
                 >
                   <VStack
@@ -776,7 +777,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                            key={block.id ?? `h-${idx}`}
                           alignment="leading"
                           spacing={6}
-                          padding={{ horizontal: FLOW_HORIZONTAL_PADDING, top: 18, bottom: 2 }}
+                          padding={{ horizontal: SECTION_HORIZONTAL_PADDING, top: 18, bottom: 2 }}
                           frame={{ maxWidth: "infinity", alignment: "leading" }}
                         >
                           <HStack spacing={8} alignment="center">
@@ -796,7 +797,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                         <VStack
                           key={`sub-${idx}`}
                           alignment="leading"
-                          padding={{ horizontal: FLOW_HORIZONTAL_PADDING, top: 8, bottom: 2 }}
+                          padding={{ horizontal: SECTION_HORIZONTAL_PADDING, top: 8, bottom: 2 }}
                           frame={{ maxWidth: "infinity", alignment: "leading" }}
                         >
                           <Text font="headline" fontWeight="semibold">
@@ -808,7 +809,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                       return (
                         <VStack
                           key={`p-${idx}`}
-                          padding={{ horizontal: FLOW_HORIZONTAL_PADDING, vertical: 2 }}
+                          padding={{ horizontal: SECTION_HORIZONTAL_PADDING, vertical: 2 }}
                           frame={{ maxWidth: "infinity", alignment: "leading" }}
                         >
                           <LinkedDescription
@@ -822,7 +823,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                       return (
                         <VStack
                           key={`q-${idx}`}
-                          padding={{ horizontal: FLOW_HORIZONTAL_PADDING, vertical: 4 }}
+                          padding={{ horizontal: SECTION_HORIZONTAL_PADDING, vertical: 4 }}
                           frame={{ maxWidth: "infinity", alignment: "leading" }}
                         >
                           <HStack
@@ -855,7 +856,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                       return (
                         <VStack
                           key={`c-${idx}`}
-                          padding={{ horizontal: FLOW_HORIZONTAL_PADDING, vertical: 4 }}
+                          padding={{ horizontal: SECTION_HORIZONTAL_PADDING, vertical: 4 }}
                           frame={{ maxWidth: "infinity", alignment: "leading" }}
                         >
                           <VStack
@@ -884,7 +885,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                       return (
                         <VStack
                           key={`prof-${idx}`}
-                          padding={{ horizontal: FLOW_HORIZONTAL_PADDING, vertical: 6 }}
+                          padding={{ horizontal: SECTION_HORIZONTAL_PADDING, vertical: 6 }}
                           frame={{ maxWidth: "infinity", alignment: "leading" }}
                         >
                           <VStack
@@ -964,7 +965,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                           key={`qa-${idx}`}
                           alignment="leading"
                           spacing={8}
-                          padding={{ horizontal: FLOW_HORIZONTAL_PADDING, vertical: 6 }}
+                          padding={{ horizontal: SECTION_HORIZONTAL_PADDING, vertical: 6 }}
                           frame={{ maxWidth: "infinity", alignment: "leading" }}
                         >
                           <HStack spacing={8} alignment="top">
@@ -1077,7 +1078,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                             alignment="leading"
                             spacing={0}
                             frame={cardFrame}
-                            padding={6}
+                            padding={4}
                             glassEffect={appGlass({ type: "rect", cornerRadius: 16 })}
                             shadow={{ color: "#0000000F", radius: 20, y: 10 }}
                           >
@@ -1166,7 +1167,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                     return (
                       <VStack
                         key={`mov-${idx}`}
-                        padding={{ horizontal: FLOW_HORIZONTAL_PADDING, vertical: 6 }}
+                        padding={{ horizontal: SECTION_HORIZONTAL_PADDING, vertical: 6 }}
                         frame={{ maxWidth: "infinity" }}
                       >
                         <Button
@@ -1209,7 +1210,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                       <VStack
                         key={`cr-${idx}`}
                         alignment="trailing"
-                        padding={{ horizontal: FLOW_HORIZONTAL_PADDING, vertical: 6 }}
+                        padding={{ horizontal: SECTION_HORIZONTAL_PADDING, vertical: 6 }}
                         frame={{ maxWidth: "infinity", alignment: "trailing" }}
                       >
                         <Text font="caption" foregroundStyle="tertiaryLabel">
@@ -1222,7 +1223,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                       <VStack
                         key={`cap-${idx}`}
                         alignment="leading"
-                        padding={{ horizontal: FLOW_HORIZONTAL_PADDING, vertical: 2 }}
+                        padding={{ horizontal: SECTION_HORIZONTAL_PADDING, vertical: 2 }}
                         frame={{ maxWidth: "infinity", alignment: "leading" }}
                       >
                         <Text font="caption" foregroundStyle="secondaryLabel">
@@ -1274,8 +1275,8 @@ export function PixivisionDetailView(props: { articleID: number }) {
                 ) : null}
 
                 {detail.embeddedArticles && detail.embeddedArticles.length > 0 ? (
-                  <VStack key="fallback-embedded" alignment="leading" spacing={12} padding={{ horizontal: FLOW_HORIZONTAL_PADDING, top: 16 }}>
-                    <HStack spacing={6} alignment="center">
+                  <VStack key="fallback-embedded" alignment="leading" spacing={12} padding={{ top: 16 }} frame={{ maxWidth: "infinity" }}>
+                    <HStack spacing={6} alignment="center" padding={{ horizontal: SECTION_HORIZONTAL_PADDING }}>
                       <Image
                         systemName="doc.text.image"
                         font="headline"
@@ -1285,7 +1286,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                         推荐阅读
                       </Text>
                     </HStack>
-                    <LazyVStack alignment="leading" spacing={8} frame={{ maxWidth: "infinity" }}>
+                    <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: FLOW_HORIZONTAL_PADDING }} frame={{ maxWidth: "infinity" }}>
                       {detail.embeddedArticles.map((article) => (
                         <PixivisionCard key={`fallback-card-${article.id}`} article={article} />
                       ))}
@@ -1294,26 +1295,28 @@ export function PixivisionDetailView(props: { articleID: number }) {
                 ) : null}
 
                 {detail.isFallbackMode || (!detail.artworks.length && !detail.embeddedArticles?.length) ? (
-                  <VStack
-                    alignment="center"
-                    spacing={12}
-                    padding={16}
-                    glassEffect={appGlass({ type: "rect", cornerRadius: 14 })}
-                    frame={{ maxWidth: "infinity" }}
-                  >
-                    <Image systemName="newspaper" font="largeTitle" foregroundStyle="#0096FA" />
-                    <Text font="headline" fontWeight="bold">
-                      特辑排版结构暂未完全解析
-                    </Text>
-                    <Text font="subheadline" foregroundStyle="secondaryLabel" lineLimit={3}>
-                      该特辑可能采用了新版排版或包含网页专属动态组件，建议直接在内置浏览器中流畅阅读完整原文。
-                    </Text>
-                    <Button
-                      title="在内置浏览器中阅读原特辑"
-                      systemImage="safari"
-                      buttonStyle="glass"
-                      action={() => void presentExternalURL(`https://www.pixivision.net/zh/a/${articleID}`)}
-                    />
+                  <VStack padding={{ horizontal: SECTION_HORIZONTAL_PADDING }} frame={{ maxWidth: "infinity" }}>
+                    <VStack
+                      alignment="center"
+                      spacing={12}
+                      padding={16}
+                      glassEffect={appGlass({ type: "rect", cornerRadius: 14 })}
+                      frame={{ maxWidth: "infinity" }}
+                    >
+                      <Image systemName="newspaper" font="largeTitle" foregroundStyle="#0096FA" />
+                      <Text font="headline" fontWeight="bold">
+                        特辑排版结构暂未完全解析
+                      </Text>
+                      <Text font="subheadline" foregroundStyle="secondaryLabel" lineLimit={3}>
+                        该特辑可能采用了新版排版或包含网页专属动态组件，建议直接在内置浏览器中流畅阅读完整原文。
+                      </Text>
+                      <Button
+                        title="在内置浏览器中阅读原特辑"
+                        systemImage="safari"
+                        buttonStyle="glass"
+                        action={() => void presentExternalURL(`https://www.pixivision.net/zh/a/${articleID}`)}
+                      />
+                    </VStack>
                   </VStack>
                 ) : null}
               </>
@@ -1325,7 +1328,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                 key="section-related"
                 alignment="leading"
                 spacing={20}
-                padding={{ horizontal: FLOW_HORIZONTAL_PADDING, top: 16 }}
+                padding={{ top: 16 }}
               >
                 {detail.relatedSections.map((section, sIdx) => {
                   const isLike = section.title.includes("喜欢") || section.title.includes("也喜欢")
@@ -1359,6 +1362,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                       <HStack
                         spacing={6}
                         alignment="center"
+                        padding={{ horizontal: SECTION_HORIZONTAL_PADDING }}
                         frame={{ maxWidth: "infinity", alignment: "leading" }}
                       >
                         <Image
@@ -1391,7 +1395,12 @@ export function PixivisionDetailView(props: { articleID: number }) {
                           </>
                         ) : null}
                       </HStack>
-                      <LazyVStack alignment="leading" spacing={8} frame={{ maxWidth: "infinity" }}>
+                      <LazyVStack
+                        alignment="leading"
+                        spacing={8}
+                        padding={{ horizontal: FLOW_HORIZONTAL_PADDING }}
+                        frame={{ maxWidth: "infinity" }}
+                      >
                         {section.articles.map((article) => (
                           <PixivisionCard key={`${section.title}-${article.id}`} article={article} />
                         ))}

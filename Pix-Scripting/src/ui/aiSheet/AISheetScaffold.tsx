@@ -232,12 +232,11 @@ export function AISheetScaffold(props: {
         }}
       >
         <VStack
-          spacing={16}
+          spacing={12}
           padding={{
-            top: 14,
-            leading: noHorizontalPadding ? 0 : 16,
+            leading: noHorizontalPadding ? 0 : 8,
             bottom: 28,
-            trailing: noHorizontalPadding ? 0 : 16,
+            trailing: noHorizontalPadding ? 0 : 8,
           }}
         >
           {!available ? (

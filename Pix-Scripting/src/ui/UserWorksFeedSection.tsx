@@ -459,7 +459,7 @@ export function UserWorksFeedSection(props: {
     )
   }
   return (
-    <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10 }}>
+    <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
       {novelPaged.hasFilteredContent ? <FilteredContentNotice isNovel={true} /> : null}
       {novelPaged.items.map((novel, index) => (
         <NovelCard
@@ -490,7 +490,7 @@ export function UserWorkPicker(props: {
   if (availableKinds.length <= 1) return null
 
   return (
-    <VStack padding={{ horizontal: 14, top: 2, bottom: 6 }}>
+    <VStack padding={{ horizontal: 8, top: 2, bottom: 6 }}>
       <Picker
         title="作品类型"
         value={kind}

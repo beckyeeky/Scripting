@@ -157,9 +157,9 @@ export function NovelTypographySheet(props: { onClose?: () => void }) {
           ].filter(Boolean) as any,
         }}
       >
-        <VStack spacing={20} padding={{ horizontal: 16, top: 12, bottom: 32 }} frame={{ maxWidth: "infinity" }}>
+        <VStack spacing={12} padding={{ horizontal: 8, bottom: 32 }} frame={{ maxWidth: "infinity" }}>
           {/* 1. 排版 */}
-          <VStack alignment="leading" spacing={8} frame={{ maxWidth: "infinity" }}>
+          <VStack alignment="leading" spacing={6} frame={{ maxWidth: "infinity" }}>
             <HStack spacing={6} alignment="center">
               <Image systemName="rectangle.and.text.magnifyingglass" font="headline" foregroundStyle={accentColor} />
               <Text font="headline" fontWeight="bold">
@@ -237,7 +237,7 @@ export function NovelTypographySheet(props: { onClose?: () => void }) {
           </VStack>
 
           {/* 2. 字体 */}
-          <VStack alignment="leading" spacing={8} frame={{ maxWidth: "infinity" }}>
+          <VStack alignment="leading" spacing={6} frame={{ maxWidth: "infinity" }}>
             <HStack spacing={6} alignment="center">
               <Text font="headline" fontWeight="bold" foregroundStyle={accentColor}>
                 Aa

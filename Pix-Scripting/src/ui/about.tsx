@@ -81,6 +81,11 @@ export function AboutView() {
       )}
       <List
         scrollContentBackground={ambientBackground ? "hidden" : undefined}
+        contentMargins={{
+          edges: ["top", "horizontal"],
+          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+          placement: "scrollContent",
+        }}
       >
       <Section header={<Text>关于</Text>}>
         <InfoRow title="作者" value="chaoscard" />

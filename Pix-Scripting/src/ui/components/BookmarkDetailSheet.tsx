@@ -287,8 +287,8 @@ export function BookmarkDetailSheet(props: {
           >
             <VStack
               alignment="leading"
-              spacing={14}
-              padding={{ horizontal: 16, top: 8, bottom: showCustomTagInput ? 12 : 24 }}
+              spacing={12}
+              padding={{ horizontal: 8, bottom: showCustomTagInput ? 12 : 24 }}
               frame={{ maxWidth: "infinity" }}
               onTapGesture={() => {
                 if (showCustomTagInput) {
@@ -327,7 +327,7 @@ export function BookmarkDetailSheet(props: {
               </HStack>
 
               {/* 标签选择区 */}
-              <VStack alignment="leading" spacing={8} frame={{ maxWidth: "infinity" }}>
+              <VStack alignment="leading" spacing={6} frame={{ maxWidth: "infinity" }}>
                 <HStack alignment="center" frame={{ maxWidth: "infinity" }}>
                   <Text font="subheadline" fontWeight="semibold">
                     选择标签
@@ -338,7 +338,7 @@ export function BookmarkDetailSheet(props: {
                   </Text>
                 </HStack>
 
-                <FlowLayout spacing={8}>
+                <FlowLayout spacing={4}>
                   {availableTags.map((tag) => {
                     const selected = selectedTags.includes(tag.name)
                     return (

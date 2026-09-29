@@ -71,7 +71,7 @@ export function PixivisionCard(props: {
         spacing={4}
         frame={cardFrame}
         onAppear={handleAppear}
-        padding={6}
+        padding={4}
         glassEffect={appGlass({ type: "rect", cornerRadius: 16 })}
         shadow={
           isSelected
@@ -159,7 +159,7 @@ export function PixivisionCard(props: {
             axes="horizontal"
             frame={{ maxWidth: "infinity", alignment: "leading" }}
           >
-            <HStack spacing={6} padding={{ horizontal: 6, bottom: 4 }}>
+            <HStack spacing={4} padding={{ horizontal: 6, bottom: 4 }}>
               {article.tags.map((tag) => {
                 const tagName = typeof tag === "string" ? tag : tag.name
                 const tagId = typeof tag === "string" ? undefined : tag.id

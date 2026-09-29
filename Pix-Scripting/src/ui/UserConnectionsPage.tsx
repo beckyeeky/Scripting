@@ -268,7 +268,7 @@ export function UserConnectionsView(props: {
                 }
               />
             ) : (
-              <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10 }}>
+              <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: CONNECTION_LIST_HORIZONTAL_PADDING }}>
                 {paged.items.map((preview, index) => (
                   <ConnectionRow
                     key={preview.user.id}

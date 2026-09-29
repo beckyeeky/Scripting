@@ -309,7 +309,7 @@ export function IllustCard(props: {
         spacing={isCompact ? 0 : (hero ? 4 : 2)}
         frame={cardFrame}
         onAppear={handleAppear}
-        padding={hero ? 6 : 4}
+        padding={4}
         glassEffect={appGlass({ type: "rect", cornerRadius: hero ? 16 : 14 })}
         shadow={
           isSelected

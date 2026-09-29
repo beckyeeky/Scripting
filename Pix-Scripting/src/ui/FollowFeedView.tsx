@@ -677,7 +677,7 @@ function WatchlistFeed(props: {
             ) : mangaPaged.items.length === 0 ? (
               <EmptyView text="暂无追更漫画，下拉刷新试试" systemImage="photo.on.rectangle" />
             ) : (
-              <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10 }}>
+              <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
                 {mangaPaged.items.map((item, index) => (
                   <WatchlistSeriesCard key={item.id} item={item} kind="manga" priority={index} />
                 ))}
@@ -712,7 +712,7 @@ function WatchlistFeed(props: {
               ) : novelPaged.items.length === 0 ? (
                 <EmptyView text="暂无追更小说，下拉刷新试试" systemImage="book" />
               ) : (
-                <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10 }}>
+                <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
                   {novelPaged.items.map((item, index) => (
                     <WatchlistSeriesCard key={item.id} item={item} kind="novel" priority={index} />
                   ))}
@@ -897,7 +897,7 @@ function NovelFeedItems(props: {
   onRetry?: () => void
 }) {
   return (
-    <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10 }}>
+    <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
       {props.items.map((novel, index) => (
         <NovelCard key={novel.id} novel={novel} priority={index} />
       ))}

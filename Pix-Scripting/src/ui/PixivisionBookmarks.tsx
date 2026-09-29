@@ -79,7 +79,14 @@ export function PixivisionBookmarksContent(props: {
 
   return (
     <RefreshableScrollView refreshable={handleRefresh}>
-      <VStack alignment="leading" spacing={8} padding={{ horizontal: FLOW_HORIZONTAL_PADDING, top: 4, bottom: 24 }}>
+      <VStack
+        alignment="leading"
+        spacing={8}
+        padding={{
+          horizontal: FLOW_HORIZONTAL_PADDING,
+          bottom: Math.round(loadSettings().feedBottomInset / 2),
+        }}
+      >
         {sortedItems.length === 0 ? (
           <EmptyView
             text="暂无收藏的特辑"
@@ -133,7 +140,7 @@ function PixivisionBookmarkCard(props: {
         alignment="leading"
         spacing={6}
         frame={cardFrame}
-        padding={6}
+        padding={4}
         glassEffect={appGlass({ type: "rect", cornerRadius: 16 })}
         shadow={{ color: "#0000000F", radius: 20, y: 10 }}
         contextMenu={{

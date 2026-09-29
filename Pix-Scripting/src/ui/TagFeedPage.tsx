@@ -310,7 +310,7 @@ function TagIllustFeed(props: { tag: string }) {
           ] : undefined,
         }}
       >
-        <VStack alignment="leading" spacing={8} padding={{ top: 4 }}>
+        <VStack alignment="leading" spacing={8}>
           {paged.initialLoading ? (
             <LoadingView />
           ) : paged.error && paged.items.length === 0 ? (
@@ -521,7 +521,7 @@ function TagNovelFeed(props: { tag: string }) {
           ] : undefined,
         }}
       >
-        <VStack alignment="leading" spacing={8} padding={{ top: 4 }}>
+        <VStack alignment="leading" spacing={8}>
           {paged.initialLoading ? (
             <LoadingView />
           ) : paged.error && paged.items.length === 0 ? (
@@ -538,7 +538,7 @@ function TagNovelFeed(props: { tag: string }) {
               systemImage={paged.hasFilteredContent ? "eye.slash" : "book"}
             />
           ) : (
-            <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10 }}>
+            <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
               {paged.items.map((novel, index) => (
                 <NovelCard key={novel.id} novel={novel} priority={index} />
               ))}
@@ -625,7 +625,7 @@ function TagPixivisionFeed(props: { tag: string }) {
         ] : undefined,
       }}
     >
-      <VStack alignment="leading" spacing={8} padding={{ top: 8, bottom: 28 }}>
+      <VStack alignment="leading" spacing={8}>
         {paged.initialLoading ? (
           <LoadingView />
         ) : paged.error && paged.items.length === 0 ? (

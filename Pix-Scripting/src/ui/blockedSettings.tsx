@@ -177,6 +177,11 @@ export function BlockedSettingsView() {
         scrollContentBackground={ambientBackground ? "hidden" : undefined}
         toolbarBackground={PAGE_TOOLBAR_BACKGROUND}
         toolbarBackgroundVisibility={PAGE_TOOLBAR_BACKGROUND_VISIBILITY}
+        contentMargins={{
+          edges: ["top", "horizontal"],
+          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+          placement: "scrollContent",
+        }}
       >
         {scope === "tag" ? (
           blocklist.blockedTags.length === 0 ? (

@@ -207,7 +207,7 @@ export function ReverseImageSearchSheet(props: {
             ],
           }}
         >
-          <VStack alignment="leading" spacing={14} padding={{ horizontal: 16, top: 12, bottom: 32 }}>
+          <VStack alignment="leading" spacing={12} padding={{ horizontal: 8, bottom: 24 }}>
             {/* 顶部检索源图信息 */}
             {image ? (
               <HStack
@@ -401,7 +401,7 @@ export function ReverseImageSearchSheet(props: {
             ) : results.length === 0 && image ? (
               <EmptyView text="未匹配到高相似度作品" systemImage="questionmark.circle" />
             ) : results.length > 0 ? (
-              <LazyVStack alignment="leading" spacing={10} frame={{ maxWidth: "infinity", alignment: "leading" }}>
+              <LazyVStack alignment="leading" spacing={8} frame={{ maxWidth: "infinity", alignment: "leading" }}>
                 <HStack alignment="center" spacing={6}>
                   <Image systemName="sparkles" font="caption" foregroundStyle="systemBlue" />
                   <Text font="caption" fontWeight="semibold" foregroundStyle="secondaryLabel">
@@ -557,6 +557,11 @@ function SauceNAOConfigView(props: {
       navigationTitle={keys.length > 0 ? `密钥配置 (${quota.used}/${quota.total})` : "SauceNAO 密钥配置"}
       navigationBarTitleDisplayMode="inline"
       listSectionSpacing="compact"
+      contentMargins={{
+        edges: ["top", "horizontal"],
+        insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+        placement: "scrollContent",
+      }}
       toolbar={{
         topBarLeading: (
           <Button title="返回" systemImage="chevron.backward" action={onBack} />

@@ -284,6 +284,11 @@ export function RankingCustomPickerView(props: { kind: CustomRankingPickerKind }
       )}
       <List
         scrollContentBackground={ambientBackground ? "hidden" : undefined}
+        contentMargins={{
+          edges: ["top", "horizontal"],
+          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+          placement: "scrollContent",
+        }}
       >
       <Section
         header={

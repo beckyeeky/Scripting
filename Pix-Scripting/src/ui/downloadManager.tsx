@@ -263,6 +263,11 @@ export function DownloadManagerView(props: { onClose?: () => void }) {
       {backdropNode}
       <List
         scrollContentBackground={ambientBackground ? "hidden" : undefined}
+        contentMargins={{
+          edges: ["top", "horizontal"],
+          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+          placement: "scrollContent",
+        }}
         onAppear={() => {
           void loadOverviewData(false)
           updateTasksCount()
@@ -579,6 +584,11 @@ export function DownloadTasksView(props: { onClose?: () => void }) {
       {backdropNode}
       <List
         scrollContentBackground={ambientBackground ? "hidden" : undefined}
+        contentMargins={{
+          edges: ["top", "horizontal"],
+          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+          placement: "scrollContent",
+        }}
         onAppear={loadTasks}
         refreshable={async () => {
           loadTasks()
@@ -1360,6 +1370,11 @@ export function DownloadDetailListView(props: {
       {backdropNode}
       <List
         scrollContentBackground={ambientBackground ? "hidden" : undefined}
+        contentMargins={{
+          edges: ["top", "horizontal"],
+          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+          placement: "scrollContent",
+        }}
         onAppear={() => {
           void loadFileList(false)
         }}
@@ -1930,6 +1945,11 @@ export function DownloadCreatorsListView(props: { onClose?: () => void }) {
       {backdropNode}
       <List
         scrollContentBackground={ambientBackground ? "hidden" : undefined}
+        contentMargins={{
+          edges: ["top", "horizontal"],
+          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+          placement: "scrollContent",
+        }}
         onAppear={() => {
           void loadCreators(false)
         }}

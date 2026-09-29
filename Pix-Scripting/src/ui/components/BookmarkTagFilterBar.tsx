@@ -21,7 +21,7 @@ export function BookmarkTagFilterBar(props: {
     <VStack
       alignment="leading"
       spacing={6}
-      padding={{ horizontal: 14 }}
+      padding={{ horizontal: 8 }}
       frame={{ maxWidth: "infinity" }}
     >
       <Text
@@ -31,7 +31,7 @@ export function BookmarkTagFilterBar(props: {
       >
         标签
       </Text>
-      <FlowLayout spacing={6}>
+      <FlowLayout spacing={4}>
         {tags.map((item) => {
           const isSelected = selectedTag === item.name
           return (

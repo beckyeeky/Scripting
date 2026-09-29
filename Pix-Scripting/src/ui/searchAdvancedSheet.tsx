@@ -481,6 +481,11 @@ export function SearchAdvancedSheet(props: {
         {...sheetTopBar()}
         navigationTitle="高级搜索"
         navigationBarTitleDisplayMode="inline"
+        contentMargins={{
+          edges: ["top", "horizontal"],
+          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+          placement: "scrollContent",
+        }}
         toolbar={{
           topBarLeading: [
             <Button

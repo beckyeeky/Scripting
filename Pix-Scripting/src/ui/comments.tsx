@@ -438,7 +438,7 @@ export function CommentsSheet(props: {
           <Text
             font="footnote"
             foregroundStyle="systemRed"
-            padding={{ horizontal: 16, bottom: 6 }}
+            padding={{ horizontal: 8, bottom: 6 }}
           >
             {postError}
           </Text>
@@ -472,8 +472,8 @@ export function CommentsSheet(props: {
           ) : (
             <LazyVStack
               alignment="leading"
-              spacing={10}
-              padding={{ horizontal: 14, vertical: 8 }}
+              spacing={8}
+              padding={{ horizontal: 8, bottom: 8 }}
               frame={{ maxWidth: "infinity" }}
             >
               {items.map((comment) => (
@@ -551,7 +551,7 @@ function CommentInputBar(props: {
   return (
     <VStack
       spacing={6}
-      padding={{ horizontal: 12, top: 6, bottom: 8 }}
+      padding={{ horizontal: 8, top: 6, bottom: 8 }}
       frame={{ maxWidth: "infinity" }}
     >
       {/* 回复对象指示条 */}
@@ -776,8 +776,8 @@ function CommentCard(props: {
               {replyState?.expanded ? (
                 <VStack
                   alignment="leading"
-                  spacing={8}
-                  padding={{ leading: 10, top: 4 }}
+                  spacing={6}
+                  padding={{ leading: 10 }}
                   frame={{ maxWidth: "infinity", alignment: "leading" }}
                 >
                   {replyState.loading ? (

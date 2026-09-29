@@ -978,7 +978,6 @@ export function UserDetailView(props: { userID: number }) {
                 <VStack
                   alignment="leading"
                   spacing={12}
-                  padding={{ top: 0, bottom: 20 }}
                   frame={{ maxWidth: "infinity" }}
                 >
                   <UserProfileHeader detail={detail} webDetail={webDetail} />
@@ -989,23 +988,25 @@ export function UserDetailView(props: { userID: number }) {
                   />
 
                   {downloading ? (
-                    <HStack
-                      spacing={8}
-                      padding={{ horizontal: 16, vertical: 10 }}
-                      background="systemGray6"
-                      clipShape={{ type: "rect", cornerRadius: 10 }}
-                      frame={{ maxWidth: "infinity" }}
-                      alignment="center"
-                    >
-                      <Image systemName="square.and.arrow.down.fill" foregroundStyle="tintColor" />
-                      <Text
-                        font="footnote"
-                        foregroundStyle="secondaryLabel"
-                        lineLimit={1}
+                    <VStack padding={{ horizontal: 8 }} frame={{ maxWidth: "infinity" }}>
+                      <HStack
+                        spacing={8}
+                        padding={{ horizontal: 16, vertical: 10 }}
+                        background="systemGray6"
+                        clipShape={{ type: "rect", cornerRadius: 10 }}
+                        frame={{ maxWidth: "infinity" }}
+                        alignment="center"
                       >
-                        {downloadStatusText || "正在下载作品…"}
-                      </Text>
-                    </HStack>
+                        <Image systemName="square.and.arrow.down.fill" foregroundStyle="tintColor" />
+                        <Text
+                          font="footnote"
+                          foregroundStyle="secondaryLabel"
+                          lineLimit={1}
+                        >
+                          {downloadStatusText || "正在下载作品…"}
+                        </Text>
+                      </HStack>
+                    </VStack>
                   ) : null}
 
                   <UserWorksFeedSection

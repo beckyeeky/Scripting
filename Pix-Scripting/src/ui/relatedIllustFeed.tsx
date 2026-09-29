@@ -66,7 +66,7 @@ export function RelatedIllustFeedView(props: { illustID: number }) {
       background={ambientBackground}
       refreshable={paged.refresh}
     >
-      <VStack alignment="leading" spacing={10} padding={{ top: 4 }}>
+      <VStack alignment="leading" spacing={10}>
         {paged.initialLoading ? (
           <LoadingView />
         ) : paged.error && paged.items.length === 0 ? (

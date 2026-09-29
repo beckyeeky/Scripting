@@ -35,15 +35,15 @@ export function RelatedSection<T>(props: RelatedSectionProps<T>) {
   return (
     <VStack
       alignment="leading"
-      spacing={8}
-      padding={{ top: 4, bottom: effectiveBottomInset }}
+      spacing={6}
+      padding={{ bottom: effectiveBottomInset }}
       frame={{ maxWidth: "infinity", alignment: "leading" }}
     >
       <Text
         font="subheadline"
         fontWeight="semibold"
         foregroundStyle="secondaryLabel"
-        padding={{ horizontal: 14 }}
+        padding={{ horizontal: 8 }}
       >
         {title}
       </Text>
@@ -55,7 +55,7 @@ export function RelatedSection<T>(props: RelatedSectionProps<T>) {
           <Spacer />
         </HStack>
       ) : error && items.length === 0 ? (
-        <HStack spacing={0} padding={{ top: 16, bottom: 16, horizontal: 16 }} frame={{ maxWidth: "infinity" }}>
+        <HStack spacing={0} padding={{ top: 16, bottom: 16, horizontal: 8 }} frame={{ maxWidth: "infinity" }}>
           <Spacer />
           <LoadMoreErrorRetry onRetry={onRetry} />
           <Spacer />
@@ -65,7 +65,7 @@ export function RelatedSection<T>(props: RelatedSectionProps<T>) {
       ) : (
         <HStack
           spacing={0}
-          padding={{ horizontal: 14, vertical: 8 }}
+          padding={{ horizontal: 8, vertical: 8 }}
           frame={{ maxWidth: "infinity", alignment: "leading" }}
         >
           <Text font="footnote" foregroundStyle="secondaryLabel">

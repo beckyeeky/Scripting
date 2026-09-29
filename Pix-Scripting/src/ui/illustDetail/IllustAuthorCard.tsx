@@ -60,8 +60,8 @@ export function IllustAuthorCard(props: IllustAuthorCardProps) {
   return (
     <VStack
       alignment="leading"
-      spacing={8}
-      padding={{ horizontal: 14 }}
+      spacing={6}
+      padding={{ horizontal: 8 }}
       frame={{ maxWidth: "infinity", alignment: "leading" }}
     >
       <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">

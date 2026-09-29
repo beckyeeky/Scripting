@@ -745,7 +745,7 @@ function NovelFeedContent(props: {
           systemImage={paged.hasFilteredContent ? "eye.slash" : "book"}
         />
       ) : (
-        <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10 }}>
+        <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
           {paged.items.map((novel, index) => (
             <NovelCard key={novel.id} novel={novel} priority={index} />
           ))}
@@ -768,7 +768,7 @@ function PixivisionFeedContent(props: {
 }) {
   const { paged } = props
   return (
-    <VStack alignment="leading" spacing={8} padding={{ top: 4, bottom: 24 }}>
+    <VStack alignment="leading" spacing={8}>
       {paged.initialLoading ? (
         <LoadingView />
       ) : paged.error && paged.items.length === 0 ? (

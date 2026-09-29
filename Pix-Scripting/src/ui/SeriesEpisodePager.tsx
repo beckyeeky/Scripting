@@ -228,7 +228,7 @@ export function SeriesEpisodePager(props: {
   return (
     <HStack
       alignment="center"
-      padding={{ top: 14, bottom: 20, horizontal: 16 }}
+      padding={{ horizontal: 8 }}
       frame={{ maxWidth: "infinity", alignment: "center" }}
     >
       {/* 左箭头：靠左对齐，首话时占位隐藏 */}

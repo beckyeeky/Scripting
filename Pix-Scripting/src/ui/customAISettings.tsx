@@ -576,6 +576,11 @@ export function CustomAISettingsView() {
       <List
         scrollContentBackground={ambientBackground ? "hidden" : undefined}
         listSectionSpacing="compact"
+        contentMargins={{
+          edges: ["top", "horizontal"],
+          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+          placement: "scrollContent",
+        }}
       >
       {/* 1. 通用模型 */}
       <Section

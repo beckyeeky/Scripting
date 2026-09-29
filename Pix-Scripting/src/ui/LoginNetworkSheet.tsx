@@ -49,6 +49,11 @@ export function LoginNetworkSheet(props: { onClose: () => void }) {
         {...sheetTopBar()}
         navigationTitle="网络连接"
         navigationBarTitleDisplayMode="inline"
+        contentMargins={{
+          edges: ["top", "horizontal"],
+          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+          placement: "scrollContent",
+        }}
         toolbar={{
           topBarLeading: [
             <Button

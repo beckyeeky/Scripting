@@ -42,55 +42,57 @@ export function IllustMetaSection(props: IllustMetaSectionProps) {
     <>
       <VStack
         alignment="leading"
-        spacing={8}
-        padding={{ horizontal: 14 }}
+        spacing={12}
+        padding={{ horizontal: 8 }}
         frame={{ maxWidth: "infinity", alignment: "leading" }}
       >
-        {/* 作品标题 */}
-        <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">
-          {illust.title}
-        </Text>
-
-        {/* 统计指标 */}
-        <HStack spacing={10}>
-          <HStack spacing={3}>
-            <Image systemName="eye" font="footnote" />
-            <Text font="footnote">
-              {formatNumber(illust.total_view)}
-            </Text>
-          </HStack>
-          <HStack spacing={3}>
-            <Image systemName="heart" font="footnote" />
-            <Text font="footnote">
-              {formatNumber(illust.total_bookmarks)}
-            </Text>
-          </HStack>
-          <Button
-            buttonStyle="plain"
-            action={() => {
-              triggerHaptic("selection")
-              props.onOpenComments?.()
-            }}
-          >
-            <HStack spacing={3}>
-              <Image systemName="bubble.left" font="footnote" foregroundStyle={commentAccent} />
-              <Text font="footnote">
-                {formatNumber(illust.total_comments)}
-              </Text>
-            </HStack>
-          </Button>
-          {pageCount > 1 && (
-            <HStack spacing={3}>
-              <Image systemName="rectangle.stack" font="footnote" />
-              <Text font="footnote">
-                {pageCount}P
-              </Text>
-            </HStack>
-          )}
-          <Text font="footnote">
-            {formatDate(illust.create_date)}
+        <VStack alignment="leading" spacing={8}>
+          {/* 作品标题 */}
+          <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">
+            {illust.title}
           </Text>
-        </HStack>
+
+          {/* 统计指标 */}
+          <HStack spacing={10}>
+            <HStack spacing={3}>
+              <Image systemName="eye" font="footnote" />
+              <Text font="footnote">
+                {formatNumber(illust.total_view)}
+              </Text>
+            </HStack>
+            <HStack spacing={3}>
+              <Image systemName="heart" font="footnote" />
+              <Text font="footnote">
+                {formatNumber(illust.total_bookmarks)}
+              </Text>
+            </HStack>
+            <Button
+              buttonStyle="plain"
+              action={() => {
+                triggerHaptic("selection")
+                props.onOpenComments?.()
+              }}
+            >
+              <HStack spacing={3}>
+                <Image systemName="bubble.left" font="footnote" foregroundStyle={commentAccent} />
+                <Text font="footnote">
+                  {formatNumber(illust.total_comments)}
+                </Text>
+              </HStack>
+            </Button>
+            {pageCount > 1 && (
+              <HStack spacing={3}>
+                <Image systemName="rectangle.stack" font="footnote" />
+                <Text font="footnote">
+                  {pageCount}P
+                </Text>
+              </HStack>
+            )}
+            <Text font="footnote">
+              {formatDate(illust.create_date)}
+            </Text>
+          </HStack>
+        </VStack>
 
         {/* 简介 */}
         <ExpandableIntroduction
@@ -105,7 +107,7 @@ export function IllustMetaSection(props: IllustMetaSectionProps) {
             <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">
               标签
             </Text>
-            <FlowLayout spacing={6}>
+            <FlowLayout spacing={4}>
               {illust.tags.map((tag) => (
                 <TagChip
                   key={tag.name}

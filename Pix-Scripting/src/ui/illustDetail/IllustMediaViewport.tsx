@@ -82,7 +82,6 @@ export function IllustMediaViewport(props: IllustMediaViewportProps) {
       alignment="center"
       spacing={4}
       frame={{ maxWidth: "infinity" }}
-      padding={{ top: 0, bottom: 6 }}
     >
       {illust.type === "ugoira" ? (
         <UgoiraPlayerView

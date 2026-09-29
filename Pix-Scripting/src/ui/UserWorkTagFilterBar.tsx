@@ -22,7 +22,7 @@ export function UserWorkTagFilterBar(props: {
     <VStack
       alignment="leading"
       spacing={6}
-      padding={{ horizontal: 14 }}
+      padding={{ horizontal: 8 }}
       frame={{ maxWidth: "infinity" }}
     >
       <Text
@@ -32,7 +32,7 @@ export function UserWorkTagFilterBar(props: {
       >
         标签
       </Text>
-      <FlowLayout spacing={6}>
+      <FlowLayout spacing={4}>
         {tags.map((item) => {
           const isSelected = selectedTag === item.tag
           return (

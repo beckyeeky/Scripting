@@ -159,7 +159,7 @@ export function AccountSwitcherSheet(props: {
           ),
         }}
       >
-        <VStack alignment="leading" spacing={16} padding={{ horizontal: 16, top: 12, bottom: 32 }}>
+        <VStack alignment="leading" spacing={12} padding={{ horizontal: 8, bottom: 32 }}>
           {error ? (
             <HStack
               alignment="center"
@@ -177,7 +177,7 @@ export function AccountSwitcherSheet(props: {
           ) : null}
 
           {/* 1. 已登录账号列表 */}
-          <VStack alignment="leading" spacing={8} frame={{ maxWidth: "infinity" }}>
+          <VStack alignment="leading" spacing={6} frame={{ maxWidth: "infinity" }}>
             <Text font="caption" fontWeight="semibold" foregroundStyle="secondaryLabel">
               已登录账号 ({accounts.length})
             </Text>

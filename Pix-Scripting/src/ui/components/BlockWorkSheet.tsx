@@ -140,15 +140,15 @@ export function BlockWorkSheet(props: {
         <ScrollView frame={{ maxWidth: "infinity" }}>
           <VStack
             alignment="leading"
-            spacing={16}
-            padding={{ horizontal: 16, top: 12, bottom: 24 }}
+            spacing={12}
+            padding={{ horizontal: 8, bottom: 24 }}
             frame={{ maxWidth: "infinity" }}
           >
             {/* 用户屏蔽分区 */}
             {user ? (
               <VStack
                 alignment="leading"
-                spacing={8}
+                spacing={6}
                 frame={{ maxWidth: "infinity" }}
               >
                 <Text
@@ -212,7 +212,7 @@ export function BlockWorkSheet(props: {
             {validTags.length > 0 ? (
               <VStack
                 alignment="leading"
-                spacing={8}
+                spacing={6}
                 frame={{ maxWidth: "infinity" }}
               >
                 <Text

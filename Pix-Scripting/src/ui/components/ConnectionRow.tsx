@@ -30,7 +30,7 @@ import type { PixivIllustration, PixivNovel, PixivUserPreview } from "../../type
 
 export const CONNECTION_PREVIEW_GAP = 6
 export const NOVEL_PREVIEW_COVER_RATIO = 0.71
-export const CONNECTION_LIST_HORIZONTAL_PADDING = 10
+export const CONNECTION_LIST_HORIZONTAL_PADDING = 8
 export const CONNECTION_CARD_HORIZONTAL_PADDING = 10
 
 export type PreviewWorkItem =

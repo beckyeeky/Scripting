@@ -230,6 +230,11 @@ export function MoreView(props: { onClose: () => void }) {
         toolbarBackground={PAGE_TOOLBAR_BACKGROUND}
         toolbarBackgroundVisibility={PAGE_TOOLBAR_BACKGROUND_VISIBILITY}
         navigationDestination={destinationElement}
+        contentMargins={{
+          edges: ["top", "horizontal"],
+          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+          placement: "scrollContent",
+        }}
         toolbar={appToolbar(props.onClose, "我的", undefined, undefined, {
           isCompact: !isFullScreenPad,
           isSplitViewActive,
@@ -276,6 +281,11 @@ export function MoreView(props: { onClose: () => void }) {
           }
         }}
         scrollContentBackground={ambientBackground ? "hidden" : undefined}
+        contentMargins={{
+          edges: ["top", "horizontal"],
+          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+          placement: "scrollContent",
+        }}
         sheet={{
           isPresented: activeSheet !== "none",
           onChanged: (val: boolean) => {

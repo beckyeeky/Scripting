@@ -1637,52 +1637,54 @@ export function NovelDetailView(props: { novelID: number }) {
         frame={{ maxWidth: "infinity" }}
         scrollTargetLayout={true}
       >
-        <VStack key="novel-header-content" alignment="leading" spacing={8} padding={{ horizontal: 14, top: 12 }}>
-          {/* 小说标题 */}
-          <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">
-            {current.title}
-          </Text>
-
-          {/* 统计指标 */}
-          <HStack spacing={10}>
-            <HStack spacing={3}>
-              <Image systemName="eye" font="footnote" />
-              <Text font="footnote">
-                {formatNumber(current.total_view)}
-              </Text>
-            </HStack>
-            <HStack spacing={3}>
-              <Image systemName="heart" font="footnote" />
-              <Text font="footnote">
-                {formatNumber(current.total_bookmarks)}
-              </Text>
-            </HStack>
-            <Button
-              buttonStyle="plain"
-              action={() => {
-                triggerHaptic("selection")
-                setShowComments(true)
-              }}
-            >
-              <HStack spacing={3}>
-                <Image systemName="bubble.left" font="footnote" foregroundStyle={appThemeColor("#0096FA")} />
-                <Text font="footnote">
-                  {formatNumber(current.total_comments)}
-                </Text>
-              </HStack>
-            </Button>
-            {Boolean(current.text_length || text.length) && (
-              <HStack spacing={3}>
-                <Image systemName="character.cursor.ibeam" font="footnote" />
-                <Text font="footnote">
-                  {formatWordCount(current.text_length ?? text.length)}
-                </Text>
-              </HStack>
-            )}
-            <Text font="footnote">
-              {formatDate(current.create_date)}
+        <VStack key="novel-header-content" alignment="leading" spacing={12} padding={{ horizontal: 8, top: 12 }}>
+          <VStack alignment="leading" spacing={8}>
+            {/* 小说标题 */}
+            <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">
+              {current.title}
             </Text>
-          </HStack>
+
+            {/* 统计指标 */}
+            <HStack spacing={10}>
+              <HStack spacing={3}>
+                <Image systemName="eye" font="footnote" />
+                <Text font="footnote">
+                  {formatNumber(current.total_view)}
+                </Text>
+              </HStack>
+              <HStack spacing={3}>
+                <Image systemName="heart" font="footnote" />
+                <Text font="footnote">
+                  {formatNumber(current.total_bookmarks)}
+                </Text>
+              </HStack>
+              <Button
+                buttonStyle="plain"
+                action={() => {
+                  triggerHaptic("selection")
+                  setShowComments(true)
+                }}
+              >
+                <HStack spacing={3}>
+                  <Image systemName="bubble.left" font="footnote" foregroundStyle={appThemeColor("#0096FA")} />
+                  <Text font="footnote">
+                    {formatNumber(current.total_comments)}
+                  </Text>
+                </HStack>
+              </Button>
+              {Boolean(current.text_length || text.length) && (
+                <HStack spacing={3}>
+                  <Image systemName="character.cursor.ibeam" font="footnote" />
+                  <Text font="footnote">
+                    {formatWordCount(current.text_length ?? text.length)}
+                  </Text>
+                </HStack>
+              )}
+              <Text font="footnote">
+                {formatDate(current.create_date)}
+              </Text>
+            </HStack>
+          </VStack>
 
           {/* 系列 */}
           {Boolean(resolvedSeriesID) || Boolean(current.series_prev?.id) || Boolean(current.series_next?.id) ? (
@@ -1760,7 +1762,7 @@ export function NovelDetailView(props: { novelID: number }) {
               <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">
                 标签
               </Text>
-              <FlowLayout spacing={6}>
+              <FlowLayout spacing={4}>
                 {current.tags.map((tag) => (
                   <TagChip
                     key={tag.name}
@@ -1800,7 +1802,7 @@ export function NovelDetailView(props: { novelID: number }) {
             }}
           />
         ) : (
-          <VStack key="novel-text-empty" padding={{ horizontal: 14 }}>
+          <VStack key="novel-text-empty" padding={{ horizontal: 8 }}>
             <Text font="footnote" foregroundStyle="secondaryLabel">
               {textError ?? "（正文为空）"}
             </Text>
@@ -1993,7 +1995,7 @@ function NovelAuthorCard(props: { user: PixivUser }) {
   const preview: PixivUserPreview = { user, illusts: [], novels, is_muted: false }
 
   return (
-    <VStack alignment="leading" spacing={8} padding={{ horizontal: 14 }} frame={{ maxWidth: "infinity", alignment: "leading" }}>
+    <VStack alignment="leading" spacing={6} padding={{ horizontal: 8 }} frame={{ maxWidth: "infinity", alignment: "leading" }}>
       <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">创作者</Text>
       <ConnectionRow preview={preview} loading={loading} />
     </VStack>
@@ -2072,7 +2074,7 @@ function RelatedNovelsSection(props: {
         paged.refresh()
       }}
       renderContent={(items) => (
-        <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10 }}>
+        <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
           {items.map((novel, index) => (
             <NovelCard key={novel.id} novel={novel} priority={index} />
           ))}

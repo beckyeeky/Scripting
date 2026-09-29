@@ -1152,7 +1152,7 @@ export function SearchView(props: { onClose: () => void; active?: boolean }) {
               <HStack
                 alignment="center"
                 spacing={8}
-                padding={{ horizontal: 16, top: 2, bottom: 2 }}
+                padding={{ horizontal: 8, top: 2, bottom: 2 }}
                 frame={{ maxWidth: "infinity" }}
               >
                 <HStack
@@ -1210,10 +1210,10 @@ export function SearchView(props: { onClose: () => void; active?: boolean }) {
                 <VStack
                   alignment="leading"
                   spacing={6}
-                  padding={{ horizontal: 16, top: 0, bottom: 2 }}
+                  padding={{ horizontal: 8, top: 0, bottom: 2 }}
                   frame={{ maxWidth: "infinity" }}
                 >
-                  <FlowLayout spacing={6}>
+                  <FlowLayout spacing={4}>
                     {activeFilterBadges.map((badge) => (
                       <Button
                         key={badge.key}
@@ -1632,7 +1632,7 @@ function DirectRouteSection(props: {
   if (targets.length === 0) return null
 
   return (
-    <VStack alignment="leading" spacing={8} padding={{ horizontal: 16, top: 4, bottom: 6 }} frame={{ maxWidth: "infinity" }}>
+    <VStack alignment="leading" spacing={8} padding={{ horizontal: 8 }} frame={{ maxWidth: "infinity" }}>
       <VStack
         spacing={0}
         glassEffect={appGlass({ type: "rect", cornerRadius: 12 })}
@@ -1707,7 +1707,11 @@ function TagSuggestionsSection(props: {
   const { suggestions, loading, onSelect } = props
 
   return (
-    <VStack alignment="leading" spacing={8} padding={{ horizontal: 16, top: 4, bottom: 20 }}>
+    <VStack
+      alignment="leading"
+      spacing={8}
+      padding={{ horizontal: 8, bottom: Math.round(loadSettings().feedBottomInset / 2) }}
+    >
       {loading && suggestions.length === 0 ? (
         <LoadingView />
       ) : suggestions.length === 0 ? (
@@ -1802,7 +1806,11 @@ function UserSuggestionsSection(props: {
   }
 
   return (
-    <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10, bottom: 20 }}>
+    <LazyVStack
+      alignment="leading"
+      spacing={8}
+      padding={{ horizontal: 8, bottom: Math.round(loadSettings().feedBottomInset / 2) }}
+    >
       {items.map((preview, index) => (
         <ConnectionRow
           key={preview.user.id}
@@ -1850,7 +1858,12 @@ function SearchHistorySection(props: {
   }
 
   return (
-    <VStack alignment="leading" spacing={8} padding={{ horizontal: 16, top: 4, bottom: 20 }} frame={{ maxWidth: "infinity" }}>
+    <VStack
+      alignment="leading"
+      spacing={8}
+      padding={{ horizontal: 8, bottom: Math.round(loadSettings().feedBottomInset / 2) }}
+      frame={{ maxWidth: "infinity" }}
+    >
       <HStack alignment="center" spacing={8} frame={{ maxWidth: "infinity" }} padding={{ horizontal: 4, vertical: 4 }}>
         <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">
           搜索记录（{history.length}）
@@ -2005,7 +2018,7 @@ function TrendingHeroBanner(props: {
   const { item, onSelect } = props
   const { width: screenWidth } = useLayoutMetrics()
   const heroUrl = trendingTagHeroUrl(item)
-  const bannerWidth = Math.max(0, screenWidth - 24)
+  const bannerWidth = Math.max(0, screenWidth - 16)
   const bannerHeight = Math.floor(bannerWidth * (9 / 16))
   const targetId = item.illust?.id ?? item.novel?.id
   const targetType = item.novel ? "novel" : "illust"
@@ -2207,7 +2220,7 @@ function TrendingSection(props: {
   const gridCount = Math.floor((tags.length - 1) / 3) * 3
   const gridTags = tags.slice(1, 1 + gridCount)
 
-  const cardSide = Math.max(0, Math.floor((screenWidth - 24 - 12) / 3))
+  const cardSide = Math.max(0, Math.floor((screenWidth - 16 - 8) / 3))
   const rows = useMemo(() => chunk(gridTags, 3), [gridTags])
 
   if (loading && tags.length === 0) {
@@ -2223,11 +2236,15 @@ function TrendingSection(props: {
   }
 
   return (
-    <VStack alignment="center" spacing={10} padding={{ horizontal: 12, bottom: 20 }}>
+    <VStack
+      alignment="center"
+      spacing={8}
+      padding={{ horizontal: 8, bottom: Math.round(loadSettings().feedBottomInset / 2) }}
+    >
       {heroTag ? <TrendingHeroBanner item={heroTag} onSelect={onSelect} /> : null}
-      <VStack spacing={6} frame={{ maxWidth: "infinity" }}>
+      <VStack spacing={4} frame={{ maxWidth: "infinity" }}>
         {rows.map((row, rowIndex) => (
-          <HStack key={`row-${rowIndex}`} spacing={6} frame={{ maxWidth: "infinity" }}>
+          <HStack key={`row-${rowIndex}`} spacing={4} frame={{ maxWidth: "infinity" }}>
             {row.map((tag) => (
               <TrendingGridCard
                 key={tag.tag}
@@ -2273,7 +2290,7 @@ function RecommendedUsersSection(props: {
   }
 
   return (
-    <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10, bottom: 20 }}>
+    <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
       {paged.items.map((preview, index) => (
         <ConnectionRow
           key={preview.user.id}
@@ -2305,7 +2322,7 @@ function UserResults(props: {
   const tail = paged.items[paged.items.length - 1]
 
   return (
-    <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10, bottom: 20 }}>
+    <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
       {paged.items.map((preview, index) => (
         <ConnectionRow
           key={preview.user.id}
@@ -2339,7 +2356,7 @@ function NovelResults(props: {
 }) {
   const lastNovel = props.items[props.items.length - 1]
   return (
-    <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10, bottom: 20 }}>
+    <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
       {props.items.map((novel, index) => (
         <NovelCard key={novel.id} novel={novel} priority={index} />
       ))}

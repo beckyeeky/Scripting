@@ -701,7 +701,7 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
             <ErrorView message={paged.error} onRetry={handleRefresh} />
           </VStack>
         ) : (
-          <VStack alignment="leading" spacing={0} frame={{ maxWidth: "infinity" }} padding={{ bottom: 20 }}>
+          <VStack alignment="leading" spacing={0} frame={{ maxWidth: "infinity" }}>
             {/* 沉浸式顶部背景图与居中悬浮胶囊标题 */}
             <ImmersiveHeaderBanner url={coverUrl} previewUrl={coverPreviewUrl}>
               <HStack
@@ -727,7 +727,7 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
             <VStack
               alignment="center"
               spacing={6}
-              padding={{ top: 28, horizontal: 16, bottom: 8 }}
+              padding={{ top: 28, horizontal: 8, bottom: 8 }}
               frame={{ maxWidth: "infinity" }}
             >
               <HStack
@@ -800,7 +800,7 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
 
             {/* 章节列表分流 */}
             {kind === "novel" ? (
-              <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10, top: 4 }}>
+              <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8, top: 4 }}>
                 {paged.items.length === 0 && !paged.initialLoading ? (
                   <EmptyView
                     text={

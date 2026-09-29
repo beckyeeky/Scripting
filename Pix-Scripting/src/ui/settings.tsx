@@ -506,6 +506,11 @@ export function SettingsView() {
       <List
         scrollContentBackground={ambientBackground ? "hidden" : undefined}
         listSectionSpacing={6}
+        contentMargins={{
+          edges: ["top", "horizontal"],
+          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+          placement: "scrollContent",
+        }}
         sheet={{
           isPresented: activeSheet !== "none",
           onChanged: (val: boolean) => {

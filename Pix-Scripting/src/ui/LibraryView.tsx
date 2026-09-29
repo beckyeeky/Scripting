@@ -499,7 +499,7 @@ function LibraryFeed(props: {
           systemImage={novelPaged.hasFilteredContent ? "eye.slash" : "book"}
         />
       ) : (
-        <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10 }}>
+        <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
           {novelPaged.hasFilteredContent ? <FilteredContentNotice isNovel={true} /> : null}
           {novelPaged.items.map((novel, index) => (
             <NovelCard key={novel.id} novel={novel} priority={index} />

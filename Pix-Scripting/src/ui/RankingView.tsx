@@ -1079,7 +1079,7 @@ function NovelRankingFeedContent(props: {
           />
         )
       ) : (
-        <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 10 }}>
+        <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
           {paged.items.map((novel, index) => (
             <NovelCard
               key={novel.id}

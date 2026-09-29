@@ -119,8 +119,8 @@ export function RelatedUsersSheet(props: {
                   presentationContentInteraction="scrolls"
                 >
                   <LazyVStack
-                    spacing={10}
-                    padding={{ horizontal: CONNECTION_LIST_HORIZONTAL_PADDING, top: 12, bottom: 24 }}
+                    spacing={8}
+                    padding={{ horizontal: CONNECTION_LIST_HORIZONTAL_PADDING, bottom: 24 }}
                     frame={{ maxWidth: "infinity" }}
                   >
                     {users.map((item, index) => (
