@@ -1146,7 +1146,7 @@ export function SearchView(props: {
           ) : null}
 
           {/* 2. 搜索激活态且未输入关键词：展示搜索历史记录 */}
-          {!isSuggestingActive && (isSearchingMode || searchPresented) && !submitted && !query.trim() ? (
+          {!isSuggestingActive && (isSearchingMode || searchPresented) && !query.trim() ? (
             <SearchHistorySection
               history={getSearchHistory(targetScope)}
               onSelect={submitSearch}
@@ -1498,8 +1498,13 @@ export function SearchView(props: {
             value: searchPresented,
             onChanged: (val: boolean) => {
               setSearchPresented(val)
-              if (val) {
-                setIsSearchingMode(true)
+              setIsSearchingMode(val)
+              if (!val) {
+                setQuery("")
+                setTagSuggestions([])
+                setUserSuggestions([])
+                setTagSuggestionsLoading(false)
+                setUserSuggestionsLoading(false)
               }
             },
           },
