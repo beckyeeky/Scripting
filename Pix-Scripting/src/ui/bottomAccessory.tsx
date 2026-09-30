@@ -232,6 +232,7 @@ export function getActiveAccessoryKey(
   if (top.startsWith("rankingCustomPicker:")) return top
   if (top === "settings") return "settings"
   if (top === "customAISettings") return "customAISettings"
+  if (top.startsWith("searchResults:")) return top
   if (
     top.startsWith("tag:") ||
     top.startsWith("novelTag:") ||
@@ -1552,6 +1553,16 @@ export function renderRouteInfoBar(top: string) {
     return <DockInfoBar icon="book.pages.fill" title="小说书签" />
   if (top.startsWith("userBookmarks:"))
     return <DockInfoBar icon="heart" title="收藏作品" />
+
+  if (top.startsWith("searchResults:")) {
+    const hideNovels = loadSettings().hideNovels
+    const items = [
+      { tag: "illust", label: "插画·漫画" },
+      ...(hideNovels ? [] : [{ tag: "novel", label: "小说" }]),
+      { tag: "user", label: "用户" },
+    ]
+    return <DockSegmentedBar items={items} value="illust" onChanged={() => {}} />
+  }
 
   return null
 }

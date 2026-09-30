@@ -75,6 +75,13 @@ import {
   setActiveTabKind,
   useIsCurrentTab,
 } from "../store/routeNavigation"
+import {
+  createSearchSession,
+  getSearchSession,
+  searchResultsRoute,
+  popTabToRoot,
+  popTabLevel,
+} from "../store/searchNavigation"
 import { destinationElement } from "./DestinationElement"
 import { triggerHaptic } from "../platform/haptics"
 import {
@@ -460,22 +467,34 @@ function formatShortDateRange(
   return `${formatSingle(startStr)} ~ ${formatSingle(endStr)}`
 }
 
-export function SearchView(props: { onClose: () => void; active?: boolean }) {
+export function SearchView(props: {
+  onClose?: () => void
+  active?: boolean
+  sessionID?: number
+}) {
+  const searchSession = useMemo(() => {
+    return props.sessionID ? getSearchSession(props.sessionID) : undefined
+  }, [props.sessionID])
+  const isResultsPage = props.sessionID !== undefined
+
   useEffect(() => {
     setActiveTabKind("search")
   }, [])
 
   const [query, setQuery] = useState("")
-  const [submitted, setSubmitted] = useState("")
+  const [submitted, setSubmitted] = useState(() => searchSession?.keyword ?? "")
   const [searchPresented, setSearchPresented] = useState(false)
   const [isSearchingMode, setIsSearchingMode] = useState(false)
-  const [scope, setScope] = useState<SearchScope>("illust")
-  const [sort, setSort] = useState<SearchSort>("date_desc")
+  const [scope, setScope] = useState<SearchScope>(() => searchSession?.scope ?? "illust")
+  const [sort, setSort] = useState<SearchSort>(() => searchSession?.sort ?? "date_desc")
   const [isAdvancedSheetOpen, setIsAdvancedSheetOpen] = useState(false)
   const [advancedSheetKey, setAdvancedSheetKey] = useState(0)
-  const [advancedParams, setAdvancedParams] = useState<AdvancedSearchParams>(() =>
-    getDefaultAdvancedSearchParams(scope, query)
-  )
+  const [advancedParams, setAdvancedParams] = useState<AdvancedSearchParams>(() => {
+    if (searchSession?.advancedParams) {
+      return searchSession.advancedParams
+    }
+    return getDefaultAdvancedSearchParams(searchSession?.scope ?? "illust", searchSession?.keyword ?? "")
+  })
   const [hideNovels, setHideNovels] = useState(() => loadSettings().hideNovels)
   const [pageLayout, setPageLayout] = useState(() => loadSettings().pageLayout)
   const isAppleMusic = pageLayout === "appleMusic"
@@ -840,8 +859,12 @@ export function SearchView(props: { onClose: () => void; active?: boolean }) {
     return items
   }, [hideNovels])
 
+  const bottomAccessoryKey = isResultsPage
+    ? searchResultsRoute(props.sessionID!)
+    : "search"
+
   useRegisterBottomAccessory(
-    "search",
+    bottomAccessoryKey,
     searchScopeItems.length <= 1 ? null : (
       <DockSegmentedBar
         items={searchScopeItems}
@@ -852,23 +875,41 @@ export function SearchView(props: { onClose: () => void; active?: boolean }) {
     isAppleMusic
   )
 
-  function submitSearch(textToSearch: string) {
+  function pushSearchResults(
+    textToSearch: string,
+    targetScope: SearchScope = scope,
+    overrideSort: SearchSort = sort,
+    overrideAdvanced?: AdvancedSearchParams
+  ) {
     const trimmed = textToSearch.trim()
     if (!trimmed) return
     tagSeq.current += 1
     userSeq.current += 1
     debouncedTagAutocomplete.cancel()
     debouncedUserAutocomplete.cancel()
-    addSearchHistory(trimmed, scope)
-    setSubmitted(trimmed)
+    addSearchHistory(trimmed, targetScope)
+
+    const sessionID = createSearchSession({
+      keyword: trimmed,
+      scope: targetScope,
+      sort: overrideSort,
+      advancedParams: overrideAdvanced ?? getDefaultAdvancedSearchParams(targetScope, trimmed),
+    })
+
+    requestPixivRoute(searchResultsRoute(sessionID), "search")
+  }
+
+  function submitSearch(textToSearch: string) {
+    const trimmed = textToSearch.trim()
+    if (!trimmed) return
     setQuery("")
     setIsSearchingMode(false)
     setSearchPresented(false)
-    setAdvancedParams(getDefaultAdvancedSearchParams(scope, trimmed))
     setTagSuggestions([])
     setUserSuggestions([])
     setTagSuggestionsLoading(false)
     setUserSuggestionsLoading(false)
+    pushSearchResults(trimmed, scope, sort)
   }
 
   const activePaged =
@@ -1105,7 +1146,7 @@ export function SearchView(props: { onClose: () => void; active?: boolean }) {
           ) : null}
 
           {/* 2. 搜索激活态且未输入关键词：展示搜索历史记录 */}
-          {!isSuggestingActive && (isSearchingMode || searchPresented) && !submitted && !query.trim() ? (
+          {!isSuggestingActive && (isSearchingMode || searchPresented) && !query.trim() ? (
             <SearchHistorySection
               history={getSearchHistory(targetScope)}
               onSelect={submitSearch}
@@ -1146,7 +1187,7 @@ export function SearchView(props: { onClose: () => void; active?: boolean }) {
           ) : null}
 
           {/* 4. 已提交搜索：展示当前搜索结果列表 */}
-          {submitted && !searchPresented && !isSuggestingActive ? (
+          {submitted && !searchPresented && !isSearchingMode && !isSuggestingActive ? (
             <VStack spacing={10} frame={{ maxWidth: "infinity" }}>
               {/* 第一行：主搜索词胶囊 + 返回热门 */}
               <HStack
@@ -1169,11 +1210,15 @@ export function SearchView(props: { onClose: () => void; active?: boolean }) {
                   <Button
                     buttonStyle="plain"
                     action={() => {
-                      setSubmitted("")
-                      setQuery("")
-                      setIsSearchingMode(false)
-                      setSearchPresented(false)
-                      setAdvancedParams(getDefaultAdvancedSearchParams(scope, ""))
+                      if (isResultsPage) {
+                        popTabLevel("search")
+                      } else {
+                        setSubmitted("")
+                        setQuery("")
+                        setIsSearchingMode(false)
+                        setSearchPresented(false)
+                        setAdvancedParams(getDefaultAdvancedSearchParams(scope, ""))
+                      }
                     }}
                   >
                     <Image
@@ -1189,11 +1234,15 @@ export function SearchView(props: { onClose: () => void; active?: boolean }) {
                 <Button
                   buttonStyle="plain"
                   action={() => {
-                    setSubmitted("")
-                    setQuery("")
-                    setIsSearchingMode(false)
-                    setSearchPresented(false)
-                    setAdvancedParams(getDefaultAdvancedSearchParams(scope, ""))
+                    if (isResultsPage) {
+                      popTabToRoot("search")
+                    } else {
+                      setSubmitted("")
+                      setQuery("")
+                      setIsSearchingMode(false)
+                      setSearchPresented(false)
+                      setAdvancedParams(getDefaultAdvancedSearchParams(scope, ""))
+                    }
                   }}
                 >
                   <HStack alignment="center" spacing={4}>
@@ -1373,29 +1422,13 @@ export function SearchView(props: { onClose: () => void; active?: boolean }) {
               currentParams={advancedParams}
               settings={loadSettings()}
               onApply={(params: any) => {
-                setAdvancedParams(params)
-                setScope(params.scope)
-                setSort(params.sort)
-                const trimmedWord = params.word.trim()
-                if (trimmedWord) {
-                  setQuery("")
-                  setSubmitted(trimmedWord)
-                  addSearchHistory(trimmedWord, params.scope)
-                } else {
-                  setQuery("")
-                  setSubmitted("")
-                }
-                tagSeq.current += 1
-                userSeq.current += 1
-                debouncedTagAutocomplete.cancel()
-                debouncedUserAutocomplete.cancel()
-                setTagSuggestions([])
-                setUserSuggestions([])
-                setTagSuggestionsLoading(false)
-                setUserSuggestionsLoading(false)
+                setIsAdvancedSheetOpen(false)
                 setIsSearchingMode(false)
                 setSearchPresented(false)
-                setIsAdvancedSheetOpen(false)
+                const trimmedWord = params.word.trim()
+                if (trimmedWord) {
+                  pushSearchResults(trimmedWord, params.scope, params.sort, params)
+                }
               }}
               onCancel={() => setIsAdvancedSheetOpen(false)}
             />
@@ -1409,7 +1442,8 @@ export function SearchView(props: { onClose: () => void; active?: boolean }) {
           isSplitViewActive,
           isFullScreenPad,
           submitted,
-          onClose: props.onClose,
+          hideClose: isResultsPage,
+          onClose: props.onClose ?? (() => {}),
           onScopeChange: handleScopeChange,
           sort,
           onSortChange: selectSort,
@@ -1445,14 +1479,21 @@ export function SearchView(props: { onClose: () => void; active?: boolean }) {
         searchable={{
           value: query,
           onChanged: onQueryChanged,
-          placement: "navigationBarDrawer",
+          placement: isResultsPage
+            ? "navigationBarDrawerAutomaticDisplay"
+            : "navigationBarDrawer",
           prompt: "输入关键词",
           presented: {
             value: searchPresented,
             onChanged: (val: boolean) => {
               setSearchPresented(val)
-              if (val) {
-                setIsSearchingMode(true)
+              setIsSearchingMode(val)
+              if (!val) {
+                setQuery("")
+                setTagSuggestions([])
+                setUserSuggestions([])
+                setTagSuggestionsLoading(false)
+                setUserSuggestionsLoading(false)
               }
             },
           },
@@ -1491,6 +1532,7 @@ function searchToolbar(props: {
   isFullScreenPad?: boolean
   submitted?: string
   hasAdvancedFilters?: boolean
+  hideClose?: boolean
   onClose: () => void
   onScopeChange: (scope: SearchScope) => void
   sort: SearchSort
@@ -1618,6 +1660,7 @@ function searchToolbar(props: {
       isCompact: !isFullScreenPad,
       isSplitViewActive: props.isSplitViewActive,
       hidePrincipalOnWide: isFullScreenPad || props.isSplitViewActive,
+      hideClose: props.hideClose,
     }
   )
 }
@@ -1925,13 +1968,13 @@ function SearchHistorySection(props: {
               {index > 0 ? <Divider /> : null}
               <HStack
                 alignment="center"
-                spacing={8}
-                padding={{ horizontal: 14, vertical: 11 }}
+                spacing={0}
                 frame={{ maxWidth: "infinity" }}
               >
                 <Button
                   buttonStyle="plain"
                   action={() => onSelect(item)}
+                  contentShape="rect"
                   contextMenu={{
                     menuItems: (
                       <Group>
@@ -1968,7 +2011,13 @@ function SearchHistorySection(props: {
                   }}
                   frame={{ maxWidth: "infinity", alignment: "leading" }}
                 >
-                  <HStack spacing={10} alignment="center" frame={{ maxWidth: "infinity", alignment: "leading" }}>
+                  <HStack
+                    spacing={10}
+                    alignment="center"
+                    contentShape="rect"
+                    padding={{ horizontal: 14, vertical: 12 }}
+                    frame={{ maxWidth: "infinity", alignment: "leading" }}
+                  >
                     <Image
                       systemName="magnifyingglass"
                       font="subheadline"
@@ -1982,6 +2031,7 @@ function SearchHistorySection(props: {
                 </Button>
                 <Button
                   buttonStyle="plain"
+                  contentShape="rect"
                   action={() => {
                     try {
                       triggerHaptic("medium")
@@ -1991,7 +2041,8 @@ function SearchHistorySection(props: {
                 >
                   <HStack
                     alignment="center"
-                    padding={{ horizontal: 8, vertical: 6 }}
+                    contentShape="rect"
+                    padding={{ horizontal: 12, vertical: 12 }}
                   >
                     <Image
                       systemName="xmark.circle.fill"

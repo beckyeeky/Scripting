@@ -493,187 +493,40 @@ function cacheLimitOf(value: unknown): number | null {
     : DEFAULT_SETTINGS.cacheLimitMB
 }
 
-function parseImageConcurrency(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-    return Math.max(1, Math.min(90, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.imageBatchConcurrency
-}
-
-function parseForegroundConcurrency(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-    return Math.max(1, Math.min(30, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.imageForegroundConcurrency
-}
-
-function parsePrefetchConcurrency(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.max(0, Math.min(30, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.imagePrefetchConcurrency
-}
-
-function parseAITranslateConcurrency(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 1) {
-    return Math.max(1, Math.min(6, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.aiTranslateConcurrency
-}
-
-function parseFadeInDuration(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 1) {
-    return Math.max(1, Math.min(500, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.imageFadeInDuration
-}
-
-function parseBlurCrossFadeDuration(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.max(0, Math.min(250, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.blurCrossFadeDuration
-}
-
-function parseBlurCrossFadeRadius(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.max(0, Math.min(30, Math.round(value * 10) / 10))
-  }
-  return DEFAULT_SETTINGS.blurCrossFadeRadius
-}
-
-function parseSharpenFadeDuration(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.max(0, Math.min(250, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.sharpenFadeDuration
-}
-
-function parseSharpenBlurRadius(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.max(0, Math.min(8, Math.round(value * 10) / 10))
-  }
-  return DEFAULT_SETTINGS.sharpenBlurRadius
-}
-
-function parseBackgroundPreheatDuration(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.max(0, Math.min(2000, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.backgroundPreheatDuration
-}
-
-function parseLoadingDuration(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.max(0, Math.min(30000, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.loadingAnimationDuration
-}
-
-function parseNovelLoadingDuration(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.max(0, Math.min(5000, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.novelLoadingDuration
-}
-
-function parseLaunchDuration(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.max(0, Math.min(30000, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.launchAnimationDuration
-}
-
-function parseFeedBottomInset(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
-    return Math.max(0, Math.min(500, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.feedBottomInset
-}
-
-function parseWidgetPoolCapacity(value: unknown): number {
+function clampNum(value: unknown, min: number, max: number, fallback: number, step = 1): number {
   if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(10, Math.min(30, Math.round(value)))
+    const v = step === 1 ? Math.round(value) : Math.round(value / step) * step
+    return Math.max(min, Math.min(max, v))
   }
-  return DEFAULT_SETTINGS.widgetPoolCapacity
+  return fallback
 }
 
-function parseWidgetReloadInterval(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(1, Math.min(1440, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.widgetReloadIntervalMinutes
-}
-
-function parseGeminiTransitionInterval(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(500, Math.min(10000, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.geminiTransitionIntervalMs
-}
-
-function parseGeminiTransitionDuration(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(300, Math.min(9000, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.geminiTransitionDurationMs
-}
-
-function parseGeminiRotationPeriod(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(0, Math.min(60, Math.round(value * 10) / 10))
-  }
-  return DEFAULT_SETTINGS.geminiRotationPeriodSec
-}
-
-function parseGeminiSwingDuration(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(1000, Math.min(15000, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.geminiSwingDurationMs
-}
-
-function parseGeminiCenterOffsetY(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(-350, Math.min(-50, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.geminiCenterOffsetY
-}
-
-function parseGeminiWingOffsetX(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(30, Math.min(200, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.geminiWingOffsetX
-}
-
-function parseGeminiSwingDistance(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(5, Math.min(120, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.geminiSwingDistance
-}
-
-function parseGeminiBlurRadius(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(30, Math.min(200, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.geminiBlurRadius
-}
-
-function parseGeminiLuminousBoostRatio(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(0, Math.min(100, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.geminiLuminousBoostRatio
-}
-
-function parseGeminiLightModeAlphaRatio(value: unknown): number {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return Math.max(10, Math.min(100, Math.round(value)))
-  }
-  return DEFAULT_SETTINGS.geminiLightModeAlphaRatio
-}
+const parseImageConcurrency = (v: unknown) => clampNum(v, 1, 90, DEFAULT_SETTINGS.imageBatchConcurrency)
+const parseForegroundConcurrency = (v: unknown) => clampNum(v, 1, 30, DEFAULT_SETTINGS.imageForegroundConcurrency)
+const parsePrefetchConcurrency = (v: unknown) => clampNum(v, 0, 30, DEFAULT_SETTINGS.imagePrefetchConcurrency)
+const parseAITranslateConcurrency = (v: unknown) => clampNum(v, 1, 6, DEFAULT_SETTINGS.aiTranslateConcurrency)
+const parseFadeInDuration = (v: unknown) => clampNum(v, 1, 500, DEFAULT_SETTINGS.imageFadeInDuration)
+const parseBlurCrossFadeDuration = (v: unknown) => clampNum(v, 0, 250, DEFAULT_SETTINGS.blurCrossFadeDuration)
+const parseBlurCrossFadeRadius = (v: unknown) => clampNum(v, 0, 30, DEFAULT_SETTINGS.blurCrossFadeRadius, 0.1)
+const parseSharpenFadeDuration = (v: unknown) => clampNum(v, 0, 250, DEFAULT_SETTINGS.sharpenFadeDuration)
+const parseSharpenBlurRadius = (v: unknown) => clampNum(v, 0, 8, DEFAULT_SETTINGS.sharpenBlurRadius, 0.1)
+const parseBackgroundPreheatDuration = (v: unknown) => clampNum(v, 0, 2000, DEFAULT_SETTINGS.backgroundPreheatDuration)
+const parseLoadingDuration = (v: unknown) => clampNum(v, 0, 30000, DEFAULT_SETTINGS.loadingAnimationDuration)
+const parseNovelLoadingDuration = (v: unknown) => clampNum(v, 0, 5000, DEFAULT_SETTINGS.novelLoadingDuration)
+const parseLaunchDuration = (v: unknown) => clampNum(v, 0, 30000, DEFAULT_SETTINGS.launchAnimationDuration)
+const parseFeedBottomInset = (v: unknown) => clampNum(v, 0, 500, DEFAULT_SETTINGS.feedBottomInset)
+const parseWidgetPoolCapacity = (v: unknown) => clampNum(v, 10, 30, DEFAULT_SETTINGS.widgetPoolCapacity)
+const parseWidgetReloadInterval = (v: unknown) => clampNum(v, 1, 1440, DEFAULT_SETTINGS.widgetReloadIntervalMinutes)
+const parseGeminiTransitionInterval = (v: unknown) => clampNum(v, 500, 10000, DEFAULT_SETTINGS.geminiTransitionIntervalMs)
+const parseGeminiTransitionDuration = (v: unknown) => clampNum(v, 300, 9000, DEFAULT_SETTINGS.geminiTransitionDurationMs)
+const parseGeminiRotationPeriod = (v: unknown) => clampNum(v, 0, 60, DEFAULT_SETTINGS.geminiRotationPeriodSec, 0.1)
+const parseGeminiSwingDuration = (v: unknown) => clampNum(v, 1000, 15000, DEFAULT_SETTINGS.geminiSwingDurationMs)
+const parseGeminiCenterOffsetY = (v: unknown) => clampNum(v, -350, -50, DEFAULT_SETTINGS.geminiCenterOffsetY)
+const parseGeminiWingOffsetX = (v: unknown) => clampNum(v, 30, 200, DEFAULT_SETTINGS.geminiWingOffsetX)
+const parseGeminiSwingDistance = (v: unknown) => clampNum(v, 5, 120, DEFAULT_SETTINGS.geminiSwingDistance)
+const parseGeminiBlurRadius = (v: unknown) => clampNum(v, 30, 200, DEFAULT_SETTINGS.geminiBlurRadius)
+const parseGeminiLuminousBoostRatio = (v: unknown) => clampNum(v, 0, 100, DEFAULT_SETTINGS.geminiLuminousBoostRatio)
+const parseGeminiLightModeAlphaRatio = (v: unknown) => clampNum(v, 10, 100, DEFAULT_SETTINGS.geminiLightModeAlphaRatio)
 
 function parseStringArray(value: unknown, fallback: string[]): string[] {
   if (Array.isArray(value)) {

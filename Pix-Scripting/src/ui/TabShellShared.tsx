@@ -21,6 +21,7 @@ import {
   setPixivRouteNavigator,
   type PixivTabKind,
 } from "../store/routeNavigation"
+import { registerTabPathController } from "../store/searchNavigation"
 import { DiscoveryView } from "./DiscoveryView"
 import { RankingView } from "./RankingView"
 import { FollowFeedView } from "./FollowFeedView"
@@ -134,12 +135,36 @@ export function useTabNavigation<T extends string | null>(selection: Observable<
       if (cur.length > 0 && cur[cur.length - 1] === route) return
       path.setValue([...cur, route])
     }
+    const pop = (path: Observable<string[]>, count = 1) => {
+      const cur = path.value
+      if (cur.length === 0) return
+      path.setValue(cur.slice(0, Math.max(0, cur.length - count)))
+    }
+    const popToRoot = (path: Observable<string[]>) => {
+      if (path.value.length > 0) {
+        path.setValue([])
+      }
+    }
 
     const unregisterDiscovery = registerTabNavigator("discovery", (route) => push(discoveryPath, route))
     const unregisterRanking = registerTabNavigator("ranking", (route) => push(rankingPath, route))
     const unregisterFollowing = registerTabNavigator("following", (route) => push(followingPath, route))
     const unregisterSearch = registerTabNavigator("search", (route) => push(searchPath, route))
     const unregisterMore = registerTabNavigator("more", (route) => push(morePath, route))
+
+    const tabs: Array<{ kind: string; obs: Observable<string[]> }> = [
+      { kind: "discovery", obs: discoveryPath },
+      { kind: "ranking", obs: rankingPath },
+      { kind: "following", obs: followingPath },
+      { kind: "search", obs: searchPath },
+      { kind: "more", obs: morePath },
+    ]
+    const unregisterControllers = tabs.map(({ kind, obs }) =>
+      registerTabPathController(kind, {
+        popToRoot: () => popToRoot(obs),
+        pop: (count = 1) => pop(obs, count),
+      })
+    )
 
     const paths: TabPaths = { discoveryPath, rankingPath, followingPath, searchPath, morePath }
 
@@ -155,6 +180,7 @@ export function useTabNavigation<T extends string | null>(selection: Observable<
       unregisterFollowing()
       unregisterSearch()
       unregisterMore()
+      unregisterControllers.forEach((fn) => fn())
       unregisterGlobal()
     }
   }, [selection, discoveryPath, rankingPath, followingPath, searchPath, morePath])

@@ -34,6 +34,11 @@ export interface AppToolbarOptions {
    * 右栏栏首是内胆自绘的返回箭头（DetailPaneRouteView），不再重复放关闭按钮。
    */
   isDetailPane?: boolean
+  /**
+   * 是否隐藏左侧关闭/全屏按钮。
+   * 用于被原生 NavigationStack 压栈的二级/结果页面，让位给系统原生返回箭头。
+   */
+  hideClose?: boolean
 }
 
 /**
@@ -90,7 +95,9 @@ export function appToolbar(
     </Button>
   )
 
-  if (isHomeScreen) {
+  if (options?.hideClose) {
+    leadingButton = undefined
+  } else if (isHomeScreen) {
     leadingButton = <FullScreenToggleButton key="app-toolbar-fullscreen-toggle-host" />
   } else if (isSplit && options?.isDetailPane) {
     // 分栏外壳的**右栏**：栏首已经是内胆自绘的返回箭头，不再重复放 ×。

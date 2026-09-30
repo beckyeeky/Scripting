@@ -53,6 +53,13 @@ function SettingsView(props: any) {
   return <Comp {...props} />
 }
 
+// 延迟引用 SearchView 渲染原生压栈搜索结果页
+function SearchResultsRoute(props: { sessionID: number }) {
+  const mod = require("./search")
+  const Comp = mod.SearchView || mod.default
+  return <Comp sessionID={props.sessionID} />
+}
+
 // 解析 "xxx:123" 形式的数值 id；非法输入返回 null（避免 NaN 传给详情页）
 function parseID(value: string, prefix: string): number | null {
   const normalized = normalizeRoute(value)
@@ -188,6 +195,12 @@ export function renderDestination(rawPage: string) {
     const kind = page.slice("rankingCustomPicker:".length) as CustomRankingPickerKind
     if (kind === "illust" || kind === "manga" || kind === "novel") {
       return <RankingCustomPickerView kind={kind} />
+    }
+  }
+  if (page.startsWith("searchResults:")) {
+    const sessionID = Number(page.slice("searchResults:".length))
+    if (Number.isFinite(sessionID) && sessionID > 0) {
+      return <SearchResultsRoute sessionID={sessionID} />
     }
   }
   if (page === "downloadManager") return <DownloadManagerView />
