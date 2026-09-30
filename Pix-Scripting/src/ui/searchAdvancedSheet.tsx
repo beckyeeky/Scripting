@@ -472,7 +472,7 @@ export function SearchAdvancedSheet(props: {
           header={<Text>搜索关键词</Text>}
           footer={
             <Text>
-              {"提示：空格表示且；OR 表示或；- 表示排除；支持用 () 组合优先级。\n示例：(初音 OR 巡音) 桜 -R-18"}
+              {"提示：空格或 and 表示且；or 表示或；- 或 not 表示排除；支持用 () 组合优先级。\n示例：(初音 or 巡音) 桜 not AI"}
             </Text>
           }
         >

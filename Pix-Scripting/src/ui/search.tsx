@@ -524,8 +524,8 @@ export function SearchView(props: {
   const [trendingNovel, setTrendingNovel] = useState<PixivTrendingTag[]>(() => cachedTrendingNovel)
   const [trendingIllustLoaded, setTrendingIllustLoaded] = useState<boolean>(() => cachedTrendingIllust.length > 0)
   const [trendingNovelLoaded, setTrendingNovelLoaded] = useState<boolean>(() => cachedTrendingNovel.length > 0)
-  const [trendingIllustLoading, setTrendingIllustLoading] = useState(false)
-  const [trendingNovelLoading, setTrendingNovelLoading] = useState(false)
+  const [trendingIllustLoading, setTrendingIllustLoading] = useState(() => cachedTrendingIllust.length === 0)
+  const [trendingNovelLoading, setTrendingNovelLoading] = useState(() => cachedTrendingNovel.length === 0)
   const [trendingIllustError, setTrendingIllustError] = useState<string | null>(null)
   const [trendingNovelError, setTrendingNovelError] = useState<string | null>(null)
 
@@ -1005,7 +1005,7 @@ export function SearchView(props: {
     userRecommendedPaged.items.length,
   ])
   const isTabActive = useIsCurrentTab("search")
-  const { ambientBackground } = useExperimentalAmbientPalette(ambientImageUrl, isTabActive)
+  const { ambientBackground } = useExperimentalAmbientPalette(ambientImageUrl, isTabActive || !isResultsPage)
 
   const directTargets = useMemo(
     () => parseDirectRouteTargets(query, scope, hideNovels),
