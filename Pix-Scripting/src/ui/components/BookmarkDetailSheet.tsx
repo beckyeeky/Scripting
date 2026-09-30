@@ -26,10 +26,8 @@ import {
   addBookmark,
   addNovelBookmark,
   bookmarkDetail,
-  bookmarkTags,
   followUser,
   novelBookmarkDetail,
-  novelBookmarkTags,
   removeBookmark,
   removeNovelBookmark,
 } from "../../api/pixiv"

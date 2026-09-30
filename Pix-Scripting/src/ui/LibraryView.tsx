@@ -56,10 +56,9 @@ import {
   IllustFlowFeed,
   NovelCard,
   RefreshableScrollView,
-  BookmarkTagFilterBar,
 } from "./components"
 
-export { BookmarkTagFilterBar as BookmarkTags }
+import { TagFilterBar } from "./TagFilterBar"
 import { requestPixivRoute } from "../store/routeNavigation"
 import { DockSegmentedBar, useRegisterBottomAccessory } from "./bottomAccessory"
 import { PixivisionBookmarksContent } from "./PixivisionBookmarks"
@@ -311,7 +310,7 @@ function libraryToolbar(props: {
   }
 }
 
-// 收藏标签筛选已由 components/BookmarkTagFilterBar 统一流式精致排版承载
+// 收藏标签筛选已由统一的 TagFilterBar 承载（数据源 = 官方 App API，与官方 App「我的收藏」口径一致）
 
 
 
@@ -443,7 +442,7 @@ function LibraryFeed(props: {
   if (kind === "illustration") {
     return (
       <VStack alignment="leading" spacing={10}>
-        <BookmarkTagFilterBar
+        <TagFilterBar
           tags={illustTags}
           selectedTag={illustActiveTag}
           onSelectTag={setIllustActiveTag}
@@ -480,7 +479,7 @@ function LibraryFeed(props: {
 
   return (
     <VStack alignment="leading" spacing={10}>
-      <BookmarkTagFilterBar
+      <TagFilterBar
         tags={novelTags}
         selectedTag={novelActiveTag}
         onSelectTag={setNovelActiveTag}

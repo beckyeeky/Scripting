@@ -22,7 +22,7 @@ import {
   PAGE_TOOLBAR_BACKGROUND_VISIBILITY,
 } from "./components/pageChrome"
 import {
-  bookmarkTags,
+  fetchUserBookmarkTags,
   nextIllustrations,
   nextNovels,
   userBookmarks,
@@ -37,7 +37,7 @@ import {
 } from "../store/bookmarkSync"
 import { useAsyncGuard, useLatest, usePagedList, currentBatchSize, useLayoutMetrics } from "./Hooks"
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl } from "./ambient"
-import type { PixivBookmarkTag, PixivIllustration, PixivNovel } from "../types"
+import type { PixivIllustration, PixivNovel, PixivWebUserTag } from "../types"
 import {
   filterIllustrationBookmarks,
   filterNovelBookmarks,
@@ -50,8 +50,8 @@ import {
   IllustFlowFeed,
   NovelCard,
   RefreshableScrollView,
-  BookmarkTagFilterBar,
 } from "./components"
+import { TagFilterBar } from "./TagFilterBar"
 import { DockSegmentedBar, useRegisterBottomAccessory } from "./bottomAccessory"
 
 type BookmarkKind = "illustration" | "novel"
@@ -236,17 +236,16 @@ function UserBookmarksFeed(props: {
   onRegisterRefresh?: (fn: () => Promise<void>) => void
 }) {
   const { userID, kind, onFirstImageUrlChange, onRegisterRefresh } = props
-  const [tags, setTags] = useState<PixivBookmarkTag[]>([])
+  const [tags, setTags] = useState<PixivWebUserTag[]>([])
   const [activeTag, setActiveTag] = useState<string | null>(null)
   const guard = useAsyncGuard()
 
   async function loadTags() {
     const g = guard()
     try {
-      const page = await session.call((token) =>
-        bookmarkTags(userID, "public", token)
-      )
-      if (g.isCurrent()) setTags(page.items)
+      const targetKind = kind === "illustration" ? "illust" : "novel"
+      const list = await fetchUserBookmarkTags(userID, targetKind, 20)
+      if (g.isCurrent()) setTags(list)
     } catch {
       if (g.isCurrent()) setTags([])
     }
@@ -263,19 +262,18 @@ function UserBookmarksFeed(props: {
   })
 
   const novelPaged = usePagedList<PixivNovel>({
-    first: (token) => userNovelBookmarks(userID, "public", null, token),
+    first: (token) => userNovelBookmarks(userID, "public", activeTag, token),
     more: (nextURL, token) => nextNovels(nextURL, token),
     filter: filterNovelBookmarks,
-    deps: [userID],
+    deps: [userID, activeTag],
     enabled: kind === "novel",
     onBatchPublished: (_, pendingItems) =>
       prefetch(pendingItems.slice(0, currentBatchSize()).map(novelThumbUrlOf)).cancel,
   })
 
   useEffect(() => {
-    if (kind === "illustration") {
-      void loadTags()
-    }
+    setActiveTag(null)
+    void loadTags()
   }, [userID, kind])
 
   const illustPagedRef = useLatest(illustPaged)
@@ -334,7 +332,7 @@ function UserBookmarksFeed(props: {
     if (kind === "illustration") {
       await Promise.all([illustPaged.refresh(), loadTags()])
     } else {
-      await novelPaged.refresh()
+      await Promise.all([novelPaged.refresh(), loadTags()])
     }
   }, [kind, illustPaged.refresh, novelPaged.refresh])
 
@@ -345,7 +343,7 @@ function UserBookmarksFeed(props: {
   if (kind === "illustration") {
     return (
       <VStack alignment="leading" spacing={10}>
-        <BookmarkTagFilterBar
+        <TagFilterBar
           tags={tags}
           selectedTag={activeTag}
           onSelectTag={setActiveTag}
@@ -379,7 +377,7 @@ function UserBookmarksFeed(props: {
 
   return (
     <VStack alignment="leading" spacing={10}>
-      <BookmarkTagFilterBar
+      <TagFilterBar
         tags={tags}
         selectedTag={activeTag}
         onSelectTag={setActiveTag}

@@ -258,6 +258,7 @@ export async function bookmarks(
   return { items: json?.illusts ?? [], nextURL: json?.next_url ?? null }
 }
 
+/** 收藏写入面板专用：App API（OAuth token，不依赖网页 cookie） */
 export async function bookmarkTags(
   userID: number,
   restrict: Visibility,
@@ -957,37 +958,18 @@ function mapWebNovelToPixivNovel(item: WebNovelWorkItem): PixivNovel {
   }
 }
 
+/**
+ * 用户主页作品标签：只用网页桌面端点。
+ * 实测：touch (`/touch/ajax/user/illusts`) 的 body.tags 只有 {tag, tag_translation}，
+ * **没有 cnt**，无法满足「计数上屏」口径，故弃用；桌面端点返回
+ * {tag, tag_translation, tag_yomigana, cnt}，与收藏标签同源同口径。
+ */
 export async function fetchUserWorkTags(
   userID: number,
   kind: "illust" | "manga" | "novel",
   limit = 20
 ): Promise<PixivWebUserTag[]> {
   const origin = getWebOrigin()
-  const touchUrl =
-    kind === "novel"
-      ? `${origin}/touch/ajax/user/novels?id=${userID}&sensitiveFilterMode=userSetting&lang=zh`
-      : `${origin}/touch/ajax/user/illusts?id=${userID}&type=${kind === "illust" ? "illust" : "manga"}&sensitiveFilterMode=userSetting&lang=zh`
-  try {
-    const json = await apiGetPublicJson<{
-      error: boolean
-      body?: { tags?: PixivWebUserTag[] }
-    }>(
-      touchUrl,
-      getAllowedWebOrigins(),
-      getWebHeaders(`${origin}/users/${userID}`)
-    )
-    if (
-      json?.error === false &&
-      Array.isArray(json.body?.tags) &&
-      json.body.tags.length > 0
-    ) {
-      return json.body.tags.slice(0, limit)
-    }
-  } catch (error) {
-    console.log("fetchUserWorkTags touch error:", error)
-  }
-
-  // Fallback to desktop ajax tags endpoint if touch endpoint fails or returns empty
   const path = kind === "illust" ? "illusts" : kind === "manga" ? "manga" : "novels"
   const url = `${origin}/ajax/user/${userID}/${path}/tags?lang=zh`
   try {
@@ -997,14 +979,93 @@ export async function fetchUserWorkTags(
       getWebHeaders(`${origin}/users/${userID}`)
     )
     if (json?.error === false && Array.isArray(json.body)) {
-      const sorted = [...json.body].sort((a, b) => (b.cnt ?? 0) - (a.cnt ?? 0))
-      return sorted.slice(0, limit)
+      return [...json.body]
+        .sort((a, b) => (b.cnt ?? 0) - (a.cnt ?? 0))
+        .slice(0, limit)
     }
     return []
   } catch (error) {
-    console.log("fetchUserWorkTags fallback error:", error)
+    console.log("fetchUserWorkTags error:", error)
     return []
   }
+}
+
+type RawWebBookmarkTag = Record<string, unknown>
+
+function normalizeWebBookmarkTags(
+  raw: Array<Record<string, unknown>> | undefined | null,
+  limit = 0
+): PixivWebUserTag[] {
+  const dedup = new Map<string, number>()
+  for (const item of raw ?? []) {
+    if (!item) continue
+    const tag =
+      typeof item.tag === "string" && item.tag
+        ? item.tag
+        : typeof item.name === "string" && item.name
+        ? item.name
+        : ""
+    if (!tag || tag === "未分類" || tag === "未分类") continue
+    const cnt =
+      typeof item.cnt === "number" ? item.cnt : typeof item.count === "number" ? item.count : 0
+    const prev = dedup.get(tag)
+    if (prev === undefined || cnt > prev) dedup.set(tag, cnt)
+  }
+  const sorted = Array.from(dedup.entries())
+    .map(([tag, cnt]) => ({ tag, cnt }))
+    .sort((a, b) => b.cnt - a.cnt)
+  return limit > 0 ? sorted.slice(0, limit) : sorted
+}
+
+/**
+ * 收藏分类标签唯一数据源：网页桌面端点（touch 无对应端点，App API 口径不一致已弃用）。
+ * 响应 body.public / body.private 分列，原样返回两组；无网页登录态时返回 null。
+ */
+async function fetchWebBookmarkTagGroups(
+  userID: number,
+  kind: "illust" | "novel"
+): Promise<{ public: RawWebBookmarkTag[]; private: RawWebBookmarkTag[] } | null> {
+  if (!session.webCookie) return null
+  const origin = getWebOrigin()
+  const path = kind === "illust" ? "illusts" : "novels"
+  const url = `${origin}/ajax/user/${userID}/${path}/bookmark/tags?lang=zh`
+  try {
+    const json = await apiGetPublicJson<{
+      error: boolean
+      body?: { public?: RawWebBookmarkTag[]; private?: RawWebBookmarkTag[] } | RawWebBookmarkTag[]
+    }>(url, getAllowedWebOrigins(), getWebHeaders(`${origin}/users/${userID}/bookmarks/artworks`))
+    if (json?.error !== false || !json.body) return null
+    const body: any = json.body
+    if (Array.isArray(body)) return { public: body, private: [] }
+    return {
+      public: Array.isArray(body.public) ? body.public : [],
+      private: Array.isArray(body.private) ? body.private : [],
+    }
+  } catch (error) {
+    console.log("fetchWebBookmarkTagGroups error:", error)
+    return null
+  }
+}
+
+/**
+ * 收藏分类标签（网页口径：剔除「未分類」、按 cnt 降序）。
+ * scope 默认 all = 公开 + 私密合并去重；limit <= 0 表示不截断。
+ */
+export async function fetchUserBookmarkTags(
+  userID: number,
+  kind: "illust" | "novel",
+  limit = 20,
+  scope: "public" | "private" | "all" = "all"
+): Promise<PixivWebUserTag[]> {
+  const groups = await fetchWebBookmarkTagGroups(userID, kind)
+  if (!groups) return []
+  const raw =
+    scope === "public"
+      ? groups.public
+      : scope === "private"
+      ? groups.private
+      : [...groups.public, ...groups.private]
+  return normalizeWebBookmarkTags(raw, limit)
 }
 
 export async function fetchUserTagFilteredWorks(
@@ -1664,6 +1725,7 @@ export async function novelCommentReplies(
   return { items: json?.comments ?? [], nextURL: json?.next_url ?? null }
 }
 
+/** 收藏写入面板专用：App API（小说端点无 user_id 参数，仅本人可用） */
 export async function novelBookmarkTags(
   restrict: Visibility,
   accessToken: string

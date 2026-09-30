@@ -82,7 +82,7 @@ import {
   RelatedUsersSheet,
 } from "./components"
 import { UserProfileHeader } from "./UserProfileHeader"
-import { UserWorkTagFilterBar } from "./UserWorkTagFilterBar"
+import { TagFilterBar } from "./TagFilterBar"
 import { UserWorksFeedSection, type UserWorkKind } from "./UserWorksFeedSection"
 import { DockSegmentedBar, useRegisterBottomAccessory } from "./bottomAccessory"
 
@@ -981,7 +981,7 @@ export function UserDetailView(props: { userID: number }) {
                   frame={{ maxWidth: "infinity" }}
                 >
                   <UserProfileHeader detail={detail} webDetail={webDetail} />
-                  <UserWorkTagFilterBar
+                  <TagFilterBar
                     tags={tagsByKind[k] ?? []}
                     selectedTag={isCurrent ? selectedTag : null}
                     onSelectTag={setSelectedTag}
