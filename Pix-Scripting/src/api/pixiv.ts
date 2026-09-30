@@ -346,11 +346,10 @@ export async function deleteIllust(
 /**
  * 格式化未加括号的连续 OR 词链
  */
-function formatOrCluster(cluster: string[]): string {
-  while (cluster[0] === "OR") cluster.shift()
-  while (cluster[cluster.length - 1] === "OR") cluster.pop()
-  if (cluster.length <= 1) return cluster.join(" ")
-  return `(${cluster.join(" ")})`
+function formatOrCluster(c: string[]): string {
+  while (c[0] === "OR") c.shift()
+  while (c[c.length - 1] === "OR") c.pop()
+  return c.length > 1 ? `(${c.join(" ")})` : c.join(" ")
 }
 
 /**
@@ -407,74 +406,66 @@ function wrapUnparenthesizedOrChains(text: string): string {
 
 /**
  * 查询转译引擎：将用户输入的布尔运算符、英文逻辑词与符号编译为 Pixiv 服务端标准检索式
- * - 且（AND）：空格、+、and
- * - 或（OR）：|、/、or、OR（自动安全括号化）
- * - 排除（NOT）：-、not、全角负号（支持 "A - B" 空格吸附）
- * - 优先级与容错：支持中文全角括号转换、手滑漏右括号自动闭合平衡
+ * - 且（AND）：空格分隔（全角空格归一化为半角空格；支持独立成词的 and）
+ * - 或（OR）：大写 OR、独立成词的 or（自动安全括号化）
+ * - 排除（NOT）：前置空格的减号 -tag、独立成词的 not（支持 "A - B" 空格吸附）
+ * - 标签字面量保护：完全释放 /、+ 以及标签固有的全半角消歧括号（如 Fate/Grand Order、Happy+、セイバー(Fate)、初音未来（vocaloid））
+ * - 容错与优先级：含 OR 的全角括号转译为半角分组、手滑漏右括号自动闭合、复合排除 -(A B) 自动平铺为 -A -B
  */
 export function compileSearchQuery(query: string): string {
   if (!query || typeof query !== "string") return ""
   let q = query.trim()
   if (!q) return ""
 
-  // 1. 全角字符归一化
+  // 1. 全角空白与中文标点归一化（中文全角括号归一化为 Pixiv 官方标准半角括号，全面契合手机中文输入法）
   q = q
     .replace(/\u3000/g, " ")
     .replace(/（/g, "(")
     .replace(/）/g, ")")
-    .replace(/｜/g, "|")
-    .replace(/／/g, "/")
-    .replace(/＋/g, "+")
     .replace(/[—－]/g, "-")
 
   // 2. 减号智能吸附: "A - B" -> "A -B", "( - B" -> "(-B", "^- B" -> "-B"
-  q = q.replace(/(^|[\s(])[-]\s+(\S+)/g, "$1-$2")
+  // 注意：A-B 中间无空格的连字符（如 R-18, B-PROJECT, To LOVEる -とらぶる-）绝不误伤
+  q = q.replace(/(^|[\s(])[-—－]\s+(\S+)/g, "$1-$2")
 
-  // 3. 加号归一化为 AND (空格): "A + B" -> "A B", "+A" -> "A"
-  q = q.replace(/(^|[\s(])\+\s*(\S+)/g, "$1$2")
-  q = q.replace(/\s*\+\s*/g, " ")
-
-  // 4. 英文 not 转译为减号: "not B" -> "-B", "not -B" -> "-B"
+  // 3. 独立成词的英文 not / or / and 转译为 Pixiv 原生规范操作符
   q = q.replace(/(^|[\s(])not\s+-?(\S+)/gi, "$1-$2")
-
-  // 5. 符号 | 与 / 转译为 OR (避免破坏 url)
-  q = q.replace(/(?<!:)\s*(?:\||\/)\s*/g, " OR ")
-
-  // 6. 独立成词的英文 or / and 转译
   q = q.replace(/(^|[\s(])or([\s)]|$)/gi, "$1OR$2")
   q = q.replace(/(^|[\s(])and([\s)]|$)/gi, "$1 $2")
 
-  // 7. 括号平衡自愈 (Auto-Balance)
-  let balanced = ""
-  let openCount = 0
-  for (let i = 0; i < q.length; i++) {
-    const ch = q[i]
-    if (ch === "(") {
-      openCount++
-      balanced += ch
-    } else if (ch === ")") {
-      if (openCount > 0) {
-        openCount--
-        balanced += ch
-      }
-    } else {
-      balanced += ch
+  // 3.5 漏空格智能补齐：括号内含空格或 OR 时，若紧贴词干（如 A(B C) 或 A(B OR C)）自动补空格，精准保护セイバー(Fate)等无空格消歧标签
+  q = q.replace(/([^\s()\-]+)\(([^()]+)\)/g, (match, prefix, inner) => {
+    if (/\s+|\b(?:OR|or)\b/i.test(inner)) {
+      return `${prefix} (${inner})`
     }
-  }
-  while (openCount > 0) {
-    balanced += ")"
-    openCount--
-  }
+    return match
+  })
 
-  // 8. 前置排除括号自动平铺展开（例：-(C D) -> -C -D）
+  // 4. 半角括号平衡自愈 (仅针对半角分组括号)
+  let balanced = "", open = 0
+  for (const ch of q) {
+    if (ch === "(") { open++; balanced += ch }
+    else if (ch === ")") { if (open > 0) { open--; balanced += ch } }
+    else balanced += ch
+  }
+  if (open > 0) balanced += ")".repeat(open)
+
+  // 5. 前置复合排除括号自动平铺展开（例：-(C D) -> -C -D，-(A OR B) -> -A -B）
+  // 保护标签内的 / 与 +，只用布尔词和空格拆分子项
   if (balanced.includes("(") && (balanced.includes("-") || /not/i.test(balanced))) {
     balanced = balanced.replace(/(^|\s)(?:-|not\s*)\(([^()]+)\)/gi, (_, p, inner) => {
-      const terms = inner.replace(/\b(?:OR|and)\b|[|/,+]/gi, " ").trim().split(/\s+/).filter(Boolean)
+      const terms = inner.replace(/\b(?:OR|and)\b/gi, " ").trim().split(/\s+/).filter(Boolean)
       return terms.length ? `${p}${terms.map((t: string) => `-${t.replace(/^-+/, "")}`).join(" ")}` : (p ? p.trimEnd() : "")
     })
   }
 
-  // 9. 规范化相邻括号间隙、空格与未括号化的 OR 链安全包裹
+  // 5.5 纯 AND 冗余括号脱壳：独立存在（前置空格或行首）且内部不含 OR 的括号（如 (B C)）自动剥离括号，净化检索式
+  balanced = balanced.replace(/(^|\s)\(([^()]+)\)/g, (match, prefix, inner) => {
+    if (/\bOR\b/.test(inner)) return match
+    return `${prefix}${inner.trim()}`
+  })
+
+  // 6. 规范化相邻括号间隙、空格与未括号化的 OR 链安全包裹
   balanced = balanced.replace(/\(\s*\)/g, " ")
   balanced = balanced.replace(/\)\s*\(/g, ") (")
   balanced = balanced.replace(/\s+/g, " ").trim()
@@ -483,9 +474,6 @@ export function compileSearchQuery(query: string): string {
   return balanced.replace(/\s+/g, " ").trim()
 }
 
-/**
- * Pixiv 社区公认的 users入り 收藏数阶梯里程碑常量（升序）
- */
 export const BOOKMARK_TIERS = [300, 500, 1000, 5000, 10000, 20000, 30000, 50000, 100000] as const
 
 /**

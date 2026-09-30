@@ -470,6 +470,16 @@ function isOneOf<T extends string>(value: unknown, values: readonly T[]): value 
   return typeof value === "string" && values.includes(value as T)
 }
 
+function qualityOr<T extends string>(val: unknown, legacy: unknown, allowed: readonly T[], fallback: T): T {
+  if (isOneOf(val, allowed)) return val
+  if (isOneOf(legacy, allowed)) return legacy
+  return fallback
+}
+
+function trimmedOrNull(val: unknown): string | null {
+  return typeof val === "string" && val.trim().length > 0 ? val : null
+}
+
 function clampPercent(value: unknown, fallback: number): number {
   const num = typeof value === "number" && Number.isFinite(value) ? value : Number.NaN
   if (!Number.isFinite(num)) return fallback
@@ -648,45 +658,19 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
       : isOneOf(stored?.feedImageQuality, FEED_QUALITY_VALUES)
       ? stored.feedImageQuality
       : DEFAULT_SETTINGS.feedImageQualityIos,
-    feedImageQualityIpad: isOneOf(stored?.feedImageQualityIpad, FEED_QUALITY_VALUES)
-      ? stored.feedImageQualityIpad
-      : isOneOf(stored?.feedImageQuality, FEED_QUALITY_VALUES)
-      ? stored.feedImageQuality
-      : DEFAULT_SETTINGS.feedImageQualityIpad,
-    detailImageQualityIos: isOneOf(stored?.detailImageQualityIos, DETAIL_QUALITY_VALUES)
-      ? stored.detailImageQualityIos
-      : isOneOf(stored?.detailImageQuality, DETAIL_QUALITY_VALUES)
-      ? stored.detailImageQuality
-      : DEFAULT_SETTINGS.detailImageQualityIos,
-    detailImageQualityIpad: isOneOf(stored?.detailImageQualityIpad, DETAIL_QUALITY_VALUES)
-      ? stored.detailImageQualityIpad
-      : isOneOf(stored?.detailImageQuality, DETAIL_QUALITY_VALUES)
-      ? stored.detailImageQuality
-      : DEFAULT_SETTINGS.detailImageQualityIpad,
-    downloadImageQualityIos: isOneOf(stored?.downloadImageQualityIos, DOWNLOAD_QUALITY_VALUES)
-      ? stored.downloadImageQualityIos
-      : isOneOf(stored?.downloadImageQuality, DOWNLOAD_QUALITY_VALUES)
-      ? stored.downloadImageQuality
-      : DEFAULT_SETTINGS.downloadImageQualityIos,
-    downloadImageQualityIpad: isOneOf(stored?.downloadImageQualityIpad, DOWNLOAD_QUALITY_VALUES)
-      ? stored.downloadImageQualityIpad
-      : isOneOf(stored?.downloadImageQuality, DOWNLOAD_QUALITY_VALUES)
-      ? stored.downloadImageQuality
-      : DEFAULT_SETTINGS.downloadImageQualityIpad,
+    feedImageQualityIpad: qualityOr(stored?.feedImageQualityIpad, stored?.feedImageQuality, FEED_QUALITY_VALUES, DEFAULT_SETTINGS.feedImageQualityIpad),
+    detailImageQualityIos: qualityOr(stored?.detailImageQualityIos, stored?.detailImageQuality, DETAIL_QUALITY_VALUES, DEFAULT_SETTINGS.detailImageQualityIos),
+    detailImageQualityIpad: qualityOr(stored?.detailImageQualityIpad, stored?.detailImageQuality, DETAIL_QUALITY_VALUES, DEFAULT_SETTINGS.detailImageQualityIpad),
+    downloadImageQualityIos: qualityOr(stored?.downloadImageQualityIos, stored?.downloadImageQuality, DOWNLOAD_QUALITY_VALUES, DEFAULT_SETTINGS.downloadImageQualityIos),
+    downloadImageQualityIpad: qualityOr(stored?.downloadImageQualityIpad, stored?.downloadImageQuality, DOWNLOAD_QUALITY_VALUES, DEFAULT_SETTINGS.downloadImageQualityIpad),
     ugoiraExportFormat: isOneOf(stored?.ugoiraExportFormat, UGOIRA_EXPORT_FORMAT_VALUES)
       ? stored.ugoiraExportFormat
       : DEFAULT_SETTINGS.ugoiraExportFormat,
     downloadStorageMode: isOneOf(stored?.downloadStorageMode, DOWNLOAD_STORAGE_MODE_VALUES)
       ? stored.downloadStorageMode
       : DEFAULT_SETTINGS.downloadStorageMode,
-    downloadCustomDirectoryBookmark:
-      typeof stored?.downloadCustomDirectoryBookmark === "string" && stored.downloadCustomDirectoryBookmark.trim().length > 0
-        ? stored.downloadCustomDirectoryBookmark
-        : null,
-    downloadCustomDirectoryPath:
-      typeof stored?.downloadCustomDirectoryPath === "string" && stored.downloadCustomDirectoryPath.trim().length > 0
-        ? stored.downloadCustomDirectoryPath
-        : null,
+    downloadCustomDirectoryBookmark: trimmedOrNull(stored?.downloadCustomDirectoryBookmark),
+    downloadCustomDirectoryPath: trimmedOrNull(stored?.downloadCustomDirectoryPath),
     downloadPhotoAlbumName:
       typeof stored?.downloadPhotoAlbumName === "string" && stored.downloadPhotoAlbumName.trim().length > 0
         ? stored.downloadPhotoAlbumName.trim()

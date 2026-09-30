@@ -53,7 +53,7 @@ export interface SearchQueryInspection {
 
 function findUnspacedHyphenWarnings(normalized: string): string[] {
   const warnings: string[] = []
-  const chunks = normalized.split(/[\s()|/]+/).filter(Boolean)
+  const chunks = normalized.split(/\s+/).filter(Boolean)
   for (const chunk of chunks) {
     const body = chunk.replace(/^-+/, "")
     if (!body.includes("-")) continue
@@ -82,14 +82,14 @@ function buildHumanSummary(compiled: string): string {
   let cur = ""
   for (let i = 0; i < compiled.length; i++) {
     const ch = compiled[i]
-    if (ch === "(") {
-      if (depth === 0 && cur.trim()) {
+    if (ch === "(" && (i === 0 || compiled[i - 1] === " ")) {
+      if (cur.trim()) {
         topTokens.push(...cur.trim().split(/\s+/))
         cur = ""
       }
       cur += ch
       depth++
-    } else if (ch === ")") {
+    } else if (ch === ")" && depth > 0) {
       cur += ch
       depth--
       if (depth === 0) {
@@ -109,17 +109,16 @@ function buildHumanSummary(compiled: string): string {
   const mustExclude: string[] = []
 
   for (const t of topTokens) {
-    if (!t || t === "OR" || t === "-" || t === "+") continue
+    if (!t || t === "OR" || t === "-") continue
     if (t.startsWith("-") && t.length > 1) {
       mustExclude.push(`「${t.replace(/^-+/, "")}」`)
-    } else if (t.startsWith("(") && t.endsWith(")")) {
+    } else if (t.startsWith("(") && t.endsWith(")") && /\bOR\b/.test(t)) {
       const inner = t.slice(1, -1).trim()
-      if (!inner) continue
-      const parts = inner.split(/\s+OR\s+/)
+      const parts = inner.split(/\s+OR\s+/).filter(Boolean)
       if (parts.length > 1) {
         orGroups.push(`「${parts.join(" 或 ")}」的任一`)
-      } else {
-        inner.split(/\s+/).filter(Boolean).forEach((term) => plainIncludes.push(`「${term}」`))
+      } else if (parts.length === 1) {
+        plainIncludes.push(`「${parts[0]}」`)
       }
     } else {
       plainIncludes.push(`「${t}」`)
@@ -159,16 +158,15 @@ export function inspectSearchQuery(rawQuery: string): SearchQueryInspection {
     .replace(/\u3000/g, " ")
     .replace(/（/g, "(")
     .replace(/）/g, ")")
-    .replace(/｜/g, "|")
-    .replace(/／/g, "/")
-    .replace(/＋/g, "+")
     .replace(/[—－]/g, "-")
 
   const warnings: string[] = []
   warnings.push(...findUnspacedHyphenWarnings(normalized))
 
   const errors: string[] = []
-  if (/(?:\||\/|\+|[-]|\b(?:or|and|not))\s*$/i.test(normalized)) {
+  // 仅在真实末尾运算符悬挂时拦截报错（排除 -、未闭合的独立 or/not 等）
+  // 彻底释放 /、+ 等标签自带合法字符
+  if (/(?:(^|\s)[-—－]|(^|[\s(])\b(?:or|not))\s*$/i.test(normalized)) {
     errors.push("末尾运算符后缺少关键词，请继续输入或删除该符号")
   }
 
@@ -178,7 +176,7 @@ export function inspectSearchQuery(rawQuery: string): SearchQueryInspection {
   const hints: string[] = []
   const negatedMatch = normalized.match(/(?:^|[\s(])(?:-|not\s*)\(([^()]+)\)/i)
   if (negatedMatch && negatedMatch[1]) {
-    const innerTerms = negatedMatch[1].replace(/\b(?:OR|and)\b|[|/,+]/gi, " ").trim().split(/\s+/).filter(Boolean)
+    const innerTerms = negatedMatch[1].replace(/\b(?:OR|and)\b/gi, " ").trim().split(/\s+/).filter(Boolean)
     if (innerTerms.length > 1) {
       hints.push("提示：受 Pixiv 检索机制限制，复合排除将按分别排除处理（即同时排除所列标签）")
     }
@@ -191,7 +189,10 @@ export function inspectSearchQuery(rawQuery: string): SearchQueryInspection {
     }
   }
 
-  const hasOperators = /[\s+|/()]|^[-]|(^|[\s(])(?:or|and|not)([\s)]|$)/i.test(normalized)
+  // 仅在存在多个关键词或布尔语法（空格、排除词、OR 运算）时展开语义详情卡片，保持单标签检索清爽简洁
+  const hasOperators =
+    /\s+|^[-—－]|(^|\s)[-—－]\S|(?:\b(?:OR|or|not)\b)/i.test(normalized) ||
+    (normalized.includes("(") && /\b(?:OR|or)\b/i.test(normalized))
   const shouldShow = hasOperators || warnings.length > 0 || errors.length > 0 || hints.length > 0
 
   return {
@@ -265,71 +266,28 @@ interface QuickDatePreset {
   getTimestamps: () => { start: number; end: number }
 }
 
+function makeDatePreset(label: string, days?: number, years?: number): QuickDatePreset {
+  return {
+    label,
+    getTimestamps: () => {
+      const now = Date.now()
+      if (days) return { start: now - days * 86400000, end: now }
+      const d = new Date(now)
+      d.setFullYear(d.getFullYear() - (years || 1))
+      return { start: d.getTime(), end: now }
+    },
+  }
+}
+
 const QUICK_DATE_PRESETS: QuickDatePreset[] = [
-  {
-    label: "过去24小时",
-    getTimestamps: () => {
-      const now = Date.now()
-      return { start: now - 86400000, end: now }
-    },
-  },
-  {
-    label: "过去7天",
-    getTimestamps: () => {
-      const now = Date.now()
-      return { start: now - 7 * 86400000, end: now }
-    },
-  },
-  {
-    label: "过去30天",
-    getTimestamps: () => {
-      const now = Date.now()
-      return { start: now - 30 * 86400000, end: now }
-    },
-  },
-  {
-    label: "过去半年",
-    getTimestamps: () => {
-      const now = Date.now()
-      return { start: now - 180 * 86400000, end: now }
-    },
-  },
-  {
-    label: "过去1年",
-    getTimestamps: () => {
-      const now = Date.now()
-      const d = new Date(now)
-      d.setFullYear(d.getFullYear() - 1)
-      return { start: d.getTime(), end: now }
-    },
-  },
-  {
-    label: "过去3年",
-    getTimestamps: () => {
-      const now = Date.now()
-      const d = new Date(now)
-      d.setFullYear(d.getFullYear() - 3)
-      return { start: d.getTime(), end: now }
-    },
-  },
-  {
-    label: "过去5年",
-    getTimestamps: () => {
-      const now = Date.now()
-      const d = new Date(now)
-      d.setFullYear(d.getFullYear() - 5)
-      return { start: d.getTime(), end: now }
-    },
-  },
-  {
-    label: "过去10年",
-    getTimestamps: () => {
-      const now = Date.now()
-      const d = new Date(now)
-      d.setFullYear(d.getFullYear() - 10)
-      return { start: d.getTime(), end: now }
-    },
-  },
+  makeDatePreset("过去24小时", 1),
+  makeDatePreset("过去7天", 7),
+  makeDatePreset("过去30天", 30),
+  makeDatePreset("过去半年", 180),
+  makeDatePreset("过去1年", 0, 1),
+  makeDatePreset("过去3年", 0, 3),
+  makeDatePreset("过去5年", 0, 5),
+  makeDatePreset("过去10年", 0, 10),
 ]
 
 export function SearchAdvancedSheet(props: {
@@ -514,7 +472,7 @@ export function SearchAdvancedSheet(props: {
           header={<Text>搜索关键词</Text>}
           footer={
             <Text>
-              {"提示：空格、+ 或 and 表示且；|、/ 或 or 表示或；- 或 not 表示排除；支持用 () 组合优先级。\n示例：(初音 or 巡音) 桜 -R-18"}
+              {"提示：空格表示且；OR 表示或；- 表示排除；支持用 () 组合优先级。\n示例：(初音 OR 巡音) 桜 -R-18"}
             </Text>
           }
         >
