@@ -485,6 +485,15 @@ export function SearchView(props: {
   const [submitted, setSubmitted] = useState(() => searchSession?.keyword ?? "")
   const [searchPresented, setSearchPresented] = useState(false)
   const [isSearchingMode, setIsSearchingMode] = useState(false)
+  const dismissTimerRef = useRef<any>(null)
+
+  useEffect(() => {
+    return () => {
+      if (dismissTimerRef.current) {
+        clearTimeout(dismissTimerRef.current)
+      }
+    }
+  }, [])
   const [scope, setScope] = useState<SearchScope>(() => searchSession?.scope ?? "illust")
   const [sort, setSort] = useState<SearchSort>(() => searchSession?.sort ?? "date_desc")
   const [isAdvancedSheetOpen, setIsAdvancedSheetOpen] = useState(false)
@@ -900,6 +909,10 @@ export function SearchView(props: {
   }
 
   function submitSearch(textToSearch: string) {
+    if (dismissTimerRef.current) {
+      clearTimeout(dismissTimerRef.current)
+      dismissTimerRef.current = null
+    }
     const trimmed = textToSearch.trim()
     if (!trimmed) return
     setQuery("")
@@ -1125,6 +1138,10 @@ export function SearchView(props: {
                 <DirectRouteSection
                   targets={directTargets}
                   onSelect={() => {
+                    if (dismissTimerRef.current) {
+                      clearTimeout(dismissTimerRef.current)
+                      dismissTimerRef.current = null
+                    }
                     addSearchHistory(query.trim(), targetScope)
                   }}
                 />
@@ -1139,7 +1156,13 @@ export function SearchView(props: {
                 <TagSuggestionsSection
                   suggestions={tagSuggestions}
                   loading={tagSuggestionsLoading}
-                  onSelect={submitSearch}
+                  onSelect={(kw) => {
+                    if (dismissTimerRef.current) {
+                      clearTimeout(dismissTimerRef.current)
+                      dismissTimerRef.current = null
+                    }
+                    submitSearch(kw)
+                  }}
                 />
               )}
             </VStack>
@@ -1149,13 +1172,41 @@ export function SearchView(props: {
           {!isSuggestingActive && (isSearchingMode || searchPresented) && !query.trim() ? (
             <SearchHistorySection
               history={getSearchHistory(targetScope)}
-              onSelect={submitSearch}
-              onRemove={(item) => removeSearchHistory(item, targetScope)}
-              onClear={() => clearSearchHistory(targetScope)}
+              onSelect={(item) => {
+                if (dismissTimerRef.current) {
+                  clearTimeout(dismissTimerRef.current)
+                  dismissTimerRef.current = null
+                }
+                submitSearch(item)
+              }}
+              onRemove={(item) => {
+                if (dismissTimerRef.current) {
+                  clearTimeout(dismissTimerRef.current)
+                  dismissTimerRef.current = null
+                }
+                removeSearchHistory(item, targetScope)
+                setIsSearchingMode(true)
+              }}
+              onClear={() => {
+                if (dismissTimerRef.current) {
+                  clearTimeout(dismissTimerRef.current)
+                  dismissTimerRef.current = null
+                }
+                clearSearchHistory(targetScope)
+                setIsSearchingMode(true)
+              }}
               onBackToTrending={() => {
+                if (dismissTimerRef.current) {
+                  clearTimeout(dismissTimerRef.current)
+                  dismissTimerRef.current = null
+                }
                 setIsSearchingMode(false)
                 setSearchPresented(false)
                 setQuery("")
+                setTagSuggestions([])
+                setUserSuggestions([])
+                setTagSuggestionsLoading(false)
+                setUserSuggestionsLoading(false)
               }}
             />
           ) : null}
@@ -1498,13 +1549,25 @@ export function SearchView(props: {
             value: searchPresented,
             onChanged: (val: boolean) => {
               setSearchPresented(val)
-              setIsSearchingMode(val)
-              if (!val) {
-                setQuery("")
-                setTagSuggestions([])
-                setUserSuggestions([])
-                setTagSuggestionsLoading(false)
-                setUserSuggestionsLoading(false)
+              if (val) {
+                if (dismissTimerRef.current) {
+                  clearTimeout(dismissTimerRef.current)
+                  dismissTimerRef.current = null
+                }
+                setIsSearchingMode(true)
+              } else {
+                if (dismissTimerRef.current) {
+                  clearTimeout(dismissTimerRef.current)
+                }
+                dismissTimerRef.current = setTimeout(() => {
+                  setIsSearchingMode(false)
+                  setQuery("")
+                  setTagSuggestions([])
+                  setUserSuggestions([])
+                  setTagSuggestionsLoading(false)
+                  setUserSuggestionsLoading(false)
+                  dismissTimerRef.current = null
+                }, 180)
               }
             },
           },
