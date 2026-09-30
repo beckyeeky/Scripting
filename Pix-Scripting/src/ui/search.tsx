@@ -24,7 +24,7 @@ import {
   VStack,
   ZStack,
 } from "scripting"
-import { appGlass } from "./components/glass"
+import { appGlass, appThemeColor } from "./components/glass"
 import {
   PAGE_TOOLBAR_BACKGROUND,
   PAGE_TOOLBAR_BACKGROUND_VISIBILITY,
@@ -1049,7 +1049,7 @@ export function SearchView(props: {
       badges.push({
         key: "date",
         icon: "calendar",
-        iconColor: "systemBlue",
+        iconColor: appThemeColor("systemBlue"),
         label: formatShortDateRange(
           advancedParams.startDate,
           advancedParams.endDate,
@@ -1146,7 +1146,7 @@ export function SearchView(props: {
           ) : null}
 
           {/* 2. 搜索激活态且未输入关键词：展示搜索历史记录 */}
-          {!isSuggestingActive && (isSearchingMode || searchPresented) && !query.trim() ? (
+          {!isSuggestingActive && (isSearchingMode || searchPresented) && !submitted && !query.trim() ? (
             <SearchHistorySection
               history={getSearchHistory(targetScope)}
               onSelect={submitSearch}
@@ -1209,6 +1209,7 @@ export function SearchView(props: {
                   </Text>
                   <Button
                     buttonStyle="plain"
+                    contentShape="circle"
                     action={() => {
                       if (isResultsPage) {
                         popTabLevel("search")
@@ -1244,10 +1245,18 @@ export function SearchView(props: {
                       setAdvancedParams(getDefaultAdvancedSearchParams(scope, ""))
                     }
                   }}
+                  contentShape="capsule"
                 >
-                  <HStack alignment="center" spacing={4}>
-                    <Image systemName="arrow.uturn.backward" font="caption" foregroundStyle="systemBlue" />
-                    <Text font="subheadline" foregroundStyle="systemBlue">
+                  <HStack alignment="center" spacing={4} padding={{ horizontal: 8, vertical: 5 }}>
+                    <Image
+                      systemName="arrow.uturn.backward"
+                      font="caption"
+                      foregroundStyle={appThemeColor("systemBlue")}
+                    />
+                    <Text
+                      font="subheadline"
+                      foregroundStyle={appThemeColor("systemBlue")}
+                    >
                       返回热门
                     </Text>
                   </HStack>
@@ -1269,6 +1278,7 @@ export function SearchView(props: {
                         action={badge.onClear}
                         buttonStyle="glass"
                         controlSize="mini"
+                        tint={appThemeColor("systemBlue")}
                         fixedSize={{ horizontal: true, vertical: false }}
                       >
                         <HStack alignment="center" spacing={3}>
@@ -1298,6 +1308,7 @@ export function SearchView(props: {
                       <Button
                         buttonStyle="glass"
                         controlSize="mini"
+                        tint="systemRed"
                         fixedSize={{ horizontal: true, vertical: false }}
                         action={() => {
                           setAdvancedParams((prev) => ({
@@ -1487,13 +1498,8 @@ export function SearchView(props: {
             value: searchPresented,
             onChanged: (val: boolean) => {
               setSearchPresented(val)
-              setIsSearchingMode(val)
-              if (!val) {
-                setQuery("")
-                setTagSuggestions([])
-                setUserSuggestions([])
-                setTagSuggestionsLoading(false)
-                setUserSuggestionsLoading(false)
+              if (val) {
+                setIsSearchingMode(true)
               }
             },
           },
@@ -1916,8 +1922,9 @@ function SearchHistorySection(props: {
           <Button
             buttonStyle="plain"
             action={() => void handleClear()}
+            contentShape="capsule"
           >
-            <HStack alignment="center" spacing={4} padding={{ horizontal: 6, vertical: 4 }}>
+            <HStack alignment="center" spacing={4} padding={{ horizontal: 8, vertical: 5 }}>
               <Image
                 systemName="trash"
                 font="caption"
@@ -1933,10 +1940,18 @@ function SearchHistorySection(props: {
           <Button
             buttonStyle="plain"
             action={onBackToTrending}
+            contentShape="capsule"
           >
-            <HStack alignment="center" spacing={4} padding={{ horizontal: 6, vertical: 4 }}>
-              <Image systemName="arrow.uturn.backward" font="caption" foregroundStyle="systemBlue" />
-              <Text font="subheadline" foregroundStyle="systemBlue">
+            <HStack alignment="center" spacing={4} padding={{ horizontal: 8, vertical: 5 }}>
+              <Image
+                systemName="arrow.uturn.backward"
+                font="caption"
+                foregroundStyle={appThemeColor("systemBlue")}
+              />
+              <Text
+                font="subheadline"
+                foregroundStyle={appThemeColor("systemBlue")}
+              >
                 返回热门
               </Text>
             </HStack>
