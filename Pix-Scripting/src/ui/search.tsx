@@ -922,7 +922,9 @@ export function SearchView(props: {
     setUserSuggestions([])
     setTagSuggestionsLoading(false)
     setUserSuggestionsLoading(false)
-    pushSearchResults(trimmed, scope, sort)
+    setTimeout(() => {
+      pushSearchResults(trimmed, scope, sort)
+    }, 80)
   }
 
   const activePaged =
@@ -1169,7 +1171,7 @@ export function SearchView(props: {
           ) : null}
 
           {/* 2. 搜索激活态且未输入关键词：展示搜索历史记录 */}
-          {!isSuggestingActive && (isSearchingMode || searchPresented) && !query.trim() ? (
+          {!isSuggestingActive && isSearchingMode && !query.trim() ? (
             <SearchHistorySection
               history={getSearchHistory(targetScope)}
               onSelect={(item) => {
@@ -1195,24 +1197,11 @@ export function SearchView(props: {
                 clearSearchHistory(targetScope)
                 setIsSearchingMode(true)
               }}
-              onBackToTrending={() => {
-                if (dismissTimerRef.current) {
-                  clearTimeout(dismissTimerRef.current)
-                  dismissTimerRef.current = null
-                }
-                setIsSearchingMode(false)
-                setSearchPresented(false)
-                setQuery("")
-                setTagSuggestions([])
-                setUserSuggestions([])
-                setTagSuggestionsLoading(false)
-                setUserSuggestionsLoading(false)
-              }}
             />
           ) : null}
 
           {/* 3. 默认未搜索状态：展示对应分类的热门标签或推荐用户 */}
-          {!isSuggestingActive && !submitted && !isSearchingMode && !searchPresented && !query.trim() ? (
+          {!isSuggestingActive && !submitted && !isSearchingMode && !query.trim() ? (
             targetScope === "illust" ? (
               <TrendingSection
                 tags={trendingIllust}
@@ -1238,7 +1227,7 @@ export function SearchView(props: {
           ) : null}
 
           {/* 4. 已提交搜索：展示当前搜索结果列表 */}
-          {submitted && !searchPresented && !isSearchingMode && !isSuggestingActive ? (
+          {submitted && !isSearchingMode && !isSuggestingActive ? (
             <VStack spacing={10} frame={{ maxWidth: "infinity" }}>
               {/* 第一行：主搜索词胶囊 + 返回热门 */}
               <HStack
@@ -1567,7 +1556,7 @@ export function SearchView(props: {
                   setTagSuggestionsLoading(false)
                   setUserSuggestionsLoading(false)
                   dismissTimerRef.current = null
-                }, 180)
+                }, 300)
               }
             },
           },
@@ -1948,9 +1937,8 @@ function SearchHistorySection(props: {
   onSelect: (query: string) => void
   onRemove: (query: string) => void
   onClear: () => void
-  onBackToTrending?: () => void
 }) {
-  const { history, onSelect, onRemove, onClear, onBackToTrending } = props
+  const { history, onSelect, onRemove, onClear } = props
 
   const handleClear = async () => {
     try {
@@ -2004,27 +1992,6 @@ function SearchHistorySection(props: {
             </HStack>
           </Button>
         ) : null}
-        {onBackToTrending ? (
-          <Button
-            buttonStyle="plain"
-            action={onBackToTrending}
-            contentShape="capsule"
-          >
-            <HStack alignment="center" spacing={4} padding={{ horizontal: 8, vertical: 5 }}>
-              <Image
-                systemName="arrow.uturn.backward"
-                font="caption"
-                foregroundStyle={appThemeColor("systemBlue")}
-              />
-              <Text
-                font="subheadline"
-                foregroundStyle={appThemeColor("systemBlue")}
-              >
-                返回热门
-              </Text>
-            </HStack>
-          </Button>
-        ) : null}
       </HStack>
 
       {history.length === 0 ? (
@@ -2058,40 +2025,6 @@ function SearchHistorySection(props: {
                   buttonStyle="plain"
                   action={() => onSelect(item)}
                   contentShape="rect"
-                  contextMenu={{
-                    menuItems: (
-                      <Group>
-                        <Button
-                          title="搜索"
-                          systemImage="magnifyingglass"
-                          action={() => onSelect(item)}
-                        />
-                        <Button
-                          title="复制关键词"
-                          systemImage="doc.on.doc"
-                          action={() => {
-                            try {
-                              if (typeof Pasteboard !== "undefined") {
-                                void Pasteboard.setString(item)
-                              }
-                              triggerHaptic("selection")
-                            } catch {}
-                          }}
-                        />
-                        <Button
-                          title="删除记录"
-                          systemImage="trash"
-                          role="destructive"
-                          action={() => {
-                            try {
-                              triggerHaptic("medium")
-                            } catch {}
-                            onRemove(item)
-                          }}
-                        />
-                      </Group>
-                    ),
-                  }}
                   frame={{ maxWidth: "infinity", alignment: "leading" }}
                 >
                   <HStack
