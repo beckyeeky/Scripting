@@ -48,6 +48,7 @@ interface StoredTranslation {
   version: 2
   model: string
   source: string
+  seriesId?: number | null
   mode: TranslationDisplayMode
   blocks: Record<string, { source: string; translation?: string; error?: string }>
   summary?: string
@@ -136,11 +137,13 @@ export class NovelTranslationSession {
     this.persistent = this.model !== "scripting-assistant"
     const saved = this.persistent ? readStored(novelPath(this.uid, input.novelId)) : null
     const source = fingerprint(input.text)
-    this.stored = saved?.model === this.model ? { ...saved, source,
+    const sameSeries = (saved?.seriesId ?? null) === (input.seriesId ?? null)
+    this.stored = saved?.model === this.model ? { ...saved, source, seriesId: input.seriesId ?? null,
       summary: saved.source === source ? saved.summary : undefined,
-      glossary: saved.source === source ? saved.glossary : undefined,
-      glossarySkipped: saved.source === source ? saved.glossarySkipped : undefined } : {
-      version: 2, model: this.model, source, mode: saved?.mode ?? "original", blocks: {},
+      glossary: saved.source === source && sameSeries ? saved.glossary : undefined,
+      glossarySkipped: saved.source === source && sameSeries ? saved.glossarySkipped : undefined } : {
+      version: 2, model: this.model, source, seriesId: input.seriesId ?? null,
+      mode: saved?.mode ?? "original", blocks: {},
     }
     this.snapshot = this.hydrate()
   }
@@ -224,7 +227,8 @@ export class NovelTranslationSession {
 
   clear(): void {
     this.pause()
-    this.stored = { version: 2, model: this.model, source: fingerprint(this.input.text), mode: "original", blocks: {} }
+    this.stored = { version: 2, model: this.model, source: fingerprint(this.input.text),
+      seriesId: this.input.seriesId ?? null, mode: "original", blocks: {} }
     this.snapshot = this.hydrate()
     this.publish()
   }
@@ -349,18 +353,25 @@ export class NovelTranslationSession {
         this.publish()
       }
     }
+    let latestInherited = inherited
     let glossary = mergeGlossary(inherited, this.stored.glossary ?? "")
     if (this.input.seriesId) {
       const path = seriesPath(this.uid, this.input.seriesId)
+      // 其他章节可能在摘要/术语生成期间写入了新词，提交前重新读取并合并。
+      const latestSeriesFile = this.persistent ? readStored(path) : null
+      latestInherited = seriesGlossaries.get(seriesKey)
+        ?? (latestSeriesFile?.model === this.model ? latestSeriesFile.glossary ?? "" : "")
+      glossary = mergeGlossary(latestInherited, this.stored.glossary ?? "")
       if (glossary) {
         seriesGlossaries.set(seriesKey, glossary)
-        if (this.persistent) writeTextSafely(path, JSON.stringify({ version: 2, model: this.model, source: "series", mode: "original", blocks: {}, glossary }))
+        if (this.persistent) writeTextSafely(path, JSON.stringify({ version: 2, model: this.model,
+          source: "series", seriesId: this.input.seriesId, mode: "original", blocks: {}, glossary }))
       }
     }
     if (signal.aborted) return {}
     this.snapshot = { ...this.snapshot, summary: this.stored.summary, glossary,
       glossaryCount: glossaryEntries(glossary).size,
-      seriesGlossaryCount: glossaryEntries(inherited).size,
+      seriesGlossaryCount: glossaryEntries(latestInherited).size,
       glossaryStatus: glossary ? "ready" : this.snapshot.glossaryStatus }
     this.publish()
     return { summary: this.stored.summary, glossary }

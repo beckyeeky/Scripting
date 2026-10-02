@@ -1,4 +1,4 @@
-import { Navigation, Script } from "scripting"
+import { AppEvents, Navigation, Script, type ScenePhase } from "scripting"
 import { RootView } from "./src/ui/appRoot"
 import {
   bootstrapStorage,
@@ -18,6 +18,7 @@ import { onCustomAIConfigChanged } from "./src/store/customAI"
 async function main() {
   let stopAuth: (() => void) | undefined
   let stopAI: (() => void) | undefined
+  let sceneListener: ((phase: ScenePhase) => void) | undefined
   try {
     let translationUID = resolveEffectiveUID()
     stopAuth = session.onAuthChanged(() => {
@@ -28,6 +29,11 @@ async function main() {
       }
     })
     stopAI = onCustomAIConfigChanged(() => discardNovelTranslationSessions())
+    sceneListener = (phase: ScenePhase) => {
+      if (phase === "background") pauseAllNovelTranslations()
+      else if (phase === "active" && !Script.isMinimized()) resumeMinimizedNovelTranslations()
+    }
+    AppEvents.scenePhase.addListener(sceneListener)
     const startupRoute =
       (Script.queryParameters?.route as string | undefined) ||
       (Script.widgetParameter
@@ -75,6 +81,7 @@ async function main() {
   } finally {
     stopAuth?.()
     stopAI?.()
+    if (sceneListener) AppEvents.scenePhase.removeListener(sceneListener)
     cleanupAppResources()
     Script.exit()
   }

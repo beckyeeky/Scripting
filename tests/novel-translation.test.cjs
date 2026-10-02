@@ -10,7 +10,7 @@ function loadModule(file, mocks, globals = {}) {
   const absolute = path.join(__dirname, "..", file)
   const source = fs.readFileSync(absolute, "utf8")
   const js = ts.transpileModule(source, { fileName: absolute, compilerOptions: {
-    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React,
   } }).outputText
   const module = { exports: {} }
   vm.runInNewContext(js, {
@@ -64,8 +64,14 @@ test("只对确认支持的模型发送关闭思考参数", () => {
     { status: "unavailable", payload: {} })
   assert.deepEqual(control("anthropic", "https://api.anthropic.com", "claude-opus-5"),
     { status: "disabled", payload: { thinking: { type: "disabled" } } })
+  assert.deepEqual(control("anthropic", "https://api.anthropic.com", "claude-sonnet-5-5"),
+    { status: "disabled", payload: { thinking: { type: "between_tools" } } })
   assert.deepEqual(control("anthropic", "https://api.anthropic.com", "claude-opus-5-5"),
     { status: "unavailable", payload: {} })
+  assert.deepEqual(control("anthropic", "https://api.anthropic.com", "claude-fable-5"),
+    { status: "unavailable", payload: {} })
+  assert.deepEqual(control("anthropic", "https://api.anthropic.com", "claude-opus-4-8"),
+    { status: "disabled", payload: {} })
   assert.deepEqual(control("openai-chat", "https://api.deepseek.com.evil.test", "deepseek-flash"),
     { status: "unavailable", payload: {} })
 })
@@ -111,6 +117,9 @@ test("翻译请求实际下发关闭参数，其他 AI 请求不受影响", asyn
   const claude = await adapterPayload("anthropic", "requestAnthropic",
     { ...base, protocol: "anthropic", endpoint: "https://api.anthropic.com", model: "claude-opus-5" })
   assert.deepEqual(claude.thinking, { type: "disabled" })
+  const sonnet = await adapterPayload("anthropic", "requestAnthropic",
+    { ...base, protocol: "anthropic", endpoint: "https://api.anthropic.com", model: "claude-sonnet-5-5" })
+  assert.deepEqual(sonnet.thinking, { type: "between_tools" })
 })
 
 test("长段拆分仍保留换行与 Pixiv 链接占位符", async () => {
@@ -166,11 +175,12 @@ function createStoreFixture(options = {}) {
     if (needs.summary) {
       summaryCalls++
       events.push("summary-start")
+      if (options.summary) return { summary: await options.summary() }
       await new Promise((resolve) => setTimeout(resolve, 2))
       events.push("summary-end")
       return { summary: "人物与背景摘要" }
     }
-    if (options.glossary) return { glossary: options.glossary(_title) }
+    if (options.glossary) return { glossary: await options.glossary(_title) }
     return { glossary: "人物｜Alice｜爱丽丝\n地点｜Town｜城镇" }
   }
   const config = () => ({ general: { protocol: "openai-chat", endpoint: "https://api.deepseek.com",
@@ -269,6 +279,51 @@ test("小说系列信息晚于正文到达时，会建立含系列术语的新�
   assert.equal(withSeries.getSnapshot().glossaryStatus, "pending")
 })
 
+test("同系列章节并发完成时合并术语，不因完成顺序丢词", async () => {
+  let releaseFirst
+  let firstWaiting
+  const waiting = new Promise((resolve) => { firstWaiting = resolve })
+  const holdFirst = new Promise((resolve) => { releaseFirst = resolve })
+  const f = createStoreFixture({ glossary: async (title) => {
+    if (title === "第一话") {
+      firstWaiting()
+      await holdFirst
+      return "人物｜Alice｜爱丽丝"
+    }
+    return "地点｜Town｜城镇"
+  } })
+  const first = f.module.getNovelTranslationSession({ novelId: 11, title: "第一话", text: "Alice",
+    seriesId: 88, blocks: [{ id: "a", text: "Alice" }] })
+  const second = f.module.getNovelTranslationSession({ novelId: 12, title: "第二话", text: "Town",
+    seriesId: 88, blocks: [{ id: "a", text: "Town" }] })
+  const firstRun = first.start()
+  await waiting
+  await second.start()
+  releaseFirst()
+  await firstRun
+  const saved = JSON.parse(f.files.get("/cache/NovelTranslations/users/100/series-88.json"))
+  assert.match(saved.glossary, /Alice｜爱丽丝/)
+  assert.match(saved.glossary, /Town｜城镇/)
+  assert.equal(first.getSnapshot().glossaryCount, 2)
+})
+
+test("同篇小说改换系列时重新生成术语，不沿用旧系列词表", async () => {
+  let glossaryCalls = 0
+  const f = createStoreFixture({ glossary: () => ++glossaryCalls === 1
+    ? "人物｜Alice｜爱丽丝" : "人物｜Alice｜艾莉丝" })
+  const input = { novelId: 13, title: "换系列", text: "Alice",
+    blocks: [{ id: "a", text: "Alice" }] }
+  await f.module.getNovelTranslationSession({ ...input, seriesId: 91 }).start()
+  const next = f.module.getNovelTranslationSession({ ...input, seriesId: 92 })
+  assert.equal(next.getSnapshot().summaryStatus, "ready")
+  assert.equal(next.getSnapshot().glossaryStatus, "pending")
+  assert.equal(next.getSnapshot().glossaryCount, 0)
+  await next.start(["a"])
+  assert.equal(glossaryCalls, 2)
+  assert.match(next.getSnapshot().glossary, /Alice｜艾莉丝/)
+  assert.doesNotMatch(next.getSnapshot().glossary, /Alice｜爱丽丝/)
+})
+
 test("暂停后迟到结果不入库；继续与单块重试保留其他已完成段落", async () => {
   let release
   const slow = new Promise((resolve) => { release = resolve })
@@ -302,4 +357,81 @@ test("暂停后迟到结果不入库；继续与单块重试保留其他已完�
   assert.equal(session.getSnapshot().done, 2)
   assert.equal(session.getSnapshot().failed, 0)
   assert.equal(slowCalls, 2)
+})
+
+test("摘要生成中进入后台再恢复时，旧摘要不得覆盖新请求", async () => {
+  let releaseOld
+  let oldStarted
+  const oldReady = new Promise((resolve) => { oldStarted = resolve })
+  const oldResult = new Promise((resolve) => { releaseOld = resolve })
+  let calls = 0
+  const f = createStoreFixture({ summary: () => {
+    if (++calls === 1) {
+      oldStarted()
+      return oldResult
+    }
+    return "恢复后的摘要"
+  } })
+  const input = { novelId: 14, title: "恢复测试", text: "Alice",
+    blocks: [{ id: "a", text: "Alice" }] }
+  const session = f.module.getNovelTranslationSession(input)
+  const firstRun = session.start()
+  await oldReady
+  f.module.pauseAllNovelTranslations()
+  assert.equal(session.getSnapshot().running, false)
+  assert.equal(session.getSnapshot().summaryStatus, "pending")
+  f.module.resumeMinimizedNovelTranslations()
+  for (let attempt = 0; attempt < 100 && session.getSnapshot().done === 0; attempt++) {
+    await new Promise((resolve) => setTimeout(resolve, 2))
+  }
+  assert.equal(session.getSnapshot().done, 1)
+  releaseOld("旧摘要")
+  await firstRun
+  assert.equal(session.getSnapshot().summary, "恢复后的摘要")
+  assert.equal(JSON.parse(f.files.get("/cache/NovelTranslations/users/100/14.json")).summary, "恢复后的摘要")
+})
+
+test("App 真正进后台时暂停，回前台恢复；脚本最小化时不提前恢复", () => {
+  let sceneListener
+  let resumeListener
+  let minimized = false
+  let pauses = 0
+  let resumes = 0
+  loadModule("Pix-Scripting/index.tsx", {
+    scripting: {
+      AppEvents: { scenePhase: { addListener(listener) { sceneListener = listener }, removeListener() {} } },
+      Navigation: { present: () => new Promise(() => {}) },
+      Script: {
+        queryParameters: null, widgetParameter: null,
+        onResume(listener) { resumeListener = listener }, onMinimize() {}, enableMinimize() {},
+        isMinimized: () => minimized, exit() {},
+      },
+    },
+    "./src/ui/appRoot": { RootView() {} },
+    "./src/bootstrap": { bootstrapStorage: async () => {}, cleanupAppResources() {},
+      flushAllCaches() {}, seedIfRoute() {}, startBackgroundServices() {} },
+    "./src/store/historySync": { triggerResumeSync() {} },
+    "./src/store/routeNavigation": { requestPixivRoute() {} },
+    "./src/downloader/downloadTaskManager": { DownloadTaskManager: { checkPendingSignals() {} } },
+    "./src/store/novelTranslation": {
+      discardNovelTranslationSessions() {}, pauseAllNovelTranslations() { pauses++ },
+      resumeMinimizedNovelTranslations() { resumes++ },
+    },
+    "./src/api/session": { session: { onAuthChanged: () => () => {} } },
+    "./src/store/dataDirectory": { resolveEffectiveUID: () => "100" },
+    "./src/store/customAI": { onCustomAIConfigChanged: () => () => {} },
+  }, { React: { createElement: () => ({}) } })
+  assert.equal(typeof sceneListener, "function")
+  sceneListener("background")
+  assert.equal(pauses, 1)
+  minimized = true
+  sceneListener("active")
+  assert.equal(resumes, 0)
+  resumeListener({ resumeFromMinimized: true })
+  assert.equal(resumes, 1)
+  minimized = false
+  sceneListener("background")
+  sceneListener("active")
+  assert.equal(pauses, 2)
+  assert.equal(resumes, 2)
 })

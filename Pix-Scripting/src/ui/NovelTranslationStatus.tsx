@@ -4,7 +4,7 @@ import type { NovelTranslationSession, NovelTranslationSnapshot } from "../store
 
 export function novelTranslationStatusText(snapshot: NovelTranslationSnapshot): string {
   if (snapshot.running && snapshot.phase === "summary") return "正在生成故事摘要"
-  if (snapshot.running && snapshot.phase === "glossary") return "正在整理系列术语"
+  if (snapshot.running && snapshot.phase === "glossary") return "正在整理术语表"
   if (snapshot.running) return "正在逐段翻译"
   if (snapshot.total > 0 && snapshot.done === snapshot.total) return "正文翻译完成"
   if (snapshot.failed > 0) return `已暂停，${snapshot.failed} 段待重试`

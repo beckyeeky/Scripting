@@ -2353,7 +2353,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
         </HStack>
       </VStack>
 
-      {translationSession && translation && (translation.running || translation.done > 0 || translation.failed > 0) ? (
+      {translationSession && translation && (translation.mode === "translated" || translation.running || translation.done > 0 || translation.failed > 0) ? (
         <VStack frame={{ maxWidth: "infinity", maxHeight: "infinity", alignment: "bottom" }}>
           <NovelTranslationStatus session={translationSession} snapshot={translation} compact />
           <VStack frame={{ height: totalPages > 1 ? bottomInset + 52 : bottomInset }} />

@@ -33,10 +33,14 @@ export function translationThinkingControl(config: GeneralAIConfig): Translation
       status: "disabled", label: "Gemini 已请求关闭思考" }
   }
   if (config.protocol === "anthropic" && host === "api.anthropic.com") {
-    if (/^claude-(?:opus|sonnet)-5(?:$|-(?!5(?:-|$)))/.test(model)) {
+    if (/^claude-sonnet-5-5(?:$|-\d{8}$)/.test(model)) {
+      return { payload: { thinking: { type: "between_tools" } }, status: "disabled",
+        label: "Claude Sonnet 5.5 已请求关闭前置思考；小说翻译不使用工具" }
+    }
+    if (/^claude-(?:opus|sonnet)-5(?:$|-\d{8}$)/.test(model)) {
       return { payload: { thinking: { type: "disabled" } }, status: "disabled", label: "Claude 已请求关闭思考" }
     }
-    if (!/claude-(?:opus|sonnet)-5/.test(model)) {
+    if (/^claude-(?:opus-4-[5-8]|sonnet-4-[5-6]|haiku-4-5)(?:$|-\d{8}$)/.test(model)) {
       return { payload: {}, status: "disabled", label: "Claude 使用默认无扩展思考模式" }
     }
   }
