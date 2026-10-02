@@ -66,7 +66,7 @@ function modelIdentity(): string {
   if (!isCustomAIConfigured()) return "scripting-assistant"
   const config = resolveGeneralAIConfigRoute(loadCustomAIProfile().general)
   // 密钥不参与指纹，也不写入缓存；翻译提示词或思考策略变更时自动失效。
-  return fingerprint(JSON.stringify({ cacheVersion: 2, promptVersion: 2, thinkingPolicy: "off-v1",
+  return fingerprint(JSON.stringify({ cacheVersion: 2, promptVersion: 3, thinkingPolicy: "off-v1",
     protocol: config.protocol, endpoint: getEffectiveGeneralEndpoint(config),
     model: config.model, temperature: config.temperature ?? null }))
 }

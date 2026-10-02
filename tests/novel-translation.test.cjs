@@ -130,6 +130,57 @@ test("长段拆分仍保留换行与 Pixiv 链接占位符", async () => {
   assert.equal(await passage(`前文${link}后文`, { title: "测试" }), `前文${link}后文`)
   const long = `${"甲".repeat(1700)}\n${"乙".repeat(1700)}`
   assert.equal(await passage(long, { title: "测试" }), long)
+  const blankLines = `${"甲".repeat(1700)}\n\n\n${"乙".repeat(1700)}`
+  assert.equal(await passage(blankLines, { title: "测试" }), blankLines)
+  const crossingLink = `${"甲".repeat(1790)}[[jumpuri:来源 > https://example.com]]${"乙".repeat(1000)}`
+  assert.equal(await passage(crossingLink, { title: "测试" }), crossingLink)
+  const requested = []
+  const sentencePassage = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "translateNovelPassage", {
+    executeUniversalAI: async (request) => {
+      const source = request.messages[0].content.split("占位符：\n")[1]
+      requested.push(source)
+      return source
+    },
+  })
+  const sentence = `${"甲".repeat(1000)}。${"乙".repeat(2000)}`
+  assert.equal(await sentencePassage(sentence, { title: "测试" }), sentence)
+  assert.equal(requested[0], `${"甲".repeat(1000)}。`)
+})
+
+test("链接占位符重复或错序时拒绝译文，避免破坏原文导航", async () => {
+  const wrong = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "translateNovelPassage", {
+    executeUniversalAI: async () => "__PIXIV_LINK_1__ __PIXIV_LINK_0__",
+  })
+  await assert.rejects(wrong("[[jumpuri:甲 > https://example.com/a]] [[jumpuri:乙 > https://example.com/b]]",
+    { title: "测试" }), /链接占位符/)
+  const duplicate = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "translateNovelPassage", {
+    executeUniversalAI: async () => "__PIXIV_LINK_0__ __PIXIV_LINK_0__",
+  })
+  await assert.rejects(duplicate("[[jumpuri:甲 > https://example.com/a]]", { title: "测试" }), /链接占位符/)
+})
+
+test("长篇摘要和术语表同时参考开头、中段、结尾", async () => {
+  const sampleNovelContext = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "sampleNovelContext")
+  const prompts = []
+  const generate = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "generateNovelTranslationContext", {
+    sampleNovelContext,
+    executeUniversalAI: async (request) => {
+      assert.equal(request.temperature, 0.2)
+      prompts.push(request.messages[0].content)
+      return prompts.length === 1 ? "摘要" : "人物｜Alice｜爱丽丝"
+    },
+  })
+  const long = `${"甲".repeat(5900)}中段人物${"乙".repeat(5900)}结尾人物`
+  const context = await generate("测试", long, { summary: true, glossary: true })
+  assert.equal(context.summary, "摘要")
+  assert.equal(context.glossary, "人物｜Alice｜爱丽丝")
+  assert.equal(prompts.length, 2)
+  for (const prompt of prompts) {
+    assert.match(prompt, /【开头节选】/)
+    assert.match(prompt, /中段人物/)
+    assert.match(prompt, /结尾人物/)
+    assert.ok(prompt.length < 9300)
+  }
 })
 
 test("WebView 在相同正文块内切换译文和原文，不改块标识", () => {

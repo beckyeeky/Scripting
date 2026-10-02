@@ -478,7 +478,10 @@ export async function translateNovelPassage(
 ): Promise<string> {
   if (original.length > 2200) {
     let splitAt = original.lastIndexOf("\n", 1800)
-    if (splitAt < 600) splitAt = 1800
+    if (splitAt < 600) {
+      splitAt = Math.max(...["。", "！", "？", "!", "?"].map((mark) => original.lastIndexOf(mark, 1800)))
+      splitAt = splitAt >= 600 ? splitAt + 1 : 1800
+    }
     // 不在 Pixiv 的注音/链接标记中间截断。
     for (const match of original.matchAll(/\[\[(?:jumpuri|rb):[^\]]+\]\]/gi)) {
       const start = match.index ?? 0
@@ -488,7 +491,9 @@ export async function translateNovelPassage(
       }
     }
     if (splitAt > 0 && splitAt < original.length) {
-      const separator = original[splitAt] === "\n" ? "\n" : ""
+      // 译文会 trim，故把接缝处的空白留在拆分层；连续空行不能只保留一行。
+      while (splitAt > 600 && /[\s\u3000]/.test(original[splitAt - 1])) splitAt--
+      const separator = original.slice(splitAt).match(/^[\s\u3000]*/)?.[0] ?? ""
       const first = await translateNovelPassage(original.slice(0, splitAt), options)
       const rest = await translateNovelPassage(original.slice(splitAt + separator.length), options)
       return first + separator + rest
@@ -516,12 +521,24 @@ export async function translateNovelPassage(
     options: { onChunk: () => {}, signal: options.signal },
   })).trim()
   let restored = translated
+  let previousMarkerEnd = 0
   for (let i = 0; i < protectedLinks.length; i++) {
     const marker = `__PIXIV_LINK_${i}__`
-    if (!restored.includes(marker)) throw new Error("链接占位符丢失")
+    const position = translated.indexOf(marker, previousMarkerEnd)
+    if (position < 0 || translated.indexOf(marker, position + marker.length) >= 0) {
+      throw new Error("链接占位符丢失、重复或顺序错误")
+    }
+    previousMarkerEnd = position + marker.length
     restored = restored.replace(marker, protectedLinks[i])
   }
   return restored
+}
+
+function sampleNovelContext(text: string): string {
+  if (text.length <= 9000) return text
+  const windowSize = 3000
+  const middleStart = Math.floor((text.length - windowSize) / 2)
+  return `【开头节选】\n${text.slice(0, windowSize)}\n\n【中段节选】\n${text.slice(middleStart, middleStart + windowSize)}\n\n【结尾节选】\n${text.slice(-windowSize)}`
 }
 
 /** 摘要和术语生成失败时由翻译会话降级为无上下文翻译。 */
@@ -531,12 +548,13 @@ export async function generateNovelTranslationContext(
   needs: { summary: boolean; glossary: boolean; knownGlossary?: string },
   signal?: SignalLike
 ): Promise<{ summary?: string; glossary?: string }> {
-  const sample = text.slice(0, 9000)
+  const sample = sampleNovelContext(text)
   const result: { summary?: string; glossary?: string } = {}
   if (needs.summary) {
     result.summary = (await executeUniversalAI({
       systemPrompt: "提炼小说背景，供后续逐段翻译保持人名、关系和叙事一致。最多 300 字，不复述情节细节。",
       messages: [{ role: "user", content: `《${title}》\n${sample}` }],
+      temperature: 0.2,
       disableThinking: true,
       options: { onChunk: () => {}, signal },
     })).trim()
@@ -546,6 +564,7 @@ export async function generateNovelTranslationContext(
     result.glossary = (await executeUniversalAI({
       systemPrompt: "提取小说中反复出现且影响翻译一致性的人名与专有名词。每行严格使用：类别｜原文｜简体中文译法｜备注。最多 30 行，不输出解释；确无术语时只输出「无」。",
       messages: [{ role: "user", content: `《${title}》\n${needs.knownGlossary ? `系列已确定译法（不要重新命名）：\n${needs.knownGlossary}\n` : ""}${sample}` }],
+      temperature: 0.2,
       disableThinking: true,
       options: { onChunk: () => {}, signal },
     })).trim()
