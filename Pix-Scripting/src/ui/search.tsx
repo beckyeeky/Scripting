@@ -915,16 +915,22 @@ export function SearchView(props: {
     }
     const trimmed = textToSearch.trim()
     if (!trimmed) return
+
+    // 1. 优先立即触发原生压栈（抢在任何键盘/搜索栏收起动画阻断导航转场之前）
+    pushSearchResults(trimmed, scope, sort)
+
+    // 2. 清空实时搜索建议与输入缓存
     setQuery("")
-    setIsSearchingMode(false)
-    setSearchPresented(false)
     setTagSuggestions([])
     setUserSuggestions([])
     setTagSuggestionsLoading(false)
     setUserSuggestionsLoading(false)
+
+    // 3. 延后静默复位根页状态（新页面已压栈接管屏幕，避免 UISearchController 抢先收起导致压栈被系统丢弃）
     setTimeout(() => {
-      pushSearchResults(trimmed, scope, sort)
-    }, 80)
+      setIsSearchingMode(false)
+      setSearchPresented(false)
+    }, 350)
   }
 
   const activePaged =

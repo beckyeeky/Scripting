@@ -35,6 +35,7 @@ export function RefreshableScrollView(props: {
   navigationTitle?: string
   navigationBarTitleDisplayMode?: "automatic" | "inline" | "large"
   navigationDestination?: any
+  scrollDismissesKeyboard?: "automatic" | "immediately" | "interactively" | "never"
   searchable?: {
     value: string
     onChanged: (value: string) => void
@@ -129,6 +130,7 @@ export function RefreshableScrollView(props: {
               navigationTitle={props.navigationTitle}
               navigationBarTitleDisplayMode={props.navigationBarTitleDisplayMode}
               refreshable={handleRefresh}
+              scrollDismissesKeyboard={props.scrollDismissesKeyboard ?? "interactively"}
               searchable={props.searchable}
               searchSuggestions={props.searchSuggestions}
               onSubmit={props.onSubmit}

@@ -480,18 +480,6 @@ function trimmedOrNull(val: unknown): string | null {
   return typeof val === "string" && val.trim().length > 0 ? val : null
 }
 
-function clampPercent(value: unknown, fallback: number): number {
-  const num = typeof value === "number" && Number.isFinite(value) ? value : Number.NaN
-  if (!Number.isFinite(num)) return fallback
-  return Math.round(Math.min(100, Math.max(0, num)))
-}
-
-function clampRange(value: unknown, fallback: number, min: number, max: number): number {
-  const num = typeof value === "number" && Number.isFinite(value) ? value : Number.NaN
-  if (!Number.isFinite(num)) return fallback
-  return Math.round(Math.min(max, Math.max(min, num)))
-}
-
 function boolOr(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback
 }
@@ -510,33 +498,6 @@ function clampNum(value: unknown, min: number, max: number, fallback: number, st
   }
   return fallback
 }
-
-const parseImageConcurrency = (v: unknown) => clampNum(v, 1, 90, DEFAULT_SETTINGS.imageBatchConcurrency)
-const parseForegroundConcurrency = (v: unknown) => clampNum(v, 1, 30, DEFAULT_SETTINGS.imageForegroundConcurrency)
-const parsePrefetchConcurrency = (v: unknown) => clampNum(v, 0, 30, DEFAULT_SETTINGS.imagePrefetchConcurrency)
-const parseAITranslateConcurrency = (v: unknown) => clampNum(v, 1, 6, DEFAULT_SETTINGS.aiTranslateConcurrency)
-const parseFadeInDuration = (v: unknown) => clampNum(v, 1, 500, DEFAULT_SETTINGS.imageFadeInDuration)
-const parseBlurCrossFadeDuration = (v: unknown) => clampNum(v, 0, 250, DEFAULT_SETTINGS.blurCrossFadeDuration)
-const parseBlurCrossFadeRadius = (v: unknown) => clampNum(v, 0, 30, DEFAULT_SETTINGS.blurCrossFadeRadius, 0.1)
-const parseSharpenFadeDuration = (v: unknown) => clampNum(v, 0, 250, DEFAULT_SETTINGS.sharpenFadeDuration)
-const parseSharpenBlurRadius = (v: unknown) => clampNum(v, 0, 8, DEFAULT_SETTINGS.sharpenBlurRadius, 0.1)
-const parseBackgroundPreheatDuration = (v: unknown) => clampNum(v, 0, 2000, DEFAULT_SETTINGS.backgroundPreheatDuration)
-const parseLoadingDuration = (v: unknown) => clampNum(v, 0, 30000, DEFAULT_SETTINGS.loadingAnimationDuration)
-const parseNovelLoadingDuration = (v: unknown) => clampNum(v, 0, 5000, DEFAULT_SETTINGS.novelLoadingDuration)
-const parseLaunchDuration = (v: unknown) => clampNum(v, 0, 30000, DEFAULT_SETTINGS.launchAnimationDuration)
-const parseFeedBottomInset = (v: unknown) => clampNum(v, 0, 500, DEFAULT_SETTINGS.feedBottomInset)
-const parseWidgetPoolCapacity = (v: unknown) => clampNum(v, 10, 30, DEFAULT_SETTINGS.widgetPoolCapacity)
-const parseWidgetReloadInterval = (v: unknown) => clampNum(v, 1, 1440, DEFAULT_SETTINGS.widgetReloadIntervalMinutes)
-const parseGeminiTransitionInterval = (v: unknown) => clampNum(v, 500, 10000, DEFAULT_SETTINGS.geminiTransitionIntervalMs)
-const parseGeminiTransitionDuration = (v: unknown) => clampNum(v, 300, 9000, DEFAULT_SETTINGS.geminiTransitionDurationMs)
-const parseGeminiRotationPeriod = (v: unknown) => clampNum(v, 0, 60, DEFAULT_SETTINGS.geminiRotationPeriodSec, 0.1)
-const parseGeminiSwingDuration = (v: unknown) => clampNum(v, 1000, 15000, DEFAULT_SETTINGS.geminiSwingDurationMs)
-const parseGeminiCenterOffsetY = (v: unknown) => clampNum(v, -350, -50, DEFAULT_SETTINGS.geminiCenterOffsetY)
-const parseGeminiWingOffsetX = (v: unknown) => clampNum(v, 30, 200, DEFAULT_SETTINGS.geminiWingOffsetX)
-const parseGeminiSwingDistance = (v: unknown) => clampNum(v, 5, 120, DEFAULT_SETTINGS.geminiSwingDistance)
-const parseGeminiBlurRadius = (v: unknown) => clampNum(v, 30, 200, DEFAULT_SETTINGS.geminiBlurRadius)
-const parseGeminiLuminousBoostRatio = (v: unknown) => clampNum(v, 0, 100, DEFAULT_SETTINGS.geminiLuminousBoostRatio)
-const parseGeminiLightModeAlphaRatio = (v: unknown) => clampNum(v, 10, 100, DEFAULT_SETTINGS.geminiLightModeAlphaRatio)
 
 function parseStringArray(value: unknown, fallback: string[]): string[] {
   if (Array.isArray(value)) {
@@ -591,21 +552,21 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
       typeof stored?.glassTintColor === "string" && stored.glassTintColor.trim().length > 0
         ? stored.glassTintColor
         : DEFAULT_SETTINGS.glassTintColor,
-    glassTintStrength: clampPercent(stored?.glassTintStrength, DEFAULT_SETTINGS.glassTintStrength),
+    glassTintStrength: clampNum(stored?.glassTintStrength, 0, 100, DEFAULT_SETTINGS.glassTintStrength),
     glassInteractive: boolOr(stored?.glassInteractive, DEFAULT_SETTINGS.glassInteractive),
     splitViewEnabledLandscape: boolOr(stored?.splitViewEnabledLandscape, DEFAULT_SETTINGS.splitViewEnabledLandscape),
     splitViewEnabledPortrait: boolOr(stored?.splitViewEnabledPortrait, DEFAULT_SETTINGS.splitViewEnabledPortrait),
-    splitRatioPortrait: clampRange(
+    splitRatioPortrait: clampNum(
       stored?.splitRatioPortrait,
-      DEFAULT_SETTINGS.splitRatioPortrait,
       20,
-      70
+      70,
+      DEFAULT_SETTINGS.splitRatioPortrait
     ),
-    splitRatioLandscape: clampRange(
+    splitRatioLandscape: clampNum(
       stored?.splitRatioLandscape,
-      DEFAULT_SETTINGS.splitRatioLandscape,
       20,
-      70
+      70,
+      DEFAULT_SETTINGS.splitRatioLandscape
     ),
     heroFirstFeedCard: boolOr(stored?.heroFirstFeedCard, DEFAULT_SETTINGS.heroFirstFeedCard),
     compactIllustCard: boolOr(stored?.compactIllustCard, DEFAULT_SETTINGS.compactIllustCard),
@@ -634,16 +595,16 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
       ? stored.geminiMotionSpeed
       : DEFAULT_SETTINGS.geminiMotionSpeed,
     geminiCustomParamsEnabled: boolOr(stored?.geminiCustomParamsEnabled, DEFAULT_SETTINGS.geminiCustomParamsEnabled),
-    geminiTransitionIntervalMs: parseGeminiTransitionInterval(stored?.geminiTransitionIntervalMs),
-    geminiTransitionDurationMs: parseGeminiTransitionDuration(stored?.geminiTransitionDurationMs),
-    geminiRotationPeriodSec: parseGeminiRotationPeriod(stored?.geminiRotationPeriodSec),
-    geminiSwingDurationMs: parseGeminiSwingDuration(stored?.geminiSwingDurationMs),
-    geminiCenterOffsetY: parseGeminiCenterOffsetY(stored?.geminiCenterOffsetY),
-    geminiWingOffsetX: parseGeminiWingOffsetX(stored?.geminiWingOffsetX),
-    geminiSwingDistance: parseGeminiSwingDistance(stored?.geminiSwingDistance),
-    geminiBlurRadius: parseGeminiBlurRadius(stored?.geminiBlurRadius),
-    geminiLuminousBoostRatio: parseGeminiLuminousBoostRatio(stored?.geminiLuminousBoostRatio),
-    geminiLightModeAlphaRatio: parseGeminiLightModeAlphaRatio(stored?.geminiLightModeAlphaRatio),
+    geminiTransitionIntervalMs: clampNum(stored?.geminiTransitionIntervalMs, 500, 10000, DEFAULT_SETTINGS.geminiTransitionIntervalMs),
+    geminiTransitionDurationMs: clampNum(stored?.geminiTransitionDurationMs, 300, 9000, DEFAULT_SETTINGS.geminiTransitionDurationMs),
+    geminiRotationPeriodSec: clampNum(stored?.geminiRotationPeriodSec, 0, 60, DEFAULT_SETTINGS.geminiRotationPeriodSec, 0.1),
+    geminiSwingDurationMs: clampNum(stored?.geminiSwingDurationMs, 1000, 15000, DEFAULT_SETTINGS.geminiSwingDurationMs),
+    geminiCenterOffsetY: clampNum(stored?.geminiCenterOffsetY, -350, -50, DEFAULT_SETTINGS.geminiCenterOffsetY),
+    geminiWingOffsetX: clampNum(stored?.geminiWingOffsetX, 30, 200, DEFAULT_SETTINGS.geminiWingOffsetX),
+    geminiSwingDistance: clampNum(stored?.geminiSwingDistance, 5, 120, DEFAULT_SETTINGS.geminiSwingDistance),
+    geminiBlurRadius: clampNum(stored?.geminiBlurRadius, 30, 200, DEFAULT_SETTINGS.geminiBlurRadius),
+    geminiLuminousBoostRatio: clampNum(stored?.geminiLuminousBoostRatio, 0, 100, DEFAULT_SETTINGS.geminiLuminousBoostRatio),
+    geminiLightModeAlphaRatio: clampNum(stored?.geminiLightModeAlphaRatio, 10, 100, DEFAULT_SETTINGS.geminiLightModeAlphaRatio),
     watchlistSortOrder: isOneOf(stored?.watchlistSortOrder, WATCHLIST_SORT_VALUES)
       ? stored.watchlistSortOrder
       : DEFAULT_SETTINGS.watchlistSortOrder,
@@ -682,24 +643,24 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
       : DEFAULT_SETTINGS.privacyShieldMaterial,
     cacheLimitMB: cacheLimitOf(stored?.cacheLimitMB),
     recordHistory: boolOr(stored?.recordHistory, DEFAULT_SETTINGS.recordHistory),
-    imageBatchConcurrency: parseImageConcurrency(stored?.imageBatchConcurrency),
-    imageForegroundConcurrency: parseForegroundConcurrency(stored?.imageForegroundConcurrency),
-    imagePrefetchConcurrency: parsePrefetchConcurrency(stored?.imagePrefetchConcurrency),
+    imageBatchConcurrency: clampNum(stored?.imageBatchConcurrency, 1, 90, DEFAULT_SETTINGS.imageBatchConcurrency),
+    imageForegroundConcurrency: clampNum(stored?.imageForegroundConcurrency, 1, 30, DEFAULT_SETTINGS.imageForegroundConcurrency),
+    imagePrefetchConcurrency: clampNum(stored?.imagePrefetchConcurrency, 0, 30, DEFAULT_SETTINGS.imagePrefetchConcurrency),
     enableViewportPreemption: boolOr(
       stored?.enableViewportPreemption,
       DEFAULT_SETTINGS.enableViewportPreemption
     ),
-    aiTranslateConcurrency: parseAITranslateConcurrency(stored?.aiTranslateConcurrency),
-    imageFadeInDuration: parseFadeInDuration(stored?.imageFadeInDuration),
-    blurCrossFadeDuration: parseBlurCrossFadeDuration(stored?.blurCrossFadeDuration),
-    blurCrossFadeRadius: parseBlurCrossFadeRadius(stored?.blurCrossFadeRadius),
-    sharpenFadeDuration: parseSharpenFadeDuration(stored?.sharpenFadeDuration),
-    sharpenBlurRadius: parseSharpenBlurRadius(stored?.sharpenBlurRadius),
-    backgroundPreheatDuration: parseBackgroundPreheatDuration(stored?.backgroundPreheatDuration),
-    loadingAnimationDuration: parseLoadingDuration(stored?.loadingAnimationDuration),
-    novelLoadingDuration: parseNovelLoadingDuration(stored?.novelLoadingDuration),
-    launchAnimationDuration: parseLaunchDuration(stored?.launchAnimationDuration),
-    feedBottomInset: parseFeedBottomInset(stored?.feedBottomInset),
+    aiTranslateConcurrency: clampNum(stored?.aiTranslateConcurrency, 1, 6, DEFAULT_SETTINGS.aiTranslateConcurrency),
+    imageFadeInDuration: clampNum(stored?.imageFadeInDuration, 1, 500, DEFAULT_SETTINGS.imageFadeInDuration),
+    blurCrossFadeDuration: clampNum(stored?.blurCrossFadeDuration, 0, 250, DEFAULT_SETTINGS.blurCrossFadeDuration),
+    blurCrossFadeRadius: clampNum(stored?.blurCrossFadeRadius, 0, 30, DEFAULT_SETTINGS.blurCrossFadeRadius, 0.1),
+    sharpenFadeDuration: clampNum(stored?.sharpenFadeDuration, 0, 250, DEFAULT_SETTINGS.sharpenFadeDuration),
+    sharpenBlurRadius: clampNum(stored?.sharpenBlurRadius, 0, 8, DEFAULT_SETTINGS.sharpenBlurRadius, 0.1),
+    backgroundPreheatDuration: clampNum(stored?.backgroundPreheatDuration, 0, 2000, DEFAULT_SETTINGS.backgroundPreheatDuration),
+    loadingAnimationDuration: clampNum(stored?.loadingAnimationDuration, 0, 30000, DEFAULT_SETTINGS.loadingAnimationDuration),
+    novelLoadingDuration: clampNum(stored?.novelLoadingDuration, 0, 5000, DEFAULT_SETTINGS.novelLoadingDuration),
+    launchAnimationDuration: clampNum(stored?.launchAnimationDuration, 0, 30000, DEFAULT_SETTINGS.launchAnimationDuration),
+    feedBottomInset: clampNum(stored?.feedBottomInset, 0, 500, DEFAULT_SETTINGS.feedBottomInset),
     enableLiveActivity: boolOr(stored?.enableLiveActivity, DEFAULT_SETTINGS.enableLiveActivity),
     enableTaskNotification: boolOr(
       stored?.enableTaskNotification,
@@ -760,8 +721,8 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
     widgetSourceExtraLargeIpad: isOneOf(stored?.widgetSourceExtraLargeIpad, WIDGET_DEFAULT_SOURCE_VALUES)
       ? stored.widgetSourceExtraLargeIpad
       : DEFAULT_SETTINGS.widgetSourceExtraLargeIpad,
-    widgetPoolCapacity: parseWidgetPoolCapacity(stored?.widgetPoolCapacity),
-    widgetReloadIntervalMinutes: parseWidgetReloadInterval(stored?.widgetReloadIntervalMinutes),
+    widgetPoolCapacity: clampNum(stored?.widgetPoolCapacity, 10, 30, DEFAULT_SETTINGS.widgetPoolCapacity),
+    widgetReloadIntervalMinutes: clampNum(stored?.widgetReloadIntervalMinutes, 1, 1440, DEFAULT_SETTINGS.widgetReloadIntervalMinutes),
     quickActionButtonEnabled: boolOr(
       stored?.quickActionButtonEnabled,
       DEFAULT_SETTINGS.quickActionButtonEnabled
