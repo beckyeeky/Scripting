@@ -78,6 +78,7 @@ import {
   type CustomAIProfile,
 } from "../store/customAI"
 import { editAIShowSettings, syncWebCookies } from "../api/pixiv"
+import { clearNovelTranslationCache, novelTranslationCacheUsage } from "../store/novelTranslation"
 import { session } from "../api/session"
 import { clearUgoiraCache, enforceUgoiraCacheLimit, ugoiraCacheUsageBytes } from "../ugoira/ugoira"
 import { useTimedFlag } from "./Hooks"
@@ -127,6 +128,7 @@ export function SettingsView() {
   const [settingsReset, setSettingsReset] = useTimedFlag()
   const [activeSheet, setActiveSheet] = useState<"none" | "highlights" | "splitView">("none")
   const [cacheSize, setCacheSize] = useState<number | null>(null)
+  const [translationCache, setTranslationCache] = useState(() => novelTranslationCacheUsage())
   const [cacheCleared, setCacheCleared] = useTimedFlag()
   const [historyTotal, setHistoryTotal] = useState<number>(() => historyCount())
   const [historyCleared, setHistoryCleared] = useTimedFlag()
@@ -188,6 +190,19 @@ export function SettingsView() {
 
   function refreshCacheSize() {
     setCacheSize(cacheUsageBytes() + ugoiraCacheUsageBytes())
+    setTranslationCache(novelTranslationCacheUsage())
+  }
+
+  async function clearTranslations() {
+    const confirmed = await Dialog.confirm({
+      title: "清除小说译文",
+      message: "将清除当前账号本机保存的小说译文、摘要与术语表；原文、收藏和阅读进度不受影响。",
+      confirmLabel: "清除译文",
+      cancelLabel: "取消",
+    })
+    if (!confirmed) return
+    clearNovelTranslationCache()
+    refreshCacheSize()
   }
 
   function refreshHistoryTotal() {
@@ -2023,6 +2038,14 @@ export function SettingsView() {
               <Image systemName={cacheCleared ? "checkmark" : "trash"} foregroundStyle={cacheCleared ? "systemGreen" : "systemRed"} />
             </Button>
           </HStack>
+          <HStack spacing={8}>
+            <Text>小说译文缓存</Text>
+            <Spacer />
+            <Text font="body" foregroundStyle={customTint ?? "secondaryLabel"}>
+              {`${translationCache.count} 个文件 · ${formatSize(translationCache.bytes)}`}
+            </Text>
+            <Button title="清除小说译文" systemImage="trash" action={() => void clearTranslations()} />
+          </HStack>
         </DisclosureGroup>
       </Section>
 
@@ -2434,6 +2457,5 @@ function AdvancedNumberRow(props: {
 }
 
 export default SettingsView
-
 
 

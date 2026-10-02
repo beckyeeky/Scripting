@@ -39,6 +39,7 @@ import {
   nextIllustrationSeries,
   nextNovelSeries,
   novelSeries,
+  novelViewerData,
 } from "../api/pixiv"
 import { session } from "../api/session"
 import { triggerHaptic } from "../platform/haptics"
@@ -83,6 +84,10 @@ import {
   useSeriesWatchlist,
 } from "./Hooks"
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl } from "./ambient"
+import { parseNovelToChunks } from "./NovelReader"
+import { getNovelTranslationSession, type NovelTranslationSession } from "../store/novelTranslation"
+import { resolveEffectiveUID } from "../store/dataDirectory"
+import { onCustomAIConfigChanged } from "../store/customAI"
 
 type SeriesKind = "manga" | "novel"
 type SeriesWorkItem = PixivIllustration | PixivNovel
@@ -427,6 +432,82 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
 
   const pagedRef = useLatest(paged)
   const [seriesDownloading, setSeriesDownloading] = useState(false)
+  const [seriesTranslating, setSeriesTranslating] = useState(false)
+  const [translationStatus, setTranslationStatus] = useState("")
+  const stopTranslationRef = useRef(false)
+  const activeTranslationRef = useRef<NovelTranslationSession | null>(null)
+
+  useEffect(() => () => {
+    stopTranslationRef.current = true
+    activeTranslationRef.current?.pause()
+  }, [])
+  useEffect(() => onCustomAIConfigChanged(() => {
+    stopTranslationRef.current = true
+    activeTranslationRef.current?.pause()
+  }), [])
+
+  async function handleTranslateSeries() {
+    if (kind !== "novel" || seriesTranslating) return
+    const novels = [...(paged.items as PixivNovel[])].sort((a, b) =>
+      (a.episode_number ?? 0) - (b.episode_number ?? 0)
+    )
+    if (!novels.length) return
+    const confirmed = await Dialog.confirm({
+      title: "翻译小说系列",
+      message: `将按章节顺序翻译《${title}》中当前可见的 ${novels.length} 话；已完成段落会跳过。本批最多处理约 6 万字，模型可能产生费用。`,
+      confirmLabel: "开始翻译",
+      cancelLabel: "取消",
+    })
+    if (!confirmed) return
+    stopTranslationRef.current = false
+    const startingUID = resolveEffectiveUID()
+    setSeriesTranslating(true)
+    let remainingChars = 60000
+    let finished = 0
+    let errors = 0
+    try {
+      for (const novel of novels) {
+        if (stopTranslationRef.current || remainingChars <= 0 || resolveEffectiveUID() !== startingUID) break
+        setTranslationStatus(`正在准备第 ${novel.episode_number ?? finished + 1} 话：${novel.title}`)
+        try {
+          const viewer = await session.call((token) => novelViewerData(novel.id, token))
+          if (!viewer.text || stopTranslationRef.current || resolveEffectiveUID() !== startingUID) continue
+          const blocks = parseNovelToChunks(viewer.text)
+            .filter((item) => item.type === "text" && Boolean(item.text))
+            .map((item) => ({ id: item.id, text: item.text! }))
+          const translationSession = getNovelTranslationSession({
+            novelId: novel.id, title: novel.title, text: viewer.text, seriesId: seriesID, blocks,
+          })
+          activeTranslationRef.current = translationSession
+          const pending = blocks.filter((block) => translationSession.getSnapshot().blocks[block.id]?.status !== "done")
+          const selected: string[] = []
+          for (const block of pending) {
+            if (block.text.length > remainingChars) break
+            selected.push(block.id)
+            remainingChars -= block.text.length
+          }
+          if (selected.length > 0) {
+            translationSession.setMode("translated")
+            await translationSession.start(selected)
+          }
+          errors += translationSession.getSnapshot().failed
+          finished += 1
+          activeTranslationRef.current = null
+          setTranslationStatus(`已处理 ${finished}/${novels.length} 话，剩余批次额度约 ${Math.round(remainingChars / 1000)} 千字`)
+          if (selected.length < pending.length) break
+        } catch {
+          errors += 1
+          activeTranslationRef.current = null
+        }
+      }
+      setTranslationStatus(stopTranslationRef.current || resolveEffectiveUID() !== startingUID
+        ? `已暂停；本次处理 ${finished} 话，失败 ${errors} 项，可再次启动继续`
+        : `本批处理 ${finished} 话，失败 ${errors} 项；再次启动将跳过已完成段落`)
+    } finally {
+      activeTranslationRef.current = null
+      setSeriesTranslating(false)
+    }
+  }
 
   async function handleExportSeries() {
     if (seriesDownloading) return
@@ -794,6 +875,23 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
                     caption={caption}
                     routeDestination={renderDestination}
                   />
+                </VStack>
+              ) : null}
+              {kind === "novel" && paged.items.length > 0 ? (
+                <VStack spacing={5} padding={{ top: 8 }}>
+                  <Button
+                    title={seriesTranslating ? "暂停系列翻译" : "翻译本系列"}
+                    systemImage={seriesTranslating ? "pause.fill" : "character.book.closed"}
+                    action={() => {
+                      if (seriesTranslating) {
+                        stopTranslationRef.current = true
+                        activeTranslationRef.current?.pause()
+                      } else {
+                        void handleTranslateSeries()
+                      }
+                    }}
+                  />
+                  {translationStatus ? <Text font="caption" foregroundStyle="secondaryLabel">{translationStatus}</Text> : null}
                 </VStack>
               ) : null}
             </VStack>

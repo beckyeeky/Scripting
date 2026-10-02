@@ -1,7 +1,7 @@
 import type { OCRBubble } from "../../api/aiService"
 
 export type IllustAIMode = "caption" | "ocr" | "vision"
-export type NovelAIMode = "caption" | "translate" | "summary" | "continue"
+export type NovelAIMode = "caption" | "summary" | "continue"
 
 export const PRESET_CONTINUE_PROMPTS = [
   "续写一个温馨甜蜜的日常结局",
@@ -23,7 +23,6 @@ export interface PageTranslationCache {
 }
 
 export interface NovelPageCache {
-  translateText?: string
   summaryText?: string
   continueText?: string
   error?: string | null

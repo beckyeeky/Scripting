@@ -1,10 +1,9 @@
 {
   "contributors": [],
-  "version": "1.6.7",
+  "version": "1.6.7.1",
   "remoteResource": {
     "autoUpdateInterval": null,
-    "url": "https://raw.githubusercontent.com/chaoscard/Scripting/main/Release/Pix-Scripting.scripting",
-    "hash": "88f3d8c030ea0d9826131ab169b4b0ea"
+    "url": "https://raw.githubusercontent.com/beckyeeky/Scripting/feature/pixivreader-port/Release/Pix-Scripting.scripting"
   },
   "name": "Pix-Scripting",
   "author": {

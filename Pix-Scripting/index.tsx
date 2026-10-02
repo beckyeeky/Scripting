@@ -10,9 +10,24 @@ import {
 import { triggerResumeSync } from "./src/store/historySync"
 import { requestPixivRoute } from "./src/store/routeNavigation"
 import { DownloadTaskManager } from "./src/downloader/downloadTaskManager"
+import { discardNovelTranslationSessions, pauseAllNovelTranslations, resumeMinimizedNovelTranslations } from "./src/store/novelTranslation"
+import { session } from "./src/api/session"
+import { resolveEffectiveUID } from "./src/store/dataDirectory"
+import { onCustomAIConfigChanged } from "./src/store/customAI"
 
 async function main() {
+  let stopAuth: (() => void) | undefined
+  let stopAI: (() => void) | undefined
   try {
+    let translationUID = resolveEffectiveUID()
+    stopAuth = session.onAuthChanged(() => {
+      const nextUID = resolveEffectiveUID()
+      if (nextUID !== translationUID) {
+        translationUID = nextUID
+        discardNovelTranslationSessions()
+      }
+    })
+    stopAI = onCustomAIConfigChanged(() => discardNovelTranslationSessions())
     const startupRoute =
       (Script.queryParameters?.route as string | undefined) ||
       (Script.widgetParameter
@@ -24,6 +39,7 @@ async function main() {
     }
 
     Script.onResume((details) => {
+      if (details.resumeFromMinimized) resumeMinimizedNovelTranslations()
       const resumeRoute =
         (details.queryParameters?.route as string | undefined) ||
         (details.widgetParameter
@@ -39,6 +55,7 @@ async function main() {
       triggerResumeSync()
     })
     Script.onMinimize(() => {
+      pauseAllNovelTranslations()
       flushAllCaches()
     })
     Script.enableMinimize()
@@ -56,6 +73,8 @@ async function main() {
       await console.present()
     } catch {}
   } finally {
+    stopAuth?.()
+    stopAI?.()
     cleanupAppResources()
     Script.exit()
   }

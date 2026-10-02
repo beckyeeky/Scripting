@@ -37,6 +37,7 @@ import {
   type NovelReaderSettings,
 } from "../store/novelReaderSettings"
 import { getNovelProgress, recordNovelProgress } from "../store/novelProgress"
+import type { NovelTranslationSnapshot } from "../store/novelTranslation"
 
 export function escapeHtml(text: string): string {
   if (!text) return ""
@@ -100,6 +101,44 @@ export function formatPixivRubyToHtml(rawText: string): string {
   )
 
   return html
+}
+
+/** 将译文写回已有 WebView 正文块，保留块 ID、图片和导航节点。 */
+export function buildNovelTranslationPatchScript(
+  snapshot: NovelTranslationSnapshot | null | undefined,
+  anchorId?: string | null
+): string {
+  const translated: Record<string, string> = {}
+  if (snapshot?.mode === "translated") {
+    for (const block of Object.values(snapshot.blocks)) {
+      if (block.status !== "done" || !block.translation) continue
+      translated[block.id] = block.translation.split("\n").map((line) =>
+        line.replace(/[\s\u3000]/g, "")
+          ? `<p class="paragraph">${formatPixivRubyToHtml(line)}</p>`
+          : '<div class="empty-line"></div>'
+      ).join("\n")
+    }
+  }
+  return `(() => {
+    const rendered = ${JSON.stringify(translated)};
+    const originals = window.__novelTranslationOriginals || (window.__novelTranslationOriginals = {});
+    const anchor = document.getElementById(${JSON.stringify(anchorId ?? null)});
+    const before = anchor && anchor.getBoundingClientRect();
+    let changed = false;
+    document.querySelectorAll('.text-chunk-block').forEach((node) => {
+      const id = node.getAttribute('data-chunk-id');
+      if (!id) return;
+      if (!(id in originals)) originals[id] = node.innerHTML;
+      const next = rendered[id] || originals[id];
+      if (node.innerHTML !== next) { node.innerHTML = next; changed = true; }
+    });
+    if (anchor && before && changed) {
+      requestAnimationFrame(() => {
+        const after = anchor.getBoundingClientRect();
+        window.scrollBy(after.left - before.left, after.top - before.top);
+      });
+    }
+  })();`
 }
 
 export type NovelChunkType =
@@ -643,14 +682,16 @@ function NovelPixivImageItemView(props: {
 
 function NovelChunkRenderer(props: {
   item: NovelChunkItem
+  translation?: NovelTranslationSnapshot | null
   markerPage?: number | null
   settings: NovelReaderSettings
   onJumpToPage?: (page: number) => void
 }) {
-  const { item, markerPage, settings, onJumpToPage } = props
+  const { item, markerPage, settings, onJumpToPage, translation } = props
 
   if (item.type === "text" && item.text) {
-    return <NovelChunkTextView text={item.text} settings={settings} />
+    const block = translation?.mode === "translated" ? translation.blocks[item.id] : undefined
+    return <NovelChunkTextView text={block?.status === "done" && block.translation ? block.translation : item.text} settings={settings} />
   }
 
   if (item.type === "chapter") {
@@ -1325,6 +1366,7 @@ function NovelVerticalReaderView(props: {
   ambientAlgorithm?: AmbientAlgorithm
   onProgressChange?: (page: number, chunkId?: string) => void
   onJumpToPage?: (page: number) => void
+  translation?: NovelTranslationSnapshot | null
 }) {
   const {
     novelId,
@@ -1337,7 +1379,10 @@ function NovelVerticalReaderView(props: {
     ambientAlgorithm,
     onProgressChange,
     onJumpToPage,
+    translation,
   } = props
+  const translationRef = useRef(translation)
+  translationRef.current = translation
 
   const { height: screenHeight, isiPad, isLandscape } = useLayoutMetrics()
 
@@ -1467,7 +1512,9 @@ function NovelVerticalReaderView(props: {
       ambientBgCss
     )
 
-    void ctrl.loadHTML(html).catch(() => {})
+    void ctrl.loadHTML(html).then(() => {
+      void ctrl.evaluateJavaScript(buildNovelTranslationPatchScript(translationRef.current, currentChunkIdRef.current)).catch(() => {})
+    }).catch(() => {})
 
     return () => {
       try {
@@ -1477,6 +1524,12 @@ function NovelVerticalReaderView(props: {
       }
     }
   }, [novelId, chunks, ambientActive])
+
+  useEffect(() => {
+    const ctrl = controllerRef.current
+    if (!ctrl || !translation) return
+    void ctrl.evaluateJavaScript(buildNovelTranslationPatchScript(translation, currentChunkIdRef.current)).catch(() => {})
+  }, [translation])
 
   // 当环境光色板异步就绪或设置变更时，动态平滑热更新 WebKit 内部画布
   useEffect(() => {
@@ -1629,6 +1682,7 @@ export function NovelReaderView(props: {
   onReady?: (totalPages: number) => void
   onProgressChange?: (page: number, chunkId?: string) => void
   onChunkVisible?: (chunkId: string) => void
+  translation?: NovelTranslationSnapshot | null
 }) {
   const {
     novelId,
@@ -1643,6 +1697,7 @@ export function NovelReaderView(props: {
     onReady,
     onProgressChange,
     onChunkVisible,
+    translation,
   } = props
 
   const [settings, setSettings] = useState<NovelReaderSettings>(() =>
@@ -1725,6 +1780,7 @@ export function NovelReaderView(props: {
           if (chunkId) onChunkVisible?.(chunkId)
         }}
         onJumpToPage={onJumpToPage}
+        translation={translation}
       />
     )
   }
@@ -1792,6 +1848,7 @@ export function NovelReaderView(props: {
             markerPage={markerPage}
             settings={settings}
             onJumpToPage={onJumpToPage}
+            translation={translation}
           />
         </VStack>
       ))}

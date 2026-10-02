@@ -46,6 +46,7 @@ import {
   formatPixivRubyToHtml,
   groupChunksByPage,
   parseNovelToChunks,
+  buildNovelTranslationPatchScript,
   type NovelChunkItem,
 } from "./NovelReader"
 import { imageUrlOf, loadImage, novelThumbUrlOf } from "../image/imageLoader"
@@ -56,6 +57,7 @@ import { getCachedNovel, cacheNovel } from "../store/novelCache"
 import { recordNovelHistory } from "../store/history"
 import { useSeriesEpisodeNav, type SeriesEpisodeNavState } from "./SeriesEpisodePager"
 import { triggerHaptic } from "../platform/haptics"
+import { useNovelTranslation } from "./useNovelTranslation"
 
 function isVirtualNode(v: unknown): v is VirtualNode {
   return !!v && typeof v === "object" && ("render" in v || "isInternal" in v || "props" in v)
@@ -1835,6 +1837,11 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     initialNext: activeNovelId === novelId ? seriesNext : null,
     initialEpisodeNumber: activeNovelId === novelId ? episodeNumber : null,
   })
+  const { session: translationSession, snapshot: translation } = useNovelTranslation(
+    activeNovelId, activeTitle, activeText, nav.seriesID
+  )
+  const translationRef = useRef(translation)
+  translationRef.current = translation
 
   const currentChunkIdRef = useRef<string | null>(initialChunkId ?? null)
   const novelIdRef = useRef(activeNovelId)
@@ -2106,8 +2113,16 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
       ambientBgCss,
     })
 
-    void ctrl.loadHTML(html).catch(() => {})
+    void ctrl.loadHTML(html).then(() => {
+      void ctrl.evaluateJavaScript(buildNovelTranslationPatchScript(translationRef.current, currentChunkIdRef.current)).catch(() => {})
+    }).catch(() => {})
   }, [activeNovelId, chunks, activeTitle, settings.layoutDirection, ambientActive])
+
+  useEffect(() => {
+    const ctrl = controllerRef.current
+    if (!ctrl || !translation) return
+    void ctrl.evaluateJavaScript(buildNovelTranslationPatchScript(translation, currentChunkIdRef.current)).catch(() => {})
+  }, [translation])
 
   // 当环境光色板异步就绪、换章或设置变更时，动态平滑热更新 WebKit 内部画布（0 重载、0 滚动跳变）
   useEffect(() => {
@@ -2275,6 +2290,41 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
           </Button>
 
           <Spacer />
+
+          {translationSession && translation ? (
+            <Menu
+              label={
+                <ZStack
+                  alignment="center"
+                  frame={{ width: 42, height: 42 }}
+                  glassEffect={appGlass("circle")}
+                  contentShape="circle"
+                >
+                  <Image systemName="character.book.closed" font="title3" foregroundStyle="label" />
+                </ZStack>
+              }
+            >
+              <Button title={`正文翻译 ${translation.done}/${translation.total}`} disabled action={() => {}} />
+              <Button
+                title={translation.mode === "translated" ? "显示原文" : "显示译文"}
+                action={() => translationSession.setMode(translation.mode === "translated" ? "original" : "translated")}
+              />
+              {translation.running ? (
+                <Button title="暂停翻译" action={() => translationSession.pause()} />
+              ) : translation.done < translation.total ? (
+                <Button title={translation.done ? "继续翻译" : "翻译小说"} action={() => {
+                  translationSession.setMode("translated")
+                  void translationSession.start()
+                }} />
+              ) : null}
+              {translation.failed > 0 ? (
+                <Button title={`重试失败段落（${translation.failed}）`} action={() => void translationSession.start(
+                  Object.values(translation.blocks).filter((b) => b.status === "error").map((b) => b.id)
+                )} />
+              ) : null}
+              {translation.message ? <Button title={translation.message} disabled action={() => {}} /> : null}
+            </Menu>
+          ) : null}
 
           {/* 右上角：版式设置按钮（使用现有同款 a.square 图标） */}
           <Button

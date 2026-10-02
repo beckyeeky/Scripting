@@ -116,6 +116,7 @@ import {
 } from "./components"
 import { SeriesEpisodePager } from "./SeriesEpisodePager"
 import { NovelReaderView, NovelReaderWebView } from "./NovelReader"
+import { useNovelTranslation } from "./useNovelTranslation"
 import { ConnectionRow } from "./components/ConnectionRow"
 import { NovelImmersiveReaderView } from "./NovelImmersiveReader"
 import {
@@ -294,6 +295,9 @@ export function NovelDetailView(props: { novelID: number }) {
   const resolvedSeriesID = rawSeriesObj?.id ?? associatedRef?.seriesID ?? null
   const resolvedSeriesTitle = rawSeriesObj?.title ?? associatedRef?.seriesTitle ?? null
   const resolvedEpisodeNumber = novel?.episode_number ?? associatedRef?.episodeNumber ?? null
+  const { session: translationSession, snapshot: translation } = useNovelTranslation(
+    novelID, novel?.title ?? "", text, resolvedSeriesID
+  )
 
   const coverUrl =
     novel?.image_urls?.large ||
@@ -1525,14 +1529,6 @@ export function NovelDetailView(props: { novelID: number }) {
                       />
                     )}
                     <Button
-                      title="翻译小说"
-                      systemImage="character.book.closed"
-                      action={() => {
-                        setAIMode("translate")
-                        setShowAISheet(true)
-                      }}
-                    />
-                    <Button
                       title="总结小说"
                       systemImage="doc.text.magnifyingglass"
                       action={() => {
@@ -1549,6 +1545,41 @@ export function NovelDetailView(props: { novelID: number }) {
                       }}
                     />
                   </Menu>
+                  {translationSession && translation ? (
+                    <Menu title={`正文翻译 ${translation.done}/${translation.total}`} systemImage="character.book.closed">
+                      <Button
+                        title={translation.mode === "translated" ? "显示原文" : "显示译文"}
+                        systemImage="arrow.left.arrow.right"
+                        action={() => translationSession.setMode(translation.mode === "translated" ? "original" : "translated")}
+                      />
+                      {translation.running ? (
+                        <Button title="暂停翻译" systemImage="pause.fill" action={() => translationSession.pause()} />
+                      ) : translation.done < translation.total ? (
+                        <Button
+                          title={translation.done ? "继续翻译" : "翻译小说"}
+                          systemImage="play.fill"
+                          action={() => {
+                            translationSession.setMode("translated")
+                            void translationSession.start()
+                          }}
+                        />
+                      ) : null}
+                      {translation.failed > 0 ? (
+                        <Menu title={`重试失败段落（${translation.failed}）`} systemImage="arrow.clockwise">
+                          <Button
+                            title="重试全部失败段落"
+                            action={() => void translationSession.start(
+                              Object.values(translation.blocks).filter((b) => b.status === "error").map((b) => b.id)
+                            )}
+                          />
+                          {Object.values(translation.blocks).filter((b) => b.status === "error").slice(0, 20).map((block) => (
+                            <Button key={block.id} title={`重试 ${block.id}`} action={() => void translationSession.retry(block.id)} />
+                          ))}
+                        </Menu>
+                      ) : null}
+                      {translation.message ? <Button title={translation.message} disabled action={() => {}} /> : null}
+                    </Menu>
+                  ) : null}
                   <Button
                     title="书签"
                     systemImage={markerPage !== null ? "book.pages.fill" : "book.pages"}
@@ -1783,6 +1814,7 @@ export function NovelDetailView(props: { novelID: number }) {
           <NovelReaderView
             novelId={current.id}
             text={text}
+            translation={translation}
             title={current.title}
             markerPage={markerPage}
             currentPage={currentPage}

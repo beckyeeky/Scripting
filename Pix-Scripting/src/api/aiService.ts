@@ -457,6 +457,90 @@ export async function streamTranslateNovel(
   return accumulatedResult
 }
 
+/** 小说阅读器使用的单块翻译；阅读器的分块和位置由上层保持不变。 */
+export async function translateNovelPassage(
+  original: string,
+  options: {
+    title: string
+    summary?: string
+    glossary?: string
+    signal?: SignalLike
+  }
+): Promise<string> {
+  if (original.length > 2200) {
+    let splitAt = original.lastIndexOf("\n", 1800)
+    if (splitAt < 600) splitAt = 1800
+    // 不在 Pixiv 的注音/链接标记中间截断。
+    for (const match of original.matchAll(/\[\[(?:jumpuri|rb):[^\]]+\]\]/gi)) {
+      const start = match.index ?? 0
+      if (start < splitAt && start + match[0].length > splitAt) {
+        splitAt = start >= 600 ? start : start + match[0].length
+        break
+      }
+    }
+    if (splitAt > 0 && splitAt < original.length) {
+      const separator = original[splitAt] === "\n" ? "\n" : ""
+      const first = await translateNovelPassage(original.slice(0, splitAt), options)
+      const rest = await translateNovelPassage(original.slice(splitAt + separator.length), options)
+      return first + separator + rest
+    }
+  }
+  const protectedLinks: string[] = []
+  const source = original
+    .replace(/\[\[jumpuri:[^\]]+\]\]/gi, (link) => {
+      const index = protectedLinks.push(link) - 1
+      return `__PIXIV_LINK_${index}__`
+    })
+    .replace(/\[\[rb:\s*([^>]+?)\s*>\s*([^\]]+?)\s*\]\]/g, (_, text: string, ruby: string) => `${text.trim()}（${ruby.trim()}）`)
+
+  const prompt = [
+    `作品：《${options.title}》`,
+    options.summary ? `故事背景（仅供参考）：\n${options.summary}` : "",
+    options.glossary ? `固定译法（优先遵守）：\n${options.glossary}` : "",
+    `请将以下小说正文完整翻译成简体中文，只输出译文。保留原段落换行与 __PIXIV_LINK_N__ 占位符：\n${source}`,
+  ].filter(Boolean).join("\n\n")
+  const translated = (await executeUniversalAI({
+    systemPrompt: "你是 Pixiv 小说翻译者。准确翻译人物、对话和叙事，不添加解释、标题或译者注。绝不能删除或修改 __PIXIV_LINK_N__ 占位符。",
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.2,
+    options: { onChunk: () => {}, signal: options.signal },
+  })).trim()
+  let restored = translated
+  for (let i = 0; i < protectedLinks.length; i++) {
+    const marker = `__PIXIV_LINK_${i}__`
+    if (!restored.includes(marker)) throw new Error("链接占位符丢失")
+    restored = restored.replace(marker, protectedLinks[i])
+  }
+  return restored
+}
+
+/** 摘要和术语生成失败时由翻译会话降级为无上下文翻译。 */
+export async function generateNovelTranslationContext(
+  title: string,
+  text: string,
+  needs: { summary: boolean; glossary: boolean },
+  signal?: SignalLike
+): Promise<{ summary?: string; glossary?: string }> {
+  const sample = text.slice(0, 9000)
+  const result: { summary?: string; glossary?: string } = {}
+  if (needs.summary) {
+    result.summary = (await executeUniversalAI({
+      systemPrompt: "提炼小说背景，供后续逐段翻译保持人名、关系和叙事一致。最多 300 字，不复述情节细节。",
+      messages: [{ role: "user", content: `《${title}》\n${sample}` }],
+      options: { onChunk: () => {}, signal },
+    })).trim()
+  }
+  if (needs.glossary) {
+    if (signal?.aborted) return result
+    result.glossary = (await executeUniversalAI({
+      systemPrompt: "提取小说中反复出现且影响翻译一致性的人名与专有名词。每行严格使用：类别｜原文｜简体中文译法｜备注。最多 30 行，不输出解释。",
+      messages: [{ role: "user", content: `《${title}》\n${sample}` }],
+      options: { onChunk: () => {}, signal },
+    })).trim()
+  }
+  return result
+}
+
 /**
  * 将 Pixiv 小说正文按 [newpage] 分割为各页文本数组
  */

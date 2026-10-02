@@ -10,6 +10,7 @@ import { startHistorySyncScheduler, triggerResumeSync } from "./store/historySyn
 import { populateWidgetPool, seedIllustFromWidgetPool, seedPixivisionFromWidgetPool } from "./store/widgetStore"
 import { normalizeRoute } from "./store/routeNavigation"
 import { abortAllAITasks } from "./api/aiService"
+import { pauseAllNovelTranslations } from "./store/novelTranslation"
 
 let stopSyncScheduler: (() => void) | null = null
 let widgetWarmupTimer: any = null
@@ -94,6 +95,7 @@ export function flushAllCaches() {
 
 export function cleanupAppResources() {
   stopBackgroundServices()
+  pauseAllNovelTranslations()
   try {
     abortAllAITasks()
   } catch {}

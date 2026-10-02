@@ -27,7 +27,6 @@ import {
   isAIAvailable,
   streamContinueNovel,
   streamSummarizeNovel,
-  streamTranslateNovel,
   streamTranslateText,
 } from "../../api/aiService"
 import { ErrorView } from "../components"
@@ -36,7 +35,6 @@ import { PRESET_CONTINUE_PROMPTS, type NovelAIMode } from "./types"
 import { triggerHaptic } from "../../platform/haptics"
 
 interface NovelPageCache {
-  translateText?: string
   summaryText?: string
   continueText?: string
   error?: string | null
@@ -101,8 +99,6 @@ export function NovelAISheet(props: {
     switch (mode) {
       case "caption":
         return captionCache.resultText
-      case "translate":
-        return currentPageCache.translateText || ""
       case "summary":
         return currentPageCache.summaryText || ""
       case "continue":
@@ -121,7 +117,7 @@ export function NovelAISheet(props: {
   const currentError = getCurrentError()
 
   const targetRawText =
-    isMultiPage && (mode === "translate" || mode === "summary" || mode === "continue")
+    isMultiPage && (mode === "summary" || mode === "continue")
       ? getNovelPageText(fullText, selectedPage)
       : fullText
 
@@ -142,9 +138,6 @@ export function NovelAISheet(props: {
 
     if (!forceRetry) {
       if (mode === "caption" && captionCache.resultText) {
-        return
-      }
-      if (mode === "translate" && currentPageCache.translateText) {
         return
       }
       if (mode === "summary" && currentPageCache.summaryText) {
@@ -182,12 +175,7 @@ export function NovelAISheet(props: {
     if (mode === "caption") {
       setCaptionCache({ resultText: "", error: null })
     } else {
-      const field =
-        mode === "translate"
-          ? "translateText"
-          : mode === "summary"
-          ? "summaryText"
-          : "continueText"
+      const field = mode === "summary" ? "summaryText" : "continueText"
       setPageCaches((prev) => ({
         ...prev,
         [selectedPage]: {
@@ -204,12 +192,7 @@ export function NovelAISheet(props: {
       if (mode === "caption") {
         setCaptionCache((prev) => ({ ...prev, resultText: text, error: null }))
       } else {
-        const field =
-          mode === "translate"
-            ? "translateText"
-            : mode === "summary"
-            ? "summaryText"
-            : "continueText"
+        const field = mode === "summary" ? "summaryText" : "continueText"
         setPageCaches((prev) => ({
           ...prev,
           [selectedPage]: {
@@ -233,31 +216,6 @@ export function NovelAISheet(props: {
         }
         setStreaming(true)
         const finalResult = await streamTranslateText(rawCaption, {
-          onChunk: (text: string) => {
-            if (activeTaskTokenRef.current.id === taskToken.id && !taskToken.aborted) {
-              throttler.push(text)
-            }
-          },
-          signal: taskToken,
-        })
-        if (activeTaskTokenRef.current.id === taskToken.id && !taskToken.aborted) {
-          throttler.flush(finalResult)
-          triggerHaptic(0.8, 0.8)
-        }
-      } else if (mode === "translate") {
-        if (!cleanedText) {
-          if (activeTaskTokenRef.current.id === taskToken.id && !taskToken.aborted) {
-            const msg = isMultiPage ? "当前页小说正文为空。" : "未获取到小说正文文本。"
-            setPageCaches((prev) => ({
-              ...prev,
-              [selectedPage]: { ...prev[selectedPage], translateText: msg, error: null },
-            }))
-            setLoading(false)
-          }
-          return
-        }
-        setStreaming(true)
-        const finalResult = await streamTranslateNovel(cleanedText, {
           onChunk: (text: string) => {
             if (activeTaskTokenRef.current.id === taskToken.id && !taskToken.aborted) {
               throttler.push(text)
@@ -359,8 +317,8 @@ export function NovelAISheet(props: {
 
   useEffect(() => {
     if (isPresented) {
-      // 简介、翻译、总结在未缓存时自动开始触发
-      if (mode === "caption" || mode === "translate" || mode === "summary") {
+      // 简介和总结在未缓存时自动开始触发；正文翻译只在阅读器内进行。
+      if (mode === "caption" || mode === "summary") {
         void execute(false)
       }
     } else {
