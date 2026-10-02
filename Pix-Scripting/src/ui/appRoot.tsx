@@ -273,7 +273,6 @@ export function RootView() {
   }, [])
 
   const isPrivacyShieldActive =
-    Script.env === "home_screen" &&
     settings.privacyShieldEnabled &&
     (scenePhase === "inactive" || scenePhase === "background")
 
