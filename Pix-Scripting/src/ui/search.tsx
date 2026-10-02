@@ -29,7 +29,7 @@ import {
   PAGE_TOOLBAR_BACKGROUND,
   PAGE_TOOLBAR_BACKGROUND_VISIBILITY,
 } from "./components/pageChrome"
-import { AppNavigationLink, SearchNavigationScope, useDualRoute } from "./DualRouteContext"
+import { AppNavigationLink, useDualRoute } from "./DualRouteContext"
 import {
   nextIllustrations,
   nextNovels,
@@ -484,20 +484,9 @@ export function SearchView(props: {
   const [query, setQuery] = useState("")
   const [submitted, setSubmitted] = useState(() => searchSession?.keyword ?? "")
   const [searchPresented, setSearchPresented] = useState(false)
-  const [isSearchingMode, setIsSearchingMode] = useState(false)
-  const dismissTimerRef = useRef<any>(null)
-
-  useEffect(() => {
-    return () => {
-      if (dismissTimerRef.current) {
-        clearTimeout(dismissTimerRef.current)
-      }
-    }
-  }, [])
   const [scope, setScope] = useState<SearchScope>(() => searchSession?.scope ?? "illust")
   const [sort, setSort] = useState<SearchSort>(() => searchSession?.sort ?? "date_desc")
   const [isAdvancedSheetOpen, setIsAdvancedSheetOpen] = useState(false)
-  const [advancedSheetKey, setAdvancedSheetKey] = useState(0)
   const [advancedParams, setAdvancedParams] = useState<AdvancedSearchParams>(() => {
     if (searchSession?.advancedParams) {
       return searchSession.advancedParams
@@ -792,9 +781,6 @@ export function SearchView(props: {
   function onQueryChanged(value: string) {
     setQuery(value)
     const trimmed = value.trim()
-    if (trimmed) {
-      setIsSearchingMode(true)
-    }
     if (!trimmed) {
       tagSeq.current += 1
       userSeq.current += 1
@@ -820,7 +806,6 @@ export function SearchView(props: {
     debouncedTagAutocomplete.cancel()
     debouncedUserAutocomplete.cancel()
     setScope(newScope)
-    setAdvancedParams((prev) => ({ ...prev, scope: newScope }))
     const trimmed = query.trim()
     if (trimmed) {
       if (newScope === "user") {
@@ -909,28 +894,17 @@ export function SearchView(props: {
   }
 
   function submitSearch(textToSearch: string) {
-    if (dismissTimerRef.current) {
-      clearTimeout(dismissTimerRef.current)
-      dismissTimerRef.current = null
-    }
     const trimmed = textToSearch.trim()
     if (!trimmed) return
 
-    // 1. 优先立即触发原生压栈（抢在任何键盘/搜索栏收起动画阻断导航转场之前）
-    pushSearchResults(trimmed, scope, sort)
-
-    // 2. 清空实时搜索建议与输入缓存
+    setSearchPresented(false)
     setQuery("")
     setTagSuggestions([])
     setUserSuggestions([])
     setTagSuggestionsLoading(false)
     setUserSuggestionsLoading(false)
 
-    // 3. 延后静默复位根页状态（新页面已压栈接管屏幕，避免 UISearchController 抢先收起导致压栈被系统丢弃）
-    setTimeout(() => {
-      setIsSearchingMode(false)
-      setSearchPresented(false)
-    }, 350)
+    pushSearchResults(trimmed, scope, sort)
   }
 
   const activePaged =
@@ -1112,7 +1086,7 @@ export function SearchView(props: {
 
   // 是否处于搜索提示词展示态：输入框有内容，且处于输入或查看提示词状态（未提交或键盘激活中）
   const isSuggestingActive =
-    query.trim().length > 0 && (!submitted || searchPresented || isSearchingMode)
+    query.trim().length > 0 && (!submitted || searchPresented)
 
   const renderScopeScrollFeed = (targetScope: SearchScope) => {
     const targetPaged =
@@ -1146,10 +1120,6 @@ export function SearchView(props: {
                 <DirectRouteSection
                   targets={directTargets}
                   onSelect={() => {
-                    if (dismissTimerRef.current) {
-                      clearTimeout(dismissTimerRef.current)
-                      dismissTimerRef.current = null
-                    }
                     addSearchHistory(query.trim(), targetScope)
                   }}
                 />
@@ -1165,10 +1135,6 @@ export function SearchView(props: {
                   suggestions={tagSuggestions}
                   loading={tagSuggestionsLoading}
                   onSelect={(kw) => {
-                    if (dismissTimerRef.current) {
-                      clearTimeout(dismissTimerRef.current)
-                      dismissTimerRef.current = null
-                    }
                     submitSearch(kw)
                   }}
                 />
@@ -1177,37 +1143,23 @@ export function SearchView(props: {
           ) : null}
 
           {/* 2. 搜索激活态且未输入关键词：展示搜索历史记录 */}
-          {!isSuggestingActive && isSearchingMode && !query.trim() ? (
+          {!isSuggestingActive && searchPresented && !query.trim() ? (
             <SearchHistorySection
               history={getSearchHistory(targetScope)}
               onSelect={(item) => {
-                if (dismissTimerRef.current) {
-                  clearTimeout(dismissTimerRef.current)
-                  dismissTimerRef.current = null
-                }
                 submitSearch(item)
               }}
               onRemove={(item) => {
-                if (dismissTimerRef.current) {
-                  clearTimeout(dismissTimerRef.current)
-                  dismissTimerRef.current = null
-                }
                 removeSearchHistory(item, targetScope)
-                setIsSearchingMode(true)
               }}
               onClear={() => {
-                if (dismissTimerRef.current) {
-                  clearTimeout(dismissTimerRef.current)
-                  dismissTimerRef.current = null
-                }
                 clearSearchHistory(targetScope)
-                setIsSearchingMode(true)
               }}
             />
           ) : null}
 
           {/* 3. 默认未搜索状态：展示对应分类的热门标签或推荐用户 */}
-          {!isSuggestingActive && !submitted && !isSearchingMode && !query.trim() ? (
+          {!isSuggestingActive && !submitted && !searchPresented && !query.trim() ? (
             targetScope === "illust" ? (
               <TrendingSection
                 tags={trendingIllust}
@@ -1233,7 +1185,7 @@ export function SearchView(props: {
           ) : null}
 
           {/* 4. 已提交搜索：展示当前搜索结果列表 */}
-          {submitted && !isSearchingMode && !isSuggestingActive ? (
+          {submitted && !searchPresented && !isSuggestingActive ? (
             <VStack spacing={10} frame={{ maxWidth: "infinity" }}>
               {/* 第一行：主搜索词胶囊 + 返回热门 */}
               <HStack
@@ -1262,7 +1214,6 @@ export function SearchView(props: {
                       } else {
                         setSubmitted("")
                         setQuery("")
-                        setIsSearchingMode(false)
                         setSearchPresented(false)
                         setAdvancedParams(getDefaultAdvancedSearchParams(scope, ""))
                       }
@@ -1286,7 +1237,6 @@ export function SearchView(props: {
                     } else {
                       setSubmitted("")
                       setQuery("")
-                      setIsSearchingMode(false)
                       setSearchPresented(false)
                       setAdvancedParams(getDefaultAdvancedSearchParams(scope, ""))
                     }
@@ -1448,7 +1398,6 @@ export function SearchView(props: {
     )
   }
 
-  const shouldHideTitle = isSplitViewActive || isFullScreenPad
   const scopeTitleLabel =
     scope === "illust"
       ? "插画·漫画"
@@ -1456,15 +1405,12 @@ export function SearchView(props: {
         ? "小说"
         : "用户"
   const baseNavTitle = submitted.trim() ? submitted.trim() : "搜索"
-  const navTitle = shouldHideTitle
-    ? ""
-    : !isAppleMusic
-      ? `${baseNavTitle} · ${scopeTitleLabel}`
-      : baseNavTitle
+  const navTitle = !isAppleMusic
+    ? `${baseNavTitle} · ${scopeTitleLabel}`
+    : baseNavTitle
 
   return (
-    <SearchNavigationScope>
-      <ZStack
+    <ZStack
         navigationTitle={navTitle}
         navigationBarTitleDisplayMode="inline"
         toolbarBackground={PAGE_TOOLBAR_BACKGROUND}
@@ -1475,16 +1421,18 @@ export function SearchView(props: {
           onChanged: (presented: boolean) => setIsAdvancedSheetOpen(presented),
           content: (
             <SearchAdvancedSheet
-              key={`advanced-sheet-${advancedSheetKey}`}
               currentParams={advancedParams}
               settings={loadSettings()}
               onApply={(params: any) => {
                 setIsAdvancedSheetOpen(false)
-                setIsSearchingMode(false)
                 setSearchPresented(false)
-                const trimmedWord = params.word.trim()
-                if (trimmedWord) {
-                  pushSearchResults(trimmedWord, params.scope, params.sort, params)
+                if (isResultsPage) {
+                  setAdvancedParams(params)
+                } else {
+                  const trimmedWord = params.word.trim()
+                  if (trimmedWord) {
+                    pushSearchResults(trimmedWord, params.scope, params.sort, params)
+                  }
                 }
               }}
               onCancel={() => setIsAdvancedSheetOpen(false)}
@@ -1518,18 +1466,6 @@ export function SearchView(props: {
                 advancedParams.target === "text"
               : advancedParams.target === "title_and_caption"),
           onAdvanced: () => {
-            const currentWord = query.trim() || submitted || advancedParams.word
-            setAdvancedParams((prev) => ({
-              ...prev,
-              word: currentWord,
-              scope: scope === "user" ? "illust" : scope,
-              sort,
-              category: categoryFromParams(
-                scope === "user" ? "illust" : scope,
-                prev.mediaFilter
-              ),
-            }))
-            setAdvancedSheetKey((k) => k + 1)
             setIsAdvancedSheetOpen(true)
           },
         })}
@@ -1544,25 +1480,12 @@ export function SearchView(props: {
             value: searchPresented,
             onChanged: (val: boolean) => {
               setSearchPresented(val)
-              if (val) {
-                if (dismissTimerRef.current) {
-                  clearTimeout(dismissTimerRef.current)
-                  dismissTimerRef.current = null
-                }
-                setIsSearchingMode(true)
-              } else {
-                if (dismissTimerRef.current) {
-                  clearTimeout(dismissTimerRef.current)
-                }
-                dismissTimerRef.current = setTimeout(() => {
-                  setIsSearchingMode(false)
-                  setQuery("")
-                  setTagSuggestions([])
-                  setUserSuggestions([])
-                  setTagSuggestionsLoading(false)
-                  setUserSuggestionsLoading(false)
-                  dismissTimerRef.current = null
-                }, 300)
+              if (!val) {
+                setQuery("")
+                setTagSuggestions([])
+                setUserSuggestions([])
+                setTagSuggestionsLoading(false)
+                setUserSuggestionsLoading(false)
               }
             },
           },
@@ -1588,7 +1511,6 @@ export function SearchView(props: {
           )
         })}
       </ZStack>
-    </SearchNavigationScope>
   )
 }
 

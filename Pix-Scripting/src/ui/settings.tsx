@@ -1568,6 +1568,29 @@ export function SettingsView() {
             </Picker>
           )}
 
+          <Picker
+            title="竖向小组件"
+            value={Device.isiPad ? settings.widgetSourceExtraLargePortraitIpad : settings.widgetSourceExtraLargePortraitIos}
+            onChanged={(value: string) => {
+              update(
+                Device.isiPad
+                  ? { widgetSourceExtraLargePortraitIpad: value as WidgetDefaultSource }
+                  : { widgetSourceExtraLargePortraitIos: value as WidgetDefaultSource }
+              )
+              try {
+                populateWidgetPool(value).catch(() => {})
+                Widget.reloadAll()
+              } catch {}
+            }}
+          >
+            <Text tag="ranking_day">日榜</Text>
+            <Text tag="ranking_week">周榜</Text>
+            <Text tag="ranking_month">月榜</Text>
+            <Text tag="follow">关注</Text>
+            <Text tag="recommend">推荐</Text>
+            <Text tag="pixivision">特辑</Text>
+          </Picker>
+
           <HStack spacing={8} alignment="center">
             <Text font="body">桌面小组件</Text>
             <Spacer />
@@ -2307,11 +2330,12 @@ function formatWidgetSummary(settings: any): string {
   const s = sourceLabel(Device.isiPad ? settings.widgetSourceSmallIpad : settings.widgetSourceSmallIos)
   const m = sourceLabel(Device.isiPad ? settings.widgetSourceMediumIpad : settings.widgetSourceMediumIos)
   const l = sourceLabel(Device.isiPad ? settings.widgetSourceLargeIpad : settings.widgetSourceLargeIos)
+  const v = sourceLabel(Device.isiPad ? settings.widgetSourceExtraLargePortraitIpad : settings.widgetSourceExtraLargePortraitIos)
   if (Device.isiPad) {
     const xl = sourceLabel(settings.widgetSourceExtraLargeIpad)
-    return `小:${s}·中:${m}·大:${l}·特大:${xl}`
+    return `小:${s}·中:${m}·大:${l}·超大:${xl}·竖向:${v}`
   }
-  return `小:${s}·中:${m}·大:${l}`
+  return `小:${s}·中:${m}·大:${l}·竖向:${v}`
 }
 
 function sourceLabel(source?: string): string {

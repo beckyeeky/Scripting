@@ -231,6 +231,8 @@ export interface AppSettings {
   widgetSourceMediumIpad: WidgetDefaultSource
   widgetSourceLargeIpad: WidgetDefaultSource
   widgetSourceExtraLargeIpad: WidgetDefaultSource
+  widgetSourceExtraLargePortraitIos: WidgetDefaultSource
+  widgetSourceExtraLargePortraitIpad: WidgetDefaultSource
   widgetPoolCapacity: WidgetPoolCapacity
   widgetReloadIntervalMinutes: WidgetReloadIntervalMinutes
   quickActionButtonEnabled: boolean
@@ -357,6 +359,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   widgetSourceMediumIpad: "pixivision",
   widgetSourceLargeIpad: "ranking_week",
   widgetSourceExtraLargeIpad: "pixivision",
+  widgetSourceExtraLargePortraitIos: "ranking_month",
+  widgetSourceExtraLargePortraitIpad: "ranking_month",
   widgetPoolCapacity: 30,
   widgetReloadIntervalMinutes: 60,
   quickActionButtonEnabled: true,
@@ -721,6 +725,12 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
     widgetSourceExtraLargeIpad: isOneOf(stored?.widgetSourceExtraLargeIpad, WIDGET_DEFAULT_SOURCE_VALUES)
       ? stored.widgetSourceExtraLargeIpad
       : DEFAULT_SETTINGS.widgetSourceExtraLargeIpad,
+    widgetSourceExtraLargePortraitIos: isOneOf(stored?.widgetSourceExtraLargePortraitIos, WIDGET_DEFAULT_SOURCE_VALUES)
+      ? stored.widgetSourceExtraLargePortraitIos
+      : DEFAULT_SETTINGS.widgetSourceExtraLargePortraitIos,
+    widgetSourceExtraLargePortraitIpad: isOneOf(stored?.widgetSourceExtraLargePortraitIpad, WIDGET_DEFAULT_SOURCE_VALUES)
+      ? stored.widgetSourceExtraLargePortraitIpad
+      : DEFAULT_SETTINGS.widgetSourceExtraLargePortraitIpad,
     widgetPoolCapacity: clampNum(stored?.widgetPoolCapacity, 10, 30, DEFAULT_SETTINGS.widgetPoolCapacity),
     widgetReloadIntervalMinutes: clampNum(stored?.widgetReloadIntervalMinutes, 1, 1440, DEFAULT_SETTINGS.widgetReloadIntervalMinutes),
     quickActionButtonEnabled: boolOr(
@@ -888,6 +898,11 @@ export function getWidgetSourceForFamily(
   family?: string,
   settings: AppSettings = loadSettings()
 ): WidgetDefaultSource {
+  if (family === "systemExtraLargePortrait") {
+    return Device.isiPad
+      ? settings.widgetSourceExtraLargePortraitIpad
+      : settings.widgetSourceExtraLargePortraitIos
+  }
   if (family === "systemExtraLarge") {
     return settings.widgetSourceExtraLargeIpad
   }

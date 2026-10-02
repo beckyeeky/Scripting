@@ -44,6 +44,11 @@ function getAccurateWidgetDisplaySize(
         width: w <= 360 ? 708 : w,
         height: h <= 200 ? 354 : h,
       }
+    case "systemExtraLargePortrait":
+      return {
+        width: w <= 200 ? 354 : w,
+        height: h <= 360 ? 708 : h,
+      }
     default:
       return { width: w, height: h }
   }
@@ -59,7 +64,9 @@ function PureArtworkWidgetView(props: {
   const isTrans = Widget.isTransparentMode || Widget.isTransparentBackground
   const isBlur = Widget.isBlurMode
   const isLarge = Widget.family === "systemLarge"
-  const isExtraLarge = Widget.family === "systemExtraLarge"
+  const isExtraLarge =
+    Widget.family === "systemExtraLarge" ||
+    Widget.family === "systemExtraLargePortrait"
   // 玻璃保持紧凑尺寸：小/中号 30×30，大号 34×34，iPad 特大号 40×40
   const btnSize = isExtraLarge ? 40 : isLarge ? 34 : 30
   const paddingValue = isExtraLarge ? 16 : isLarge ? 14 : 10

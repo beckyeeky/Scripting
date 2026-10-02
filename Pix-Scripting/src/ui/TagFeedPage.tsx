@@ -218,8 +218,6 @@ function TagIllustFeed(props: { tag: string }) {
 
   // 设置变更（屏蔽标签/用户）后立即重新加载过滤
   const pagedRef = useLatest(paged)
-  const [pageLayout, setPageLayout] = useState(() => loadSettings().pageLayout)
-  const isAppleMusic = pageLayout === "appleMusic"
   const [ambientImageUrl, setAmbientImageUrl] = useState<string | null>(() => getLastActiveAmbientImageUrl())
   useEffect(() => {
     const first = paged.items[0]
@@ -233,7 +231,6 @@ function TagIllustFeed(props: { tag: string }) {
 
   useEffect(() => {
     return onSettingsChanged(() => {
-      setPageLayout(loadSettings().pageLayout)
       pagedRef.current.reapplyFilter()
     })
   }, [])
@@ -297,17 +294,17 @@ function TagIllustFeed(props: { tag: string }) {
       }}
     >
       <RefreshableScrollView
-        navigationTitle={isAppleMusic ? "" : `#${tag}`}
+        navigationTitle={`#${tag}`}
         navigationBarTitleDisplayMode="inline"
         background={ambientBackground}
         refreshable={paged.refresh}
         toolbar={{
           topBarTrailing: [tagMenu],
-          principal: !isAppleMusic ? [
+          principal: [
             <Text key="tag-nav-title" font="title2" fontWeight="bold">
               #{tag}
             </Text>,
-          ] : undefined,
+          ],
         }}
       >
         <VStack alignment="leading" spacing={8}>
@@ -429,8 +426,6 @@ function TagNovelFeed(props: { tag: string }) {
   })
 
   const pagedRef = useLatest(paged)
-  const [pageLayout, setPageLayout] = useState(() => loadSettings().pageLayout)
-  const isAppleMusic = pageLayout === "appleMusic"
   const [ambientImageUrl, setAmbientImageUrl] = useState<string | null>(() => getLastActiveAmbientImageUrl())
   useEffect(() => {
     const first = paged.items[0]
@@ -444,7 +439,6 @@ function TagNovelFeed(props: { tag: string }) {
 
   useEffect(() => {
     return onSettingsChanged(() => {
-      setPageLayout(loadSettings().pageLayout)
       pagedRef.current.reapplyFilter()
     })
   }, [])
@@ -508,17 +502,17 @@ function TagNovelFeed(props: { tag: string }) {
       }}
     >
       <RefreshableScrollView
-        navigationTitle={isAppleMusic ? "" : `#${tag}`}
+        navigationTitle={`#${tag}`}
         navigationBarTitleDisplayMode="inline"
         background={ambientBackground}
         refreshable={paged.refresh}
         toolbar={{
           topBarTrailing: [tagMenu],
-          principal: !isAppleMusic ? [
+          principal: [
             <Text key="novel-tag-nav-title" font="title2" fontWeight="bold">
               #{tag}
             </Text>,
-          ] : undefined,
+          ],
         }}
       >
         <VStack alignment="leading" spacing={8}>
@@ -592,14 +586,6 @@ function TagPixivisionFeed(props: { tag: string }) {
       prefetch(pendingItems.slice(0, currentBatchSize()).map((item) => item.imageURL)).cancel,
   })
 
-  const [pageLayout, setPageLayout] = useState(() => loadSettings().pageLayout)
-  const isAppleMusic = pageLayout === "appleMusic"
-  useEffect(() => {
-    return onSettingsChanged(() => {
-      setPageLayout(loadSettings().pageLayout)
-    })
-  }, [])
-
   const [ambientImageUrl, setAmbientImageUrl] = useState<string | null>(() => getLastActiveAmbientImageUrl())
   useEffect(() => {
     const first = paged.items[0]
@@ -613,16 +599,16 @@ function TagPixivisionFeed(props: { tag: string }) {
 
   return (
     <RefreshableScrollView
-      navigationTitle={isAppleMusic ? "" : navTitle}
+      navigationTitle={navTitle}
       navigationBarTitleDisplayMode="inline"
       background={ambientBackground}
       refreshable={paged.refresh}
       toolbar={{
-        principal: !isAppleMusic ? [
+        principal: [
           <Text key="pixivision-tag-nav-title" font="title2" fontWeight="bold">
             {navTitle}
           </Text>,
-        ] : undefined,
+        ],
       }}
     >
       <VStack alignment="leading" spacing={8}>
