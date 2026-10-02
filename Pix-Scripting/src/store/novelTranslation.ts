@@ -1,11 +1,13 @@
 import { AbortController } from "scripting"
-import { isAIAvailable, translateNovelPassage, generateNovelTranslationContext } from "../api/aiService"
-import { loadCustomAIProfile, isCustomAIConfigured } from "./customAI"
+import { isAIAvailable, translateNovelPassage, generateNovelTranslationContext, getNovelTranslationThinkingNotice } from "../api/aiService"
+import { loadCustomAIProfile, isCustomAIConfigured, getEffectiveGeneralEndpoint } from "./customAI"
+import { resolveGeneralAIConfigRoute } from "../api/aiAdapters"
 import { pixivDataDirectory, resolveEffectiveUID } from "./dataDirectory"
 import { recoverFile, writeTextSafely } from "./safeFile"
 
 export type TranslationDisplayMode = "original" | "translated"
 export type TranslationBlockStatus = "pending" | "running" | "done" | "error"
+export type TranslationContextStatus = "pending" | "running" | "ready" | "skipped" | "error"
 
 export interface TranslationBlock {
   id: string
@@ -23,6 +25,14 @@ export interface NovelTranslationSnapshot {
   done: number
   total: number
   failed: number
+  phase: "idle" | "summary" | "glossary" | "translating"
+  summaryStatus: TranslationContextStatus
+  glossaryStatus: TranslationContextStatus
+  summary?: string
+  glossary?: string
+  glossaryCount: number
+  seriesGlossaryCount: number
+  thinkingNotice: string
   message?: string
 }
 
@@ -35,12 +45,14 @@ export interface NovelTranslationInput {
 }
 
 interface StoredTranslation {
-  version: 1
+  version: 2
   model: string
+  source: string
   mode: TranslationDisplayMode
   blocks: Record<string, { source: string; translation?: string; error?: string }>
   summary?: string
   glossary?: string
+  glossarySkipped?: boolean
 }
 
 function fingerprint(value: string): string {
@@ -51,8 +63,11 @@ function fingerprint(value: string): string {
 
 function modelIdentity(): string {
   if (!isCustomAIConfigured()) return "scripting-assistant"
-  const config = loadCustomAIProfile().general
-  return `${config.protocol}|${config.endpoint}|${config.model}`
+  const config = resolveGeneralAIConfigRoute(loadCustomAIProfile().general)
+  // 密钥不参与指纹，也不写入缓存；翻译提示词或思考策略变更时自动失效。
+  return fingerprint(JSON.stringify({ cacheVersion: 2, promptVersion: 2, thinkingPolicy: "off-v1",
+    protocol: config.protocol, endpoint: getEffectiveGeneralEndpoint(config),
+    model: config.model, temperature: config.temperature ?? null }))
 }
 
 function novelPath(uid: string, novelId: number): string {
@@ -68,7 +83,7 @@ function readStored(path: string): StoredTranslation | null {
     recoverFile(path)
     if (!FileManager.existsSync(path)) return null
     const parsed = JSON.parse(FileManager.readAsStringSync(path, "utf-8")) as StoredTranslation
-    return parsed?.version === 1 && parsed.blocks && typeof parsed.blocks === "object" ? parsed : null
+    return parsed?.version === 2 && parsed.blocks && typeof parsed.blocks === "object" ? parsed : null
   } catch {
     return null
   }
@@ -86,18 +101,22 @@ function cleanError(error: unknown): string {
 function glossaryEntries(value: string): Map<string, string> {
   const result = new Map<string, string>()
   for (const line of value.split("\n")) {
-    const parts = line.split("｜")
+    const parts = line.split(/[｜|]/).map((part) => part.trim())
     const source = parts[1]?.trim()
-    if (source && parts[2]?.trim()) result.set(source.toLowerCase(), line.trim())
+    if (source && parts[2] && source.length <= 100 && parts[2].length <= 100) {
+      result.set(source.toLowerCase(), `${parts[0] || "名称"}｜${source}｜${parts[2]}${parts[3] ? `｜${parts[3]}` : ""}`)
+    }
   }
   return result
 }
 
 function mergeGlossary(series: string, novel: string): string {
   const entries = glossaryEntries(series)
-  for (const [source, line] of glossaryEntries(novel)) entries.set(source, line)
-  return Array.from(entries.values()).join("\n")
+  for (const [source, line] of glossaryEntries(novel)) if (!entries.has(source)) entries.set(source, line)
+  return Array.from(entries.values()).slice(0, 120).join("\n")
 }
+
+const seriesGlossaries = new Map<string, string>()
 
 export class NovelTranslationSession {
   private input: NovelTranslationInput
@@ -108,14 +127,20 @@ export class NovelTranslationSession {
   private listeners = new Set<(snapshot: NovelTranslationSnapshot) => void>()
   private controllers = new Set<AbortController>()
   private runId = 0
+  private persistent: boolean
 
   constructor(input: NovelTranslationInput) {
     this.input = input
     this.uid = resolveEffectiveUID()
     this.model = modelIdentity()
-    const saved = readStored(novelPath(this.uid, input.novelId))
-    this.stored = saved?.model === this.model ? saved : {
-      version: 1, model: this.model, mode: saved?.mode ?? "original", blocks: {},
+    this.persistent = this.model !== "scripting-assistant"
+    const saved = this.persistent ? readStored(novelPath(this.uid, input.novelId)) : null
+    const source = fingerprint(input.text)
+    this.stored = saved?.model === this.model ? { ...saved, source,
+      summary: saved.source === source ? saved.summary : undefined,
+      glossary: saved.source === source ? saved.glossary : undefined,
+      glossarySkipped: saved.source === source ? saved.glossarySkipped : undefined } : {
+      version: 2, model: this.model, source, mode: saved?.mode ?? "original", blocks: {},
     }
     this.snapshot = this.hydrate()
   }
@@ -137,7 +162,20 @@ export class NovelTranslationSession {
     this.stored.blocks = Object.fromEntries(Object.values(blocks).map((block) => [block.id, {
       source: fingerprint(block.original), translation: block.translation, error: block.error,
     }]))
-    return this.count({ novelId: this.input.novelId, mode: this.stored.mode, running: false, blocks, done: 0, total: 0, failed: 0 })
+    const seriesKey = this.input.seriesId ? `${this.uid}:${this.model}:${this.input.seriesId}` : ""
+    const seriesFile = this.input.seriesId && this.persistent ? readStored(seriesPath(this.uid, this.input.seriesId)) : null
+    const inherited = seriesKey
+      ? seriesGlossaries.get(seriesKey) ?? (seriesFile?.model === this.model ? seriesFile.glossary ?? "" : "")
+      : ""
+    const glossary = mergeGlossary(inherited, this.stored.glossary ?? "")
+    const needsGlossary = this.input.text.length >= 500 || Boolean(this.input.seriesId)
+    return this.count({ novelId: this.input.novelId, mode: this.stored.mode, running: false, blocks,
+      done: 0, total: 0, failed: 0, phase: "idle",
+      summaryStatus: this.stored.summary ? "ready" : "pending",
+      glossaryStatus: glossary ? "ready" : needsGlossary && !this.stored.glossarySkipped ? "pending" : "skipped",
+      summary: this.stored.summary, glossary, glossaryCount: glossaryEntries(glossary).size,
+      seriesGlossaryCount: glossaryEntries(inherited).size,
+      thinkingNotice: getNovelTranslationThinkingNotice() })
   }
 
   private count(snapshot: NovelTranslationSnapshot): NovelTranslationSnapshot {
@@ -153,6 +191,7 @@ export class NovelTranslationSession {
 
   private persist(): void {
     this.stored.mode = this.snapshot.mode
+    if (!this.persistent) return
     writeTextSafely(novelPath(this.uid, this.input.novelId), JSON.stringify(this.stored))
   }
 
@@ -171,18 +210,21 @@ export class NovelTranslationSession {
   }
 
   pause(): void {
+    const wasRunning = this.snapshot.running
     this.runId += 1
     for (const controller of this.controllers) controller.abort()
     this.controllers.clear()
     for (const block of Object.values(this.snapshot.blocks)) if (block.status === "running") block.status = "pending"
-    this.snapshot = { ...this.snapshot, running: false, message: undefined }
-    this.persist()
+    this.snapshot = { ...this.snapshot, running: false, phase: "idle", message: undefined,
+      summaryStatus: this.snapshot.summaryStatus === "running" ? "pending" : this.snapshot.summaryStatus,
+      glossaryStatus: this.snapshot.glossaryStatus === "running" ? "pending" : this.snapshot.glossaryStatus }
+    if (wasRunning) this.persist()
     this.publish()
   }
 
   clear(): void {
     this.pause()
-    this.stored = { version: 1, model: this.model, mode: "original", blocks: {} }
+    this.stored = { version: 2, model: this.model, source: fingerprint(this.input.text), mode: "original", blocks: {} }
     this.snapshot = this.hydrate()
     this.publish()
   }
@@ -211,6 +253,8 @@ export class NovelTranslationSession {
         this.controllers.delete(contextController)
       }
       if (run !== this.runId || contextController.signal.aborted) return
+      this.snapshot = { ...this.snapshot, phase: "translating" }
+      this.publish()
       let cursor = 0
       const worker = async () => {
         while (run === this.runId && cursor < targets.length) {
@@ -249,7 +293,7 @@ export class NovelTranslationSession {
       if (run === this.runId) this.snapshot = { ...this.snapshot, message: cleanError(error) }
     } finally {
       if (run === this.runId) {
-        this.snapshot = { ...this.snapshot, running: false }
+        this.snapshot = { ...this.snapshot, running: false, phase: "idle" }
         this.persist()
         this.publish()
       }
@@ -259,27 +303,66 @@ export class NovelTranslationSession {
   async retry(blockId: string): Promise<void> { await this.start([blockId]) }
 
   private async getContext(signal: { aborted: boolean; addEventListener?: any; removeEventListener?: any }): Promise<{ summary?: string; glossary?: string }> {
-    const needsContext = this.input.text.length >= 2500
-    if (needsContext && (!this.stored.summary || !this.stored.glossary)) {
+    const needsGlossary = this.input.text.length >= 500 || Boolean(this.input.seriesId)
+    const seriesKey = this.input.seriesId ? `${this.uid}:${this.model}:${this.input.seriesId}` : ""
+    const seriesFile = this.input.seriesId && this.persistent ? readStored(seriesPath(this.uid, this.input.seriesId)) : null
+    const inherited = seriesKey
+      ? seriesGlossaries.get(seriesKey) ?? (seriesFile?.model === this.model ? seriesFile.glossary ?? "" : "")
+      : ""
+    if (!this.stored.summary) {
+      this.snapshot = { ...this.snapshot, phase: "summary", summaryStatus: "running" }
+      this.publish()
       try {
         const context = await generateNovelTranslationContext(this.input.title, this.input.text, {
-          summary: !this.stored.summary, glossary: !this.stored.glossary,
+          summary: true, glossary: false,
         }, signal)
         if (signal.aborted) return {}
-        if (context.summary) this.stored.summary = context.summary
-        if (context.glossary) this.stored.glossary = context.glossary
-        this.persist()
+        if (!context.summary) throw new Error("摘要为空")
+        this.stored.summary = context.summary
+        this.snapshot = { ...this.snapshot, summary: context.summary, summaryStatus: "ready" }
+        this.persist(); this.publish()
       } catch {
-        // 上下文生成失败不妨碍逐段翻译。
+        if (signal.aborted) return {}
+        this.snapshot = { ...this.snapshot, summaryStatus: "error" }
+        this.publish()
       }
     }
-    let glossary = this.stored.glossary ?? ""
+    if (needsGlossary && !this.stored.glossary && !this.stored.glossarySkipped && !signal.aborted) {
+      this.snapshot = { ...this.snapshot, phase: "glossary", glossaryStatus: "running" }
+      this.publish()
+      try {
+        const context = await generateNovelTranslationContext(this.input.title, this.input.text, {
+          summary: false, glossary: true, knownGlossary: inherited,
+        }, signal)
+        if (signal.aborted) return {}
+        const normalized = mergeGlossary("", context.glossary ?? "")
+        if (!normalized && !/^(?:无|没有|none|no terms?)[。.!\s]*$/i.test(context.glossary?.trim() ?? "")) {
+          throw new Error("术语表格式无效")
+        }
+        this.stored.glossary = normalized || undefined
+        this.stored.glossarySkipped = !normalized
+        this.snapshot = { ...this.snapshot, glossaryStatus: normalized || inherited ? "ready" : "skipped" }
+        this.persist(); this.publish()
+      } catch {
+        if (signal.aborted) return {}
+        this.snapshot = { ...this.snapshot, glossaryStatus: "error" }
+        this.publish()
+      }
+    }
+    let glossary = mergeGlossary(inherited, this.stored.glossary ?? "")
     if (this.input.seriesId) {
       const path = seriesPath(this.uid, this.input.seriesId)
-      const saved = readStored(path)
-      glossary = mergeGlossary(saved?.model === this.model ? saved.glossary ?? "" : "", glossary)
-      if (glossary) writeTextSafely(path, JSON.stringify({ version: 1, model: this.model, mode: "original", blocks: {}, glossary }))
+      if (glossary) {
+        seriesGlossaries.set(seriesKey, glossary)
+        if (this.persistent) writeTextSafely(path, JSON.stringify({ version: 2, model: this.model, source: "series", mode: "original", blocks: {}, glossary }))
+      }
     }
+    if (signal.aborted) return {}
+    this.snapshot = { ...this.snapshot, summary: this.stored.summary, glossary,
+      glossaryCount: glossaryEntries(glossary).size,
+      seriesGlossaryCount: glossaryEntries(inherited).size,
+      glossaryStatus: glossary ? "ready" : this.snapshot.glossaryStatus }
+    this.publish()
     return { summary: this.stored.summary, glossary }
   }
 }
@@ -288,9 +371,18 @@ const sessions = new Map<string, NovelTranslationSession>()
 const resumeAfterMinimize = new Set<NovelTranslationSession>()
 
 export function getNovelTranslationSession(input: NovelTranslationInput): NovelTranslationSession {
-  const key = `${resolveEffectiveUID()}:${input.novelId}:${modelIdentity()}:${fingerprint(input.text)}`
+  const owner = `${resolveEffectiveUID()}:${input.novelId}:`
+  const key = `${owner}${modelIdentity()}:${input.seriesId ?? 0}:${fingerprint(input.text)}`
   let session = sessions.get(key)
   if (!session) {
+    // 同一本小说的新原文或新模型不得与旧请求同时写入同一个缓存文件。
+    for (const [oldKey, oldSession] of sessions) {
+      if (oldKey.startsWith(owner)) {
+        oldSession.pause()
+        sessions.delete(oldKey)
+        resumeAfterMinimize.delete(oldSession)
+      }
+    }
     session = new NovelTranslationSession(input)
     sessions.set(key, session)
   }
@@ -316,6 +408,7 @@ export function discardNovelTranslationSessions(): void {
   for (const session of sessions.values()) session.pause()
   sessions.clear()
   resumeAfterMinimize.clear()
+  seriesGlossaries.clear()
 }
 
 export function novelTranslationCacheUsage(): { count: number; bytes: number } {
@@ -335,6 +428,7 @@ export function novelTranslationCacheUsage(): { count: number; bytes: number } {
 
 export function clearNovelTranslationCache(): void {
   const uid = resolveEffectiveUID()
+  for (const key of seriesGlossaries.keys()) if (key.startsWith(`${uid}:`)) seriesGlossaries.delete(key)
   for (const [key, session] of sessions) {
     if (key.startsWith(`${uid}:`)) {
       session.clear()

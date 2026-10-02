@@ -8,6 +8,7 @@ import { cleanAIEndpoint, getEffectiveGeneralEndpoint, type GeneralAIConfig } fr
 import type { AdapterRequest, AdapterResponse } from "./types"
 import { createLinkedAbortController, parseSSEStream } from "./sseParser"
 import { parseGeminiPayload } from "./responseParsers"
+import { translationThinkingControl } from "./translationThinking"
 
 function usesGoogleAPIKeyQuery(endpoint: string): boolean {
   return /generativelanguage\.googleapis\.com/i.test(endpoint)
@@ -72,6 +73,9 @@ export async function requestGemini(
     generationConfig: {
       temperature: typeof request.temperature === "number" ? request.temperature : config.temperature ?? 0.7,
     },
+  }
+  if (request.disableThinking) {
+    Object.assign(payload.generationConfig, (translationThinkingControl(config).payload.generationConfig ?? {}) as object)
   }
 
   if (request.requestImageOutput) {

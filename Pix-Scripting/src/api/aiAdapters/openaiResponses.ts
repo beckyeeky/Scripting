@@ -10,6 +10,7 @@ import { cleanAIEndpoint, getEffectiveGeneralEndpoint, type GeneralAIConfig } fr
 import type { AdapterRequest, AdapterResponse } from "./types"
 import { createLinkedAbortController, parseSSEStream } from "./sseParser"
 import { parseOpenAIResponsesPayload } from "./responseParsers"
+import { translationThinkingControl } from "./translationThinking"
 
 export function normalizeResponsesEndpoint(rawEndpoint: string): string {
   let ep = cleanAIEndpoint(rawEndpoint)
@@ -77,6 +78,7 @@ export async function requestOpenAIResponses(
     input: inputItems,
     stream: true,
   }
+  if (request.disableThinking) Object.assign(payload, translationThinkingControl(config).payload)
 
   if (request.requestImageOutput) {
     payload.tools = [{ type: "image_generation" }]

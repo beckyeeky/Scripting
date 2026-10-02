@@ -117,6 +117,7 @@ import {
 import { SeriesEpisodePager } from "./SeriesEpisodePager"
 import { NovelReaderView, NovelReaderWebView } from "./NovelReader"
 import { useNovelTranslation } from "./useNovelTranslation"
+import { NovelTranslationStatus } from "./NovelTranslationStatus"
 import { ConnectionRow } from "./components/ConnectionRow"
 import { NovelImmersiveReaderView } from "./NovelImmersiveReader"
 import {
@@ -1810,6 +1811,9 @@ export function NovelDetailView(props: { novelID: number }) {
         </VStack>
 
         {/* 正文 */}
+        {text && translationSession && translation ? (
+          <NovelTranslationStatus session={translationSession} snapshot={translation} />
+        ) : null}
         {text ? (
           <NovelReaderView
             novelId={current.id}

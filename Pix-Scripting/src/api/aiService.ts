@@ -22,6 +22,7 @@ import {
   type AdapterMessageContentPart,
   type SignalLike,
 } from "./aiAdapters"
+import { translationThinkingControl } from "./aiAdapters/translationThinking"
 
 const globalAITaskControllers = new Set<AbortController>()
 
@@ -232,6 +233,7 @@ async function executeUniversalAI(params: {
   systemPrompt?: string
   messages: AdapterMessage[]
   temperature?: number
+  disableThinking?: boolean
   options: {
     onChunk: (chunkText: string) => void
     onReasoning?: (reasoningText: string) => void
@@ -239,7 +241,7 @@ async function executeUniversalAI(params: {
     signal?: SignalLike
   }
 }): Promise<string> {
-  const { systemPrompt, messages, temperature, options } = params
+  const { systemPrompt, messages, temperature, disableThinking, options } = params
 
   if (options.signal?.aborted) {
     return ""
@@ -259,6 +261,7 @@ async function executeUniversalAI(params: {
         systemPrompt,
         messages,
         temperature,
+        disableThinking,
         signal: controller.signal,
         onChunk: (delta) => {
           if (controller.signal.aborted) return
@@ -343,6 +346,12 @@ async function executeUniversalAI(params: {
     globalAITaskControllers.delete(controller)
     cleanup()
   }
+}
+
+export function getNovelTranslationThinkingNotice(): string {
+  if (!isCustomAIConfigured()) return "原生助手不提供关闭思考参数；无法确认模型，译文仅本次会话缓存"
+  const config = resolveGeneralAIConfigRoute(loadCustomAIProfile().general)
+  return translationThinkingControl(config).label
 }
 
 /**
@@ -503,6 +512,7 @@ export async function translateNovelPassage(
     systemPrompt: "你是 Pixiv 小说翻译者。准确翻译人物、对话和叙事，不添加解释、标题或译者注。绝不能删除或修改 __PIXIV_LINK_N__ 占位符。",
     messages: [{ role: "user", content: prompt }],
     temperature: 0.2,
+    disableThinking: true,
     options: { onChunk: () => {}, signal: options.signal },
   })).trim()
   let restored = translated
@@ -518,7 +528,7 @@ export async function translateNovelPassage(
 export async function generateNovelTranslationContext(
   title: string,
   text: string,
-  needs: { summary: boolean; glossary: boolean },
+  needs: { summary: boolean; glossary: boolean; knownGlossary?: string },
   signal?: SignalLike
 ): Promise<{ summary?: string; glossary?: string }> {
   const sample = text.slice(0, 9000)
@@ -527,14 +537,16 @@ export async function generateNovelTranslationContext(
     result.summary = (await executeUniversalAI({
       systemPrompt: "提炼小说背景，供后续逐段翻译保持人名、关系和叙事一致。最多 300 字，不复述情节细节。",
       messages: [{ role: "user", content: `《${title}》\n${sample}` }],
+      disableThinking: true,
       options: { onChunk: () => {}, signal },
     })).trim()
   }
   if (needs.glossary) {
     if (signal?.aborted) return result
     result.glossary = (await executeUniversalAI({
-      systemPrompt: "提取小说中反复出现且影响翻译一致性的人名与专有名词。每行严格使用：类别｜原文｜简体中文译法｜备注。最多 30 行，不输出解释。",
-      messages: [{ role: "user", content: `《${title}》\n${sample}` }],
+      systemPrompt: "提取小说中反复出现且影响翻译一致性的人名与专有名词。每行严格使用：类别｜原文｜简体中文译法｜备注。最多 30 行，不输出解释；确无术语时只输出「无」。",
+      messages: [{ role: "user", content: `《${title}》\n${needs.knownGlossary ? `系列已确定译法（不要重新命名）：\n${needs.knownGlossary}\n` : ""}${sample}` }],
+      disableThinking: true,
       options: { onChunk: () => {}, signal },
     })).trim()
   }

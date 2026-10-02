@@ -58,6 +58,7 @@ import { recordNovelHistory } from "../store/history"
 import { useSeriesEpisodeNav, type SeriesEpisodeNavState } from "./SeriesEpisodePager"
 import { triggerHaptic } from "../platform/haptics"
 import { useNovelTranslation } from "./useNovelTranslation"
+import { NovelTranslationStatus } from "./NovelTranslationStatus"
 
 function isVirtualNode(v: unknown): v is VirtualNode {
   return !!v && typeof v === "object" && ("render" in v || "isInternal" in v || "props" in v)
@@ -2351,6 +2352,13 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
           </Button>
         </HStack>
       </VStack>
+
+      {translationSession && translation && (translation.running || translation.done > 0 || translation.failed > 0) ? (
+        <VStack frame={{ maxWidth: "infinity", maxHeight: "infinity", alignment: "bottom" }}>
+          <NovelTranslationStatus session={translationSession} snapshot={translation} compact />
+          <VStack frame={{ height: totalPages > 1 ? bottomInset + 52 : bottomInset }} />
+        </VStack>
+      ) : null}
 
       {/* 3. 悬浮底栏：页数指示器（多页小说时渲染，带自动轻柔淡出） */}
       {totalPages > 1 ? (

@@ -8,6 +8,7 @@ import { cleanAIEndpoint, getEffectiveGeneralEndpoint, type GeneralAIConfig } fr
 import type { AdapterRequest, AdapterResponse } from "./types"
 import { createLinkedAbortController, parseSSEStream } from "./sseParser"
 import { parseAnthropicPayload } from "./responseParsers"
+import { translationThinkingControl } from "./translationThinking"
 
 export function normalizeAnthropicEndpoint(rawEndpoint: string): string {
   let ep = cleanAIEndpoint(rawEndpoint)
@@ -79,6 +80,7 @@ export async function requestAnthropic(
     max_tokens: 4096,
     stream: true,
   }
+  if (request.disableThinking) Object.assign(payload, translationThinkingControl(config).payload)
 
   if (request.systemPrompt) {
     payload.system = request.systemPrompt

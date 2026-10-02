@@ -25,6 +25,7 @@ export interface AdapterRequest {
   systemPrompt?: string
   messages: AdapterMessage[]
   temperature?: number
+  disableThinking?: boolean
   signal?: SignalLike
   onChunk?: (deltaText: string) => void
   onReasoning?: (deltaReasoning: string) => void
