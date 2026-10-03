@@ -1470,7 +1470,7 @@ export function SettingsView() {
               <Spacer />
               {!expanded.widgets ? (
                 <Text font="footnote" foregroundStyle="tertiaryLabel">
-                  {formatWidgetSummary(settings)}
+                  {Device.isiPad ? formatWidgetSummary(settings) : "展开"}
                 </Text>
               ) : null}
             </HStack>

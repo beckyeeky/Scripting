@@ -1286,7 +1286,14 @@ export function SearchView(props: {
                   }}
                   contentShape="capsule"
                 >
-                  <HStack alignment="center" spacing={4} padding={{ horizontal: 8, vertical: 5 }}>
+                  <HStack
+                    alignment="center"
+                    spacing={4}
+                    padding={{ horizontal: 10, vertical: 6 }}
+                    glassEffect={appGlass("capsule")}
+                    contentShape="capsule"
+                    clipShape="capsule"
+                  >
                     <Image
                       systemName="arrow.uturn.backward"
                       font="caption"
@@ -1294,6 +1301,7 @@ export function SearchView(props: {
                     />
                     <Text
                       font="subheadline"
+                      fontWeight="medium"
                       foregroundStyle={appThemeColor("systemBlue")}
                     >
                       返回热门
@@ -2032,13 +2040,20 @@ function SearchHistorySection(props: {
             action={() => void handleClear()}
             contentShape="capsule"
           >
-            <HStack alignment="center" spacing={4} padding={{ horizontal: 8, vertical: 5 }}>
+            <HStack
+              alignment="center"
+              spacing={4}
+              padding={{ horizontal: 10, vertical: 5 }}
+              glassEffect={appGlass("capsule")}
+              contentShape="capsule"
+              clipShape="capsule"
+            >
               <Image
                 systemName="trash"
                 font="caption"
                 foregroundStyle="systemRed"
               />
-              <Text font="subheadline" foregroundStyle="systemRed">
+              <Text font="subheadline" fontWeight="medium" foregroundStyle="systemRed">
                 清除记录
               </Text>
             </HStack>
