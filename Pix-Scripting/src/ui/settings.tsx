@@ -51,6 +51,7 @@ import {
   updateSettings,
   type BaseAmbientAlgorithm,
   type ExperimentalAmbientAlgorithm,
+  type FeedColumnCap,
   type GeminiMotionSpeed,
   type GlassStrength,
   type LaunchPage,
@@ -902,6 +903,20 @@ export function SettingsView() {
               >
                 <Text>横屏平行视界</Text>
               </Toggle>
+              <Picker
+                title="横屏最大每行列数"
+                value={String(settings.feedColumnCapLandscape)}
+                onChanged={(value: string) =>
+                  update({ feedColumnCapLandscape: Number(value) as FeedColumnCap })
+                }
+              >
+                <Text tag="0">自动</Text>
+                <Text tag="2">2</Text>
+                <Text tag="3">3</Text>
+                <Text tag="4">4</Text>
+                <Text tag="5">5</Text>
+                <Text tag="6">6</Text>
+              </Picker>
               {settings.splitViewEnabledLandscape ? (
                 <VStack alignment="leading" spacing={6} padding={{ vertical: 4 }}>
                   <HStack>
@@ -924,6 +939,20 @@ export function SettingsView() {
               >
                 <Text>竖屏平行视界</Text>
               </Toggle>
+              <Picker
+                title="竖屏最大每行列数"
+                value={String(settings.feedColumnCapPortrait)}
+                onChanged={(value: string) =>
+                  update({ feedColumnCapPortrait: Number(value) as FeedColumnCap })
+                }
+              >
+                <Text tag="0">自动</Text>
+                <Text tag="2">2</Text>
+                <Text tag="3">3</Text>
+                <Text tag="4">4</Text>
+                <Text tag="5">5</Text>
+                <Text tag="6">6</Text>
+              </Picker>
               {settings.splitViewEnabledPortrait ? (
                 <VStack alignment="leading" spacing={6} padding={{ vertical: 4 }}>
                   <HStack>

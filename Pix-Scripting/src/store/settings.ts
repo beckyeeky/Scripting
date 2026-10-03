@@ -1,4 +1,5 @@
 import { Device } from "scripting"
+import type { FeedColumnCap } from "../ui/feedColumns"
 import { migrateLocalToCloudIfNeeded, pixivSettingsDirectory } from "./dataDirectory"
 import { recoverFile, writeTextSafely } from "./safeFile"
 
@@ -64,6 +65,7 @@ export type LoadingAnimationDuration = number
 export type NovelLoadingDuration = number
 export type LaunchAnimationDuration = number
 export type FeedBottomInset = number
+export type { FeedColumnCap } from "../ui/feedColumns"
 export type WidgetPoolCapacity = number
 export type WidgetReloadIntervalMinutes = number
 export type WidgetDefaultSource =
@@ -156,6 +158,8 @@ export interface AppSettings {
   splitRatioPortrait: number
   splitRatioLandscape: number
   heroFirstFeedCard: boolean
+  feedColumnCapLandscape: FeedColumnCap
+  feedColumnCapPortrait: FeedColumnCap
   compactIllustCard: boolean
   ambientImmersion: boolean
   ambientIntensity: AmbientIntensity
@@ -269,6 +273,8 @@ const DEFAULT_SETTINGS: AppSettings = {
   splitRatioPortrait: 45,
   splitRatioLandscape: 38,
   heroFirstFeedCard: true,
+  feedColumnCapLandscape: 0,
+  feedColumnCapPortrait: 0,
   compactIllustCard: true,
   ambientImmersion: true,
   ambientIntensity: "medium",
@@ -503,6 +509,14 @@ function clampNum(value: unknown, min: number, max: number, fallback: number, st
   return fallback
 }
 
+const FEED_COLUMN_CAP_VALUES: readonly FeedColumnCap[] = [0, 2, 3, 4, 5, 6]
+
+function feedColumnCapOf(value: unknown): FeedColumnCap {
+  return typeof value === "number" && FEED_COLUMN_CAP_VALUES.includes(value as FeedColumnCap)
+    ? value as FeedColumnCap
+    : 0
+}
+
 function parseStringArray(value: unknown, fallback: string[]): string[] {
   if (Array.isArray(value)) {
     return value.filter((item): item is string => typeof item === "string" && item.trim().length > 0)
@@ -573,6 +587,8 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
       DEFAULT_SETTINGS.splitRatioLandscape
     ),
     heroFirstFeedCard: boolOr(stored?.heroFirstFeedCard, DEFAULT_SETTINGS.heroFirstFeedCard),
+    feedColumnCapLandscape: feedColumnCapOf(stored?.feedColumnCapLandscape),
+    feedColumnCapPortrait: feedColumnCapOf(stored?.feedColumnCapPortrait),
     compactIllustCard: boolOr(stored?.compactIllustCard, DEFAULT_SETTINGS.compactIllustCard),
     ambientImmersion: boolOr(stored?.ambientImmersion, DEFAULT_SETTINGS.ambientImmersion),
     ambientIntensity: isOneOf(stored?.ambientIntensity, AMBIENT_INTENSITY_VALUES)

@@ -1,16 +1,18 @@
 import {
-  Device,
   HStack,
   LazyVStack,
   ProgressView,
   Rectangle,
   Spacer,
   VStack,
+  useEffect,
   useMemo,
+  useState,
 } from "scripting"
 import { useLayoutMetrics } from "../Hooks"
 import { cacheIllusts } from "../../store/illustCache"
-import { loadSettings } from "../../store/settings"
+import { loadSettings, onSettingsChanged } from "../../store/settings"
+import { resolveFeedColumnCount } from "../feedColumns"
 import { LoadMoreErrorRetry } from "./RefreshableScrollView"
 import {
   FLOW_COLUMN_SPACING,
@@ -83,15 +85,29 @@ function distributeFlowItems(
 
 export function IllustFlowFeed(props: IllustFlowFeedProps) {
   cacheIllusts(props.items)
-  const { width: containerWidth } = useLayoutMetrics()
+  const { width: containerWidth, isLandscape } = useLayoutMetrics()
+  const [columnCaps, setColumnCaps] = useState(() => {
+    const settings = loadSettings()
+    return {
+      landscape: settings.feedColumnCapLandscape,
+      portrait: settings.feedColumnCapPortrait,
+    }
+  })
 
-  const columnCount = useMemo(() => {
-    // 列数完全由**容器实宽**自适应（已移除「横屏 / 竖屏列数」设置项）：
-    // 目标单列宽约 215pt，夹在 2~6 列之间。
-    // iPhone 393pt → 2 列；iPad 分栏内容栏 320pt → 2 列；iPad 1024pt → 5 列；1366pt → 6 列。
-    const raw = Math.round(containerWidth / 215)
-    return Math.max(2, Math.min(6, raw))
-  }, [containerWidth])
+  useEffect(() => {
+    return onSettingsChanged(() => {
+      const settings = loadSettings()
+      setColumnCaps({
+        landscape: settings.feedColumnCapLandscape,
+        portrait: settings.feedColumnCapPortrait,
+      })
+    })
+  }, [])
+
+  const columnCount = useMemo(
+    () => resolveFeedColumnCount(containerWidth, isLandscape, columnCaps),
+    [containerWidth, isLandscape, columnCaps]
+  )
 
   const flowCardWidth = useMemo(
     () => calculateFlowCardWidth(containerWidth, columnCount),
