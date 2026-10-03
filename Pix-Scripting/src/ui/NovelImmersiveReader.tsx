@@ -25,7 +25,7 @@ import {
   WebView,
   ZStack,
 } from "scripting"
-import { appGlass } from "./components/glass"
+import { appGlass, appCustomTint } from "./components/glass"
 import { useLayoutMetrics } from "./Hooks"
 import { presentExternalURL, routeForDescriptionLink } from "./components"
 import { requestPixivRoute } from "../store/routeNavigation"
@@ -2231,12 +2231,37 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
   }, [chunks, activeImages])
 
   const metrics = useLayoutMetrics()
-  const topInset = metrics.isLandscape ? 24 : (Device.screen.height > 800 ? 50 : 38)
   const bottomInset = metrics.isLandscape ? 18 : (Device.screen.height > 800 ? 32 : 16)
   const horizontalInset = metrics.isLandscape ? 32 : 20
 
   return (
-    <ZStack frame={{ maxWidth: "infinity", maxHeight: "infinity" }} ignoresSafeArea={true}>
+    <NavigationStack tint={appCustomTint()}>
+      <ZStack
+        frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+        statusBarHidden={!controlsVisible}
+        toolbarVisibility={{
+          visibility: controlsVisible ? "visible" : "hidden",
+          bars: ["navigationBar", "statusBar"],
+        }}
+        ignoresSafeArea={true}
+        toolbar={{
+          topBarLeading: [
+            <Button action={handleClose}>
+              <Image systemName="xmark" />
+            </Button>,
+          ],
+          topBarTrailing: [
+            <Button
+              action={() => {
+                triggerHaptic("light")
+                setShowTypography(true)
+              }}
+            >
+              <Image systemName="a.square" />
+            </Button>,
+          ],
+        }}
+      >
       {/* 0. 沉浸式环境光大画布（与小说正文页同款，整屏铺满） */}
       {isVirtualNode(ambientBackground) ? (
         ambientBackground
@@ -2247,60 +2272,6 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
       {/* 1. 核心 WebView 纯净渲染引擎（横竖双引擎无缝调度） */}
       <WebView controller={controller} frame={{ maxWidth: "infinity", maxHeight: "infinity" }} />
 
-      {/* 2. 悬浮顶栏控制按钮（自动轻柔淡出） */}
-      <VStack frame={{ maxWidth: "infinity", maxHeight: "infinity", alignment: "top" }}>
-        <HStack
-          alignment="center"
-          padding={{ top: topInset, horizontal: horizontalInset }}
-          frame={{ maxWidth: "infinity" }}
-          opacity={controlsVisible ? 1 : 0}
-          animation={{ animation: Animation.smooth({ duration: 0.25 }), value: controlsVisible }}
-        >
-          {/* 左上角：关闭按钮 */}
-          <Button action={handleClose} buttonStyle="plain">
-            <ZStack
-              alignment="center"
-              frame={{ width: 42, height: 42 }}
-              glassEffect={appGlass("circle")}
-              contentShape="circle"
-              shadow={{ color: "#0000001F", radius: 8, y: 2 }}
-            >
-              <Image
-                systemName="xmark"
-                font="body"
-                fontWeight="semibold"
-                foregroundStyle="label"
-              />
-            </ZStack>
-          </Button>
-
-          <Spacer />
-
-          {/* 右上角：版式设置按钮（使用现有同款 a.square 图标） */}
-          <Button
-            action={() => {
-              triggerHaptic("light")
-              setShowTypography(true)
-            }}
-            buttonStyle="plain"
-          >
-            <ZStack
-              alignment="center"
-              frame={{ width: 42, height: 42 }}
-              glassEffect={appGlass("circle")}
-              contentShape="circle"
-              shadow={{ color: "#0000001F", radius: 8, y: 2 }}
-            >
-              <Image
-                systemName="a.square"
-                font="title3"
-                fontWeight="regular"
-                foregroundStyle="label"
-              />
-            </ZStack>
-          </Button>
-        </HStack>
-      </VStack>
 
       {/* 3. 悬浮底栏：页数指示器（多页小说时渲染，带自动轻柔淡出） */}
       {totalPages > 1 ? (
@@ -2449,5 +2420,6 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
         }}
       />
     </ZStack>
-  )
+  </NavigationStack>
+)
 }

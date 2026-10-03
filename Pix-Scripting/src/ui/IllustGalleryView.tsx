@@ -28,6 +28,7 @@ import {
   prefetch,
 } from "../image/imageLoader"
 import { sharpenFadeDurationSec } from "./components/CachedImage"
+import { appCustomTint } from "./components/glass"
 import {
   downloadIllustToAlbum,
   fetchImageBinaryWithRetry,
@@ -339,14 +340,14 @@ function IllustGalleryPage(props: IllustGalleryPageProps) {
   return (
     <ZStack
       frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
-      ignoresSafeArea={isZoomed ? { edges: "all" } : undefined}
+      ignoresSafeArea={true}
     >
       {/* 1. 独立图片展示层：纯粹响应 scaleEffect 和 offset，无任何动态手势修饰符，彻底绝缘视图重建闪屏 */}
       <ZStack
         scaleEffect={scale}
         offset={offset}
         frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
-        ignoresSafeArea={isZoomed ? { edges: "all" } : undefined}
+        ignoresSafeArea={true}
       >
         {/* 未命中任何图片缓存时的居中轻量加载指示器 */}
         {!baseImagePath && !originalPath && (
@@ -417,7 +418,6 @@ export function IllustGalleryView(props: {
   const [downloading, setDownloading] = useState(false)
 
   const isNavVisible = showControls
-  const shouldIgnoreSafeArea = isZoomed || !isNavVisible
 
   const toggleControls = useCallback(() => {
     withAnimation(Animation.spring({ duration: 0.25, bounce: 0.1 }), () => {
@@ -533,14 +533,17 @@ export function IllustGalleryView(props: {
   }
 
   return (
-    <NavigationStack>
+    <NavigationStack tint={appCustomTint()}>
       <ZStack
         frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
         navigationTitle={!isSingle ? `${currentPageIndex + 1} / ${pageCount}` : ""}
         navigationBarTitleDisplayMode="inline"
         statusBarHidden={!isNavVisible}
-        navigationBarVisibility={isNavVisible ? "visible" : "hidden"}
-        ignoresSafeArea={shouldIgnoreSafeArea ? { edges: "all" } : undefined}
+        toolbarVisibility={{
+          visibility: isNavVisible ? "visible" : "hidden",
+          bars: ["navigationBar", "statusBar"],
+        }}
+        ignoresSafeArea={true}
         toolbar={{
           topBarLeading: [
             <Button action={handleDismiss}>
@@ -585,7 +588,7 @@ export function IllustGalleryView(props: {
         {/* 中间大图展示区：使用 iOS 原生 TabView page 模式实现可预测物理交互翻页动画 */}
         <ZStack
           frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
-          ignoresSafeArea={shouldIgnoreSafeArea ? { edges: "all" } : undefined}
+          ignoresSafeArea={true}
           offset={{ x: 0, y: dismissOffsetY }}
           scaleEffect={dismissScale}
         >
@@ -598,13 +601,17 @@ export function IllustGalleryView(props: {
                 }
               }}
               tabViewStyle="pageNeverDisplayIndex"
+              frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+              ignoresSafeArea={true}
+              scrollClipDisabled={true}
+              scrollDisabled={isZoomed}
             >
               {pageIndices.map((idx) => (
                 <VStack
                   key={idx}
                   tag={idx}
                   frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
-                  ignoresSafeArea={shouldIgnoreSafeArea ? { edges: "all" } : undefined}
+                  ignoresSafeArea={true}
                 >
                   <IllustGalleryPage
                     illust={illust}

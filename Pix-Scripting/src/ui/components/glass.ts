@@ -108,6 +108,18 @@ export function appThemeColor(fallback: string = "#0096FA"): Color {
   return fallback as Color
 }
 
+/**
+ * 若开启了「自定义玻璃色调」且配置了颜色，则返回该主题色；
+ * 否则返回 undefined（供 NavigationStack 等 tint 属性保持系统原生出厂默认中性色）。
+ */
+export function appCustomTint(): Color | undefined {
+  const settings = loadSettings()
+  if (settings.glassCustomTintEnabled && settings.glassTintColor) {
+    return settings.glassTintColor as Color
+  }
+  return undefined
+}
+
 /** 「颜色 + 浓度(%)」合成带 alpha 的 rgba 字符串（注意不能带空格，Color 模板字面量类型不允许） */
 function tintRGBA(color: string, strength: number): Color {
   const [r, g, b] =
