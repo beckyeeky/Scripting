@@ -1144,11 +1144,12 @@ export function SearchView(props: {
 
           {/* 2. iPad 专属合屏模式：上方搜索记录（有则根据全屏/分栏自适应双列/单列，无则隐去） + 下方热门标签/推荐用户 */}
           {!isSuggestingActive && !submitted && !query.trim() && Device.isiPad ? (
-            <VStack spacing={10} frame={{ maxWidth: "infinity" }}>
+            <VStack spacing={8} frame={{ maxWidth: "infinity" }}>
               <SearchHistorySection
                 history={getSearchHistory(targetScope)}
                 isDoubleColumn={isFullScreenPad}
                 hideIfEmpty={true}
+                bottomInset={0}
                 onSelect={(item) => {
                   submitSearch(item)
                 }}
@@ -1965,6 +1966,7 @@ function SearchHistorySection(props: {
   history: string[]
   isDoubleColumn?: boolean
   hideIfEmpty?: boolean
+  bottomInset?: number
   onSelect: (query: string) => void
   onRemove: (query: string) => void
   onClear: () => void
@@ -1973,6 +1975,7 @@ function SearchHistorySection(props: {
     history,
     isDoubleColumn = false,
     hideIfEmpty = false,
+    bottomInset = Math.round(loadSettings().feedBottomInset / 2),
     onSelect,
     onRemove,
     onClear,
@@ -2015,7 +2018,7 @@ function SearchHistorySection(props: {
     <VStack
       alignment="leading"
       spacing={8}
-      padding={{ horizontal: 8, bottom: Math.round(loadSettings().feedBottomInset / 2) }}
+      padding={{ horizontal: 8, bottom: bottomInset }}
       frame={{ maxWidth: "infinity" }}
     >
       <HStack alignment="center" spacing={8} frame={{ maxWidth: "infinity" }} padding={{ horizontal: 4, vertical: 4 }}>
