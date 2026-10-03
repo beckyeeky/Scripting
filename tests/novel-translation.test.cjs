@@ -249,7 +249,10 @@ function createStoreFixture(options = {}) {
     },
     "../api/aiAdapters": { resolveGeneralAIConfigRoute: (value) => value },
     "./dataDirectory": { pixivDataDirectory: () => "/cache", resolveEffectiveUID: () => uid },
-    "./safeFile": { recoverFile: () => {}, writeTextSafely: (file, value) => files.set(file, value) },
+    "./safeFile": { recoverFile: () => {}, writeTextSafely: (file, value) => {
+      if (options.writeError?.(file)) throw new Error("模拟磁盘写入失败")
+      files.set(file, value)
+    } },
   }, {
     Data: { fromRawString: (value) => Buffer.from(value) },
     Crypto: { sha256: (value) => ({ toHexString: () => crypto.createHash("sha256").update(value).digest("hex") }) },
@@ -373,6 +376,20 @@ test("同篇小说改换系列时重新生成术语，不沿用旧系列词表",
   assert.equal(glossaryCalls, 2)
   assert.match(next.getSnapshot().glossary, /Alice｜艾莉丝/)
   assert.doesNotMatch(next.getSnapshot().glossary, /Alice｜爱丽丝/)
+})
+
+test("单篇或系列缓存写入失败不阻断正文翻译，并显示数据未落盘提示", async () => {
+  for (const failedPath of ["/15.json", "/series-93.json"]) {
+    const f = createStoreFixture({ writeError: (path) => path.endsWith(failedPath) })
+    const input = { novelId: 15, title: "存储失败", text: "Alice", seriesId: 93,
+      blocks: [{ id: "a", text: "Alice" }, { id: "b", text: "Town" }] }
+    const session = f.module.getNovelTranslationSession(input)
+    await session.start()
+    assert.equal(session.getSnapshot().done, 2)
+    assert.equal(session.getSnapshot().running, false)
+    assert.match(session.getSnapshot().message, /缓存写入失败/)
+    assert.equal(f.getCalls(), 2)
+  }
 })
 
 test("暂停后迟到结果不入库；继续与单块重试保留其他已完成段落", async () => {

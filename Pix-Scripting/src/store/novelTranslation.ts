@@ -118,6 +118,7 @@ function mergeGlossary(series: string, novel: string): string {
 }
 
 const seriesGlossaries = new Map<string, string>()
+const CACHE_WRITE_WARNING = "本地译文缓存写入失败；当前会话可继续，退出后可能需要重新翻译"
 
 export class NovelTranslationSession {
   private input: NovelTranslationInput
@@ -195,7 +196,11 @@ export class NovelTranslationSession {
   private persist(): void {
     this.stored.mode = this.snapshot.mode
     if (!this.persistent) return
-    writeTextSafely(novelPath(this.uid, this.input.novelId), JSON.stringify(this.stored))
+    try {
+      writeTextSafely(novelPath(this.uid, this.input.novelId), JSON.stringify(this.stored))
+    } catch {
+      this.snapshot = { ...this.snapshot, message: CACHE_WRITE_WARNING }
+    }
   }
 
   getSnapshot(): NovelTranslationSnapshot { return this.snapshot }
@@ -364,8 +369,14 @@ export class NovelTranslationSession {
       glossary = mergeGlossary(latestInherited, this.stored.glossary ?? "")
       if (glossary) {
         seriesGlossaries.set(seriesKey, glossary)
-        if (this.persistent) writeTextSafely(path, JSON.stringify({ version: 2, model: this.model,
-          source: "series", seriesId: this.input.seriesId, mode: "original", blocks: {}, glossary }))
+        if (this.persistent) {
+          try {
+            writeTextSafely(path, JSON.stringify({ version: 2, model: this.model,
+              source: "series", seriesId: this.input.seriesId, mode: "original", blocks: {}, glossary }))
+          } catch {
+            this.snapshot = { ...this.snapshot, message: CACHE_WRITE_WARNING }
+          }
+        }
       }
     }
     if (signal.aborted) return {}
