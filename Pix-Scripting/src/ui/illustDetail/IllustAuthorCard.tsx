@@ -15,6 +15,7 @@ export interface IllustAuthorCardProps {
   illustType?: "illust" | "manga" | "ugoira"
   priority?: number
   isSprint?: boolean
+  onFollowSuccess?: (restrict: "public" | "private") => void
 }
 
 /**
@@ -29,6 +30,7 @@ export function IllustAuthorCard(props: IllustAuthorCardProps) {
     illustType = "illust",
     priority,
     isSprint,
+    onFollowSuccess,
   } = props
 
   const [illusts, setIllusts] = useState<PixivIllustration[]>([])
@@ -72,6 +74,7 @@ export function IllustAuthorCard(props: IllustAuthorCardProps) {
         loading={loading}
         priority={priority}
         isSprint={isSprint}
+        onFollowSuccess={onFollowSuccess}
       />
     </VStack>
   )

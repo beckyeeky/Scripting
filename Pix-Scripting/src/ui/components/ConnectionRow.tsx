@@ -14,7 +14,7 @@ import {
   VStack,
   ZStack,
 } from "scripting"
-import { appGlass, appGlassFlag } from "./glass"
+import { appGlass, appGlassFlag, appThemeColor } from "./glass"
 import { AppNavigationLink } from "../DualRouteContext"
 import { session } from "../../api/session"
 import { followUser, unfollowUser } from "../../api/pixiv"
@@ -92,6 +92,7 @@ export function ConnectionRow(props: {
   isSprint?: boolean
   onNavigate?: (route: string) => void
   loading?: boolean
+  onFollowSuccess?: (restrict: "public" | "private") => void
 }) {
   const {
     preview,
@@ -99,6 +100,7 @@ export function ConnectionRow(props: {
     showFollowControl = true,
     priority,
     isSprint,
+    onFollowSuccess,
   } = props
   const isSprintRow = isSprint ?? (priority === 0)
   const [followed, setFollowed, followRestrict, setFollowRestrict] = useUserFollow(
@@ -141,6 +143,7 @@ export function ConnectionRow(props: {
     try {
       await session.call((token) => followUser(preview.user.id, restrict, token))
       setFollowed(true, restrict)
+      onFollowSuccess?.(restrict)
     } catch {
       // ignore
     } finally {
@@ -157,6 +160,7 @@ export function ConnectionRow(props: {
     try {
       if (nextFollowed) {
         await session.call((token) => followUser(preview.user.id, "public", token))
+        onFollowSuccess?.("public")
       } else {
         await session.call((token) => unfollowUser(preview.user.id, token))
       }
@@ -275,7 +279,7 @@ export function ConnectionRow(props: {
                   : "person.badge.plus"
               }
               font="body"
-              foregroundStyle={followed ? "secondaryLabel" : "systemBlue"}
+              foregroundStyle={followed ? "secondaryLabel" : appThemeColor("systemBlue")}
               frame={{ width: 38, height: 38 }}
             />
           </Button>

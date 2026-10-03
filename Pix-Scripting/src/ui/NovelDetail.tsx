@@ -1823,7 +1823,14 @@ export function NovelDetailView(props: { novelID: number }) {
         </VStack>
 
         {/* 作者名片与作品橱窗 */}
-        <NovelAuthorCard user={current.user} />
+        <NovelAuthorCard
+          user={current.user}
+          onFollowSuccess={() => {
+            if (loadSettings().showRelatedUsersOnFollow) {
+              setShowRelatedUsers(true)
+            }
+          }}
+        />
 
         {/* 相关作品 */}
         <VStack key={`novel-related-${current.id}`}>
@@ -1972,8 +1979,11 @@ export function NovelDetailView(props: { novelID: number }) {
   )
 }
 
-function NovelAuthorCard(props: { user: PixivUser }) {
-  const { user } = props
+function NovelAuthorCard(props: {
+  user: PixivUser
+  onFollowSuccess?: (restrict: "public" | "private") => void
+}) {
+  const { user, onFollowSuccess } = props
   const [novels, setNovels] = useState<PixivNovel[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -1997,7 +2007,7 @@ function NovelAuthorCard(props: { user: PixivUser }) {
   return (
     <VStack alignment="leading" spacing={6} padding={{ horizontal: 8 }} frame={{ maxWidth: "infinity", alignment: "leading" }}>
       <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">创作者</Text>
-      <ConnectionRow preview={preview} loading={loading} />
+      <ConnectionRow preview={preview} loading={loading} onFollowSuccess={onFollowSuccess} />
     </VStack>
   )
 }
