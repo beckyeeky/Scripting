@@ -48,6 +48,7 @@ export function ExpandableIntroduction(props: {
         glassEffect={appGlass({ type: "rect", cornerRadius: 14 })}
         frame={{ maxWidth: "infinity" }}
         contentShape="rect"
+        textSelection={true}
         onTapGesture={
           exceedsFiveLines
             ? () => {
