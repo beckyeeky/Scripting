@@ -6,7 +6,7 @@
 
 | 项目名称 | 类型 / 简介 | 当前版本 | 快速跳转 |
 | :--- | :--- | :---: | :---: |
-| **Pix-Scripting** | 液态玻璃风格 Pixiv 客户端，含 PixivReader 正文翻译移植 | `v1.6.7.6` | [查看介绍 & 安装](#pix-scripting) |
+| **Pix-Scripting** | 液态玻璃风格 Pixiv 客户端，含 PixivReader 正文翻译移植 | `v1.6.7.7` | [查看介绍 & 安装](#pix-scripting) |
 | *（更多项目）* | 更多高品质脚本持续孵化中... | `Planning` | - |
 
 ---
@@ -29,7 +29,7 @@
 #### 📥 快速安装
 
 1. 安装 **[Scripting](https://apps.apple.com/app/scripting/id6477833076)** App；
-2. 下载并导入当前移植分支的 [`Release/Pix-Scripting.scripting`](https://raw.githubusercontent.com/beckyeeky/Scripting/feature/pixivreader-port/Release/Pix-Scripting.scripting)；也可从 [v1.6.7.6 发布页](https://github.com/beckyeeky/Scripting/releases/tag/v1.6.7.6-pixivreader) 下载附件；
+2. 下载并导入当前移植分支的 [`Release/Pix-Scripting.scripting`](https://raw.githubusercontent.com/beckyeeky/Scripting/feature/pixivreader-port/Release/Pix-Scripting.scripting)；也可从 [v1.6.7.7 发布页](https://github.com/beckyeeky/Scripting/releases/tag/v1.6.7.7-pixivreader) 下载附件；
 3. 在小说详情或沉浸阅读器中打开「正文翻译」，选择翻译、暂停/继续或原文/译文切换；在小说系列页可分批翻译当前已加载的章节。先在「设置 → 智能助手」配置模型，或使用可用的 Scripting 原生助手。
 
 正文上方有常驻翻译进度条，可直接看已完成段数、摘要与术语状态、暂停/继续、原文/译文切换；展开「摘要与术语」可查看内容、系列继承的术语数及失败段落的单块重试。沉浸阅读时也显示浮动进度条。故事摘要先生成，术语表随后整理，最后最多两个正文请求并发；上下文失败时会显示状态并继续翻译正文。长篇摘要和术语表会抽取开头、中段、结尾各约 3000 字，避免只看到开头；超长正文块优先在换行或句末拆分，保留接缝空行与 Pixiv 链接。
@@ -42,7 +42,7 @@
 
 这个分支的发布包由仓库内可直接编辑的 [`Pix-Scripting/`](Pix-Scripting/) 源码构建，不需要修改 `.scripting` 压缩包。小说翻译的主要修改点是 [`src/store/novelTranslation.ts`](Pix-Scripting/src/store/novelTranslation.ts)（任务和缓存）、[`src/api/aiService.ts`](Pix-Scripting/src/api/aiService.ts)（模型提示词）、[`src/api/aiAdapters/translationThinking.ts`](Pix-Scripting/src/api/aiAdapters/translationThinking.ts)（各模型关闭思考参数）、[`src/ui/NovelReader.tsx`](Pix-Scripting/src/ui/NovelReader.tsx)（原位显示）、[`src/ui/NovelTranslationStatus.tsx`](Pix-Scripting/src/ui/NovelTranslationStatus.tsx)（进度与重试）、[`src/ui/NovelDetail.tsx`](Pix-Scripting/src/ui/NovelDetail.tsx)（单篇入口）和 [`src/ui/seriesView.tsx`](Pix-Scripting/src/ui/seriesView.tsx)（系列入口）。直接在这些文件里改即可。
 
-在仓库根目录运行 `npm ci && npm test` 可执行翻译链路回归测试；运行 `bash scripts/build-release.sh` 会检查版本号一致性并重建 `Release/Pix-Scripting.scripting`。构建只需要 `zip`、`unzip` 和 `node`；完成后将源码与发布包一起提交到 `feature/pixivreader-port` 分支。当前版本 `1.6.7.6` 表示基于上游 `1.6.7` 的第 6 个移植小版本；下次发布同步修改 [`script.json`](Pix-Scripting/script.json) 的 `version` 和 [`src/config.ts`](Pix-Scripting/src/config.ts) 的回退版本，再重新构建。此分支的 `remoteResource.url` 指向分支发布包，不会误更新到上游 `main`。
+在仓库根目录运行 `npm ci && npm test` 可执行翻译链路回归测试；运行 `bash scripts/build-release.sh` 会检查版本号一致性并重建 `Release/Pix-Scripting.scripting`。构建只需要 `zip`、`unzip` 和 `node`；完成后将源码与发布包一起提交到 `feature/pixivreader-port` 分支。当前版本 `1.6.7.7` 表示基于上游 `1.6.7` 的第 7 个移植小版本；下次发布同步修改 [`script.json`](Pix-Scripting/script.json) 的 `version` 和 [`src/config.ts`](Pix-Scripting/src/config.ts) 的回退版本，再重新构建。此分支的 `remoteResource.url` 指向分支发布包，不会误更新到上游 `main`。
 
 ---
 
