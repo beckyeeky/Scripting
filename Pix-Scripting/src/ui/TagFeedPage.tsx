@@ -69,6 +69,8 @@ function formatPixivDate(timestamp: number): string {
 }
 
 function defaultTagIllustAdvancedParams(tag: string): AdvancedSearchParams {
+  const now = Date.now()
+  const today = formatPixivDate(now)
   return {
     word: tag,
     category: "all_illust",
@@ -78,14 +80,16 @@ function defaultTagIllustAdvancedParams(tag: string): AdvancedSearchParams {
     mediaFilter: "all",
     bookmarkThreshold: 0,
     useDateRange: false,
-    startDate: "",
-    endDate: "",
-    startTimestamp: 0,
-    endTimestamp: 0,
+    startDate: today,
+    endDate: today,
+    startTimestamp: now,
+    endTimestamp: now,
   }
 }
 
 function defaultTagNovelAdvancedParams(tag: string): AdvancedSearchParams {
+  const now = Date.now()
+  const today = formatPixivDate(now)
   return {
     word: tag,
     category: "novel",
@@ -95,10 +99,10 @@ function defaultTagNovelAdvancedParams(tag: string): AdvancedSearchParams {
     mediaFilter: "all",
     bookmarkThreshold: 0,
     useDateRange: false,
-    startDate: "",
-    endDate: "",
-    startTimestamp: 0,
-    endTimestamp: 0,
+    startDate: today,
+    endDate: today,
+    startTimestamp: now,
+    endTimestamp: now,
   }
 }
 

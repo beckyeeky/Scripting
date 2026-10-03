@@ -33,6 +33,24 @@ import { triggerHaptic } from "../platform/haptics"
 
 declare const Dialog: any
 
+const SEARCH_DATE_MIN_TIMESTAMP = new Date("2007-09-09").getTime()
+
+export function normalizeSearchDateRange(
+  startTimestamp: number,
+  endTimestamp: number,
+  maxTimestamp = Date.now()
+): { startTimestamp: number; endTimestamp: number } {
+  const normalizeTimestamp = (value: number, fallback: number) =>
+    Number.isFinite(value) && value >= SEARCH_DATE_MIN_TIMESTAMP
+      ? Math.min(value, maxTimestamp)
+      : fallback
+  const normalizedEnd = normalizeTimestamp(endTimestamp, maxTimestamp)
+  const normalizedStart = normalizeTimestamp(startTimestamp, normalizedEnd)
+  return normalizedStart <= normalizedEnd
+    ? { startTimestamp: normalizedStart, endTimestamp: normalizedEnd }
+    : { startTimestamp: normalizedEnd, endTimestamp: normalizedStart }
+}
+
 export function formatDateToPixivDate(timestamp: number): string {
   const d = new Date(timestamp)
   const y = d.getFullYear()
@@ -299,6 +317,11 @@ export function SearchAdvancedSheet(props: {
 }) {
   const { currentParams, settings, onApply, onCancel, lockScope } = props
 
+  const initialDateRange = normalizeSearchDateRange(
+    currentParams.startTimestamp,
+    currentParams.endTimestamp
+  )
+
   const [word, setWord] = useState(currentParams.word)
   const [category, setCategory] = useState<SearchCategory>(() =>
     currentParams.category ||
@@ -311,10 +334,10 @@ export function SearchAdvancedSheet(props: {
   )
   const [useDateRange, setUseDateRange] = useState(currentParams.useDateRange)
   const [startTimestamp, setStartTimestamp] = useState<number>(
-    currentParams.startTimestamp
+    initialDateRange.startTimestamp
   )
   const [endTimestamp, setEndTimestamp] = useState<number>(
-    currentParams.endTimestamp
+    initialDateRange.endTimestamp
   )
   const [datePresetLabel, setDatePresetLabel] = useState<string | undefined>(
     currentParams.datePresetLabel
@@ -327,6 +350,10 @@ export function SearchAdvancedSheet(props: {
   const queryInspection = useMemo(() => inspectSearchQuery(word), [word])
 
   useEffect(() => {
+    const nextDateRange = normalizeSearchDateRange(
+      currentParams.startTimestamp,
+      currentParams.endTimestamp
+    )
     setWord(currentParams.word)
     setCategory(
       currentParams.category ||
@@ -336,8 +363,8 @@ export function SearchAdvancedSheet(props: {
     setSort(currentParams.sort)
     setBookmarkThreshold(currentParams.bookmarkThreshold)
     setUseDateRange(currentParams.useDateRange)
-    setStartTimestamp(currentParams.startTimestamp)
-    setEndTimestamp(currentParams.endTimestamp)
+    setStartTimestamp(nextDateRange.startTimestamp)
+    setEndTimestamp(nextDateRange.endTimestamp)
     setDatePresetLabel(currentParams.datePresetLabel)
     if (!currentParams.word?.trim()) {
       setShouldAutoFocus(true)
@@ -353,7 +380,7 @@ export function SearchAdvancedSheet(props: {
     }
   }, [shouldAutoFocus])
 
-  const minTimestamp = useMemo(() => new Date("2007-09-09").getTime(), [])
+  const minTimestamp = useMemo(() => SEARCH_DATE_MIN_TIMESTAMP, [])
   const maxTimestamp = useMemo(() => Date.now(), [])
 
   function handleTargetChange(val: string) {
