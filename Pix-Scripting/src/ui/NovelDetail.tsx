@@ -50,7 +50,7 @@ import {
 } from "../api/pixiv"
 import { session } from "../api/session"
 import { triggerHaptic } from "../platform/haptics"
-import { exportNovelToEpub } from "../downloader"
+import { exportNovelToEpub, exportNovelToText } from "../downloader"
 import {
   currentBatchSize,
   useAsyncGuard,
@@ -115,7 +115,7 @@ import {
   TagChip,
 } from "./components"
 import { SeriesEpisodePager } from "./SeriesEpisodePager"
-import { NovelReaderView, NovelReaderWebView } from "./NovelReader"
+import { NovelReaderView, NovelReaderWebView, parseNovelToChunks } from "./NovelReader"
 import { useNovelTranslation } from "./useNovelTranslation"
 import { NovelTranslationStatus } from "./NovelTranslationStatus"
 import { ConnectionRow } from "./components/ConnectionRow"
@@ -128,10 +128,16 @@ import { CommentsSheet } from "./comments"
 import { NovelAISheet, type NovelAIMode } from "./aiSheet"
 import { NovelTypographySheet } from "./NovelTypographySheet"
 import {
+  NOVEL_TRANSLATION_TARGETS,
   loadNovelReaderSettings,
   onNovelReaderSettingsChanged,
   type NovelReaderSettings,
 } from "../store/novelReaderSettings"
+import {
+  buildNovelPlainTextDocument,
+  buildTranslatedNovelSource,
+  novelTranslationExportIssue,
+} from "../store/novelExport"
 import { cleanHtmlCaption } from "../api/aiService"
 import { renderDestination, requestPixivRoute } from "../store/routeNavigation"
 import { AppNavigationLink, useDualRoute } from "./DualRouteContext"
@@ -887,81 +893,105 @@ export function NovelDetailView(props: { novelID: number }) {
 
   const [downloadingEpub, setDownloadingEpub] = useState(false)
 
-  async function handleDownloadNovelEpub() {
+  async function resolveNovelExportSource() {
+    let fullText = text
+    const imagesMap: Record<string, string> = {}
+    const collectImages = (images?: Record<string, TextEmbeddedImage>) => {
+      if (!images) return
+      Object.entries(images).forEach(([key, imgObj]) => {
+        const url =
+          imgObj?.urls?.original ||
+          imgObj?.urls?.["1200x1200"] ||
+          imgObj?.urls?.["480mw"] ||
+          (imgObj as any)?.urls?.large ||
+          (imgObj as any)?.urls?.medium ||
+          (imgObj as any)?.url
+        if (url) {
+          imagesMap[key] = url
+          if (imgObj.novelImageId && imgObj.novelImageId !== key) {
+            imagesMap[imgObj.novelImageId] = url
+          }
+        }
+      })
+    }
+
+    collectImages(textEmbeddedImages)
+    let cover = current.image_urls?.large || current.image_urls?.medium
+    if (!fullText) {
+      const viewer = await session.call((token) => novelViewerData(current.id, token))
+      if (viewer?.text) {
+        fullText = viewer.text
+        if (viewer.coverUrl) cover = viewer.coverUrl
+        collectImages(viewer.textEmbeddedImages)
+      }
+    }
+    return { fullText, imagesMap, cover }
+  }
+
+  function resolveTranslatedExport(fullText: string) {
+    const issue = novelTranslationExportIssue(translation, Boolean(cleanedCaption))
+    if (issue) return { issue, data: null }
+    const translatedText = buildTranslatedNovelSource(parseNovelToChunks(fullText), translation)
+    if (!translatedText || !translation?.translatedTitle) {
+      return { issue: "译文缓存不完整，请重试未完成段落后导出", data: null }
+    }
+    return {
+      issue: null,
+      data: {
+        title: translation.translatedTitle,
+        caption: cleanedCaption ? translation.translatedCaption ?? "" : "",
+        text: translatedText,
+      },
+    }
+  }
+
+  async function handleExportNovelEpub(mode: "original" | "translated") {
     if (downloadingEpub) return
     triggerHaptic("light")
     setDownloadingEpub(true)
     try {
-      let fullText = text
-      const imagesMap: Record<string, string> = {}
-      if (textEmbeddedImages) {
-        Object.entries(textEmbeddedImages).forEach(([key, imgObj]) => {
-          const url =
-            imgObj?.urls?.original ||
-            imgObj?.urls?.["1200x1200"] ||
-            imgObj?.urls?.["480mw"] ||
-            (imgObj as any)?.urls?.large ||
-            (imgObj as any)?.urls?.medium ||
-            (imgObj as any)?.url
-          if (url) {
-            imagesMap[key] = url
-            if (imgObj.novelImageId && imgObj.novelImageId !== key) {
-              imagesMap[imgObj.novelImageId] = url
-            }
-          }
-        })
-      }
-
-      let cover = current.image_urls?.large || current.image_urls?.medium
-
+      const { fullText, imagesMap, cover } = await resolveNovelExportSource()
       if (!fullText) {
-        const viewer = await session.call((token) => novelViewerData(current.id, token))
-        if (viewer && viewer.text) {
-          fullText = viewer.text
-          if (viewer.coverUrl) cover = viewer.coverUrl
-          if (viewer.textEmbeddedImages) {
-            Object.entries(viewer.textEmbeddedImages).forEach(([key, imgObj]) => {
-              const url =
-                imgObj?.urls?.original ||
-                imgObj?.urls?.["1200x1200"] ||
-                imgObj?.urls?.["480mw"] ||
-                (imgObj as any)?.urls?.large ||
-                (imgObj as any)?.urls?.medium ||
-                (imgObj as any)?.url
-              if (url) {
-                imagesMap[key] = url
-                if (imgObj.novelImageId && imgObj.novelImageId !== key) {
-                  imagesMap[imgObj.novelImageId] = url
-                }
-              }
-            })
-          }
-        }
-      }
-
-      if (!fullText) {
+        await Dialog.alert({ title: "无法导出", message: "没有获取到小说正文，请稍后重试" })
         return
+      }
+
+      let exportTitle = current.title
+      let exportCaption = current.caption
+      let exportText = fullText
+      let customFileName: string | undefined
+      if (mode === "translated") {
+        const translated = resolveTranslatedExport(fullText)
+        if (!translated.data) {
+          await Dialog.alert({ title: "译文尚未完成", message: translated.issue ?? "请完成翻译后重试" })
+          return
+        }
+        exportTitle = translated.data.title
+        exportCaption = translated.data.caption
+        exportText = translated.data.text
+        customFileName = `${exportTitle}_${current.user?.name || "Unknown"}_${translation?.targetLanguage ?? "translated"}译文`
       }
 
       const isR18 = (current.x_restrict ?? 0) > 0 || current.tags?.some((t) => /r-?18/i.test(t.name))
       const filePath = await exportNovelToEpub({
         id: current.id,
-        title: current.title,
+        title: exportTitle,
         author: current.user?.name || "Unknown",
         authorId: current.user?.id,
         seriesTitle: resolvedSeriesTitle ?? undefined,
-        description: current.caption,
+        description: exportCaption,
         tags: current.tags?.map((t) => t.name),
         createdDate: current.create_date,
         isR18,
         coverUrl: cover,
+        customFileName,
         chapters: [
           {
             id: current.id,
-            title: current.title,
-            text: fullText,
+            title: exportTitle,
+            text: exportText,
             images: imagesMap,
-            caption: current.caption,
+            caption: exportCaption,
           },
         ],
       })
@@ -971,10 +1001,108 @@ export function NovelDetailView(props: { novelID: number }) {
         await ShareSheet.present([filePath])
       }
     } catch (e: any) {
-      console.log("handleDownloadNovelEpub error:", e?.message ?? e)
+      console.log("handleExportNovelEpub error:", e?.message ?? e)
     } finally {
       setDownloadingEpub(false)
     }
+  }
+
+  async function handleCopyNovelText(mode: "original" | "translated") {
+    const { fullText } = await resolveNovelExportSource()
+    if (!fullText) {
+      await Dialog.alert({ title: "无法复制", message: "没有获取到小说正文，请稍后重试" })
+      return
+    }
+    let title = current.title
+    let caption = cleanedCaption
+    let exportText = fullText
+    if (mode === "translated") {
+      const translated = resolveTranslatedExport(fullText)
+      if (!translated.data) {
+        await Dialog.alert({ title: "译文尚未完成", message: translated.issue ?? "请完成翻译后重试" })
+        return
+      }
+      title = translated.data.title
+      caption = translated.data.caption
+      exportText = translated.data.text
+    }
+    const document = buildNovelPlainTextDocument({
+      title,
+      author: current.user?.name || "Unknown",
+      caption,
+      sourceUrl: `https://www.pixiv.net/novel/show.php?id=${current.id}`,
+      text: exportText,
+    })
+    await Pasteboard.setString(document)
+    triggerHaptic("success")
+    await Dialog.alert({ title: "已复制全文", message: `${mode === "translated" ? "译文" : "原文"}已复制到剪贴板` })
+  }
+
+  async function handleExportNovelText(mode: "original" | "translated") {
+    const { fullText } = await resolveNovelExportSource()
+    if (!fullText) {
+      await Dialog.alert({ title: "无法导出", message: "没有获取到小说正文，请稍后重试" })
+      return
+    }
+    let title = current.title
+    let caption = cleanedCaption
+    let exportText = fullText
+    let customFileName: string | undefined
+    if (mode === "translated") {
+      const translated = resolveTranslatedExport(fullText)
+      if (!translated.data) {
+        await Dialog.alert({ title: "译文尚未完成", message: translated.issue ?? "请完成翻译后重试" })
+        return
+      }
+      title = translated.data.title
+      caption = translated.data.caption
+      exportText = translated.data.text
+      customFileName = `${title}_${current.user?.name || "Unknown"}_${translation?.targetLanguage ?? "translated"}译文`
+    }
+    const content = buildNovelPlainTextDocument({
+      title,
+      author: current.user?.name || "Unknown",
+      caption,
+      sourceUrl: `https://www.pixiv.net/novel/show.php?id=${current.id}`,
+      text: exportText,
+    })
+    const filePath = exportNovelToText({
+      title,
+      author: current.user?.name || "Unknown",
+      content,
+      customFileName,
+    })
+    if (!filePath) {
+      await Dialog.alert({ title: "导出失败", message: "无法写入 TXT 文件，请检查下载目录后重试" })
+      return
+    }
+    triggerHaptic("success")
+    await ShareSheet.present([filePath])
+  }
+
+  async function handleNovelExportMenu() {
+    if (downloadingEpub) return
+    const targetLabel = NOVEL_TRANSLATION_TARGETS.find(
+      (target) => target.id === loadNovelReaderSettings().translationTargetLanguage
+    )?.label ?? "目标语言"
+    const choice = await Dialog.actionSheet({
+      title: `导出《${current.title}》`,
+      message: `译文目标语言：${targetLabel}`,
+      actions: [
+        { label: "原文 EPUB" },
+        { label: `译文 EPUB（${targetLabel}）` },
+        { label: "复制原文全文" },
+        { label: `复制译文全文（${targetLabel}）` },
+        { label: "导出原文 TXT" },
+        { label: `导出译文 TXT（${targetLabel}）` },
+      ],
+    })
+    if (choice === 0) await handleExportNovelEpub("original")
+    else if (choice === 1) await handleExportNovelEpub("translated")
+    else if (choice === 2) await handleCopyNovelText("original")
+    else if (choice === 3) await handleCopyNovelText("translated")
+    else if (choice === 4) await handleExportNovelText("original")
+    else if (choice === 5) await handleExportNovelText("translated")
   }
 
   async function shareNovel() {
@@ -1108,7 +1236,7 @@ export function NovelDetailView(props: { novelID: number }) {
       iconColor = downloadingEpub ? "secondaryLabel" : "label"
       disabled = downloadingEpub
       action = () => {
-        void handleDownloadNovelEpub()
+        void handleNovelExportMenu()
       }
     }
 
@@ -1634,10 +1762,10 @@ export function NovelDetailView(props: { novelID: number }) {
               action={shareNovel}
             />
             <Button
-              title={downloadingEpub ? "下载中…" : "下载"}
+              title={downloadingEpub ? "导出中…" : "导出"}
               systemImage={downloadingEpub ? "square.and.arrow.down.fill" : "square.and.arrow.down"}
               disabled={downloadingEpub}
-              action={handleDownloadNovelEpub}
+              action={handleNovelExportMenu}
             />
             <Divider />
             <Menu title="信息" systemImage="info.circle">
