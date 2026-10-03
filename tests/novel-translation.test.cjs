@@ -333,6 +333,33 @@ test("小说系列信息晚于正文到达时，会建立含系列术语的新�
   assert.equal(withSeries.getSnapshot().glossaryStatus, "pending")
 })
 
+test("正文未变但分块结构改变时，新会话使用新块而非旧内存视图", () => {
+  const f = createStoreFixture()
+  const input = { novelId: 10, title: "分块测试", text: "Alice Town",
+    blocks: [{ id: "a", text: "Alice Town" }] }
+  const old = f.module.getNovelTranslationSession(input)
+  const changed = f.module.getNovelTranslationSession({ ...input,
+    blocks: [{ id: "a", text: "Alice" }, { id: "b", text: "Town" }] })
+  assert.notEqual(old, changed)
+  assert.equal(changed.getSnapshot().total, 2)
+  assert.equal(changed.getSnapshot().blocks.a.original, "Alice")
+  assert.equal(changed.getSnapshot().blocks.b.original, "Town")
+})
+
+test("标题变化使摘要和正文译文失效，防止沿用旧提示词结果", async () => {
+  const f = createStoreFixture()
+  const input = { novelId: 16, title: "旧标题", text: "Alice",
+    blocks: [{ id: "a", text: "Alice" }] }
+  await f.module.getNovelTranslationSession(input).start()
+  const updated = f.module.getNovelTranslationSession({ ...input, title: "新标题" })
+  assert.equal(updated.getSnapshot().done, 0)
+  assert.equal(updated.getSnapshot().summaryStatus, "pending")
+  await updated.start()
+  assert.equal(f.getSummaryCalls(), 2)
+  assert.equal(f.getCalls(), 2)
+  assert.equal(updated.getSnapshot().done, 1)
+})
+
 test("同系列章节并发完成时合并术语，不因完成顺序丢词", async () => {
   let releaseFirst
   let firstWaiting

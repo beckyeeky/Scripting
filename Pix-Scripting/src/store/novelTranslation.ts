@@ -48,6 +48,7 @@ interface StoredTranslation {
   version: 2
   model: string
   source: string
+  titleFingerprint?: string
   seriesId?: number | null
   mode: TranslationDisplayMode
   blocks: Record<string, { source: string; translation?: string; error?: string }>
@@ -138,12 +139,15 @@ export class NovelTranslationSession {
     this.persistent = this.model !== "scripting-assistant"
     const saved = this.persistent ? readStored(novelPath(this.uid, input.novelId)) : null
     const source = fingerprint(input.text)
+    const titleFingerprint = fingerprint(input.title)
+    const sameTitle = saved?.titleFingerprint === titleFingerprint
     const sameSeries = (saved?.seriesId ?? null) === (input.seriesId ?? null)
-    this.stored = saved?.model === this.model ? { ...saved, source, seriesId: input.seriesId ?? null,
-      summary: saved.source === source ? saved.summary : undefined,
-      glossary: saved.source === source && sameSeries ? saved.glossary : undefined,
-      glossarySkipped: saved.source === source && sameSeries ? saved.glossarySkipped : undefined } : {
-      version: 2, model: this.model, source, seriesId: input.seriesId ?? null,
+    this.stored = saved?.model === this.model ? { ...saved, source, titleFingerprint, seriesId: input.seriesId ?? null,
+      blocks: sameTitle ? saved.blocks : {},
+      summary: saved.source === source && sameTitle ? saved.summary : undefined,
+      glossary: saved.source === source && sameTitle && sameSeries ? saved.glossary : undefined,
+      glossarySkipped: saved.source === source && sameTitle && sameSeries ? saved.glossarySkipped : undefined } : {
+      version: 2, model: this.model, source, titleFingerprint, seriesId: input.seriesId ?? null,
       mode: saved?.mode ?? "original", blocks: {},
     }
     this.snapshot = this.hydrate()
@@ -233,6 +237,7 @@ export class NovelTranslationSession {
   clear(): void {
     this.pause()
     this.stored = { version: 2, model: this.model, source: fingerprint(this.input.text),
+      titleFingerprint: fingerprint(this.input.title),
       seriesId: this.input.seriesId ?? null, mode: "original", blocks: {} }
     this.snapshot = this.hydrate()
     this.publish()
@@ -394,7 +399,7 @@ const resumeAfterMinimize = new Set<NovelTranslationSession>()
 
 export function getNovelTranslationSession(input: NovelTranslationInput): NovelTranslationSession {
   const owner = `${resolveEffectiveUID()}:${input.novelId}:`
-  const key = `${owner}${modelIdentity()}:${input.seriesId ?? 0}:${fingerprint(input.text)}`
+  const key = `${owner}${modelIdentity()}:${input.seriesId ?? 0}:${fingerprint(input.title)}:${fingerprint(input.text)}:${fingerprint(JSON.stringify(input.blocks))}`
   let session = sessions.get(key)
   if (!session) {
     // 同一本小说的新原文或新模型不得与旧请求同时写入同一个缓存文件。
