@@ -1,15 +1,16 @@
 import { Button, HStack, Image, ProgressView, Spacer, Text, useState, VStack } from "scripting"
 import { appGlass } from "./components/glass"
 import type { NovelTranslationSession, NovelTranslationSnapshot } from "../store/novelTranslation"
+import { NOVEL_TRANSLATION_TARGETS } from "../store/novelReaderSettings"
 
 export function novelTranslationStatusText(snapshot: NovelTranslationSnapshot): string {
-  if (snapshot.running && snapshot.phase === "summary") return "正在生成故事摘要"
+  if (snapshot.running && snapshot.phase === "summary") return "正在翻译标题、简介并生成摘要"
   if (snapshot.running && snapshot.phase === "glossary") return "正在整理术语表"
   if (snapshot.running) return "正在逐段翻译"
-  if (snapshot.total > 0 && snapshot.done === snapshot.total) return "正文翻译完成"
+  if (snapshot.total > 0 && snapshot.done === snapshot.total) return "小说翻译完成"
   if (snapshot.failed > 0) return `已暂停，${snapshot.failed} 段待重试`
   if (snapshot.done > 0) return "已暂停，可继续翻译"
-  return "正文尚未翻译"
+  return "小说尚未翻译"
 }
 
 function contextStatus(status: NovelTranslationSnapshot["summaryStatus"], kind: string): string {
@@ -30,6 +31,9 @@ export function NovelTranslationStatus(props: {
   const { session, snapshot, compact = false } = props
   const [detailsOpen, setDetailsOpen] = useState(false)
   const failures = Object.values(snapshot.blocks).filter((block) => block.status === "error")
+  const contextNeedsRetry = snapshot.summaryStatus === "error" || snapshot.glossaryStatus === "error"
+  const targetLabel = NOVEL_TRANSLATION_TARGETS.find((target) => target.id === snapshot.targetLanguage)?.label
+    ?? snapshot.targetLanguage
 
   return (
     <VStack
@@ -49,7 +53,7 @@ export function NovelTranslationStatus(props: {
       </HStack>
       <ProgressView value={snapshot.done} total={Math.max(snapshot.total, 1)} progressViewStyle="linear" />
       <Text font="caption" foregroundStyle="secondaryLabel">
-        {`摘要：${snapshot.summaryStatus === "ready" ? "已生成" : snapshot.summaryStatus === "running" ? "生成中" : snapshot.summaryStatus === "error" ? "失败" : "待生成"} · 术语 ${snapshot.glossaryCount} 项${snapshot.seriesGlossaryCount ? `（系列继承 ${snapshot.seriesGlossaryCount}）` : ""}`}
+        {`目标：${targetLabel} · 标题、简介与摘要：${snapshot.summaryStatus === "ready" ? "已就绪" : snapshot.summaryStatus === "running" ? "生成中" : snapshot.summaryStatus === "error" ? "失败" : "待生成"} · 术语 ${snapshot.glossaryCount} 项${snapshot.seriesGlossaryCount ? `（系列继承 ${snapshot.seriesGlossaryCount}）` : ""}`}
       </Text>
       <HStack spacing={8} frame={{ maxWidth: "infinity" }}>
         <Button
@@ -63,15 +67,23 @@ export function NovelTranslationStatus(props: {
             session.setMode("translated")
             void session.start()
           }} />
+        ) : contextNeedsRetry ? (
+          <Button title="重试译名、摘要与术语" action={() => void session.start([])} />
         ) : null}
         <Spacer />
-        <Button title={detailsOpen ? "收起详情" : "摘要与术语"} action={() => setDetailsOpen(!detailsOpen)} />
+        <Button title={detailsOpen ? "收起详情" : "译名、摘要与术语"} action={() => setDetailsOpen(!detailsOpen)} />
       </HStack>
       {snapshot.message ? <Text font="caption" foregroundStyle="systemRed">{snapshot.message}</Text> : null}
       {detailsOpen ? (
         <VStack alignment="leading" spacing={6} frame={{ maxWidth: "infinity" }}>
-          <Text font="caption" foregroundStyle="secondaryLabel">{contextStatus(snapshot.summaryStatus, "故事摘要")}</Text>
-          {snapshot.summary ? <Text font="footnote" lineLimit={compact ? 5 : undefined}>{snapshot.summary}</Text> : null}
+          <Text font="caption" foregroundStyle="secondaryLabel">{contextStatus(snapshot.summaryStatus, "标题、简介与摘要")}</Text>
+          {snapshot.translatedTitle ? (
+            <Text font="footnote">{`标题：${snapshot.translatedTitle}`}</Text>
+          ) : null}
+          {snapshot.translatedCaption ? (
+            <Text font="footnote" lineLimit={compact ? 5 : undefined}>{`简介：${snapshot.translatedCaption}`}</Text>
+          ) : null}
+          {snapshot.summary ? <Text font="footnote" lineLimit={compact ? 5 : undefined}>{`故事摘要：${snapshot.summary}`}</Text> : null}
           <Text font="caption" foregroundStyle="secondaryLabel">
             {`${contextStatus(snapshot.glossaryStatus, "术语表")} · ${snapshot.glossaryCount} 项${snapshot.seriesGlossaryCount ? `（系列继承 ${snapshot.seriesGlossaryCount}）` : ""}`}
           </Text>

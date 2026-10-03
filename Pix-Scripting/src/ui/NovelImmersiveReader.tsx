@@ -59,6 +59,7 @@ import { useSeriesEpisodeNav, type SeriesEpisodeNavState } from "./SeriesEpisode
 import { triggerHaptic } from "../platform/haptics"
 import { useNovelTranslation } from "./useNovelTranslation"
 import { NovelTranslationStatus } from "./NovelTranslationStatus"
+import { cleanHtmlCaption } from "../api/aiService"
 
 function isVirtualNode(v: unknown): v is VirtualNode {
   return !!v && typeof v === "object" && ("render" in v || "isInternal" in v || "props" in v)
@@ -78,6 +79,7 @@ function extractNovelCoverUrl(novel: PixivNovelDetail | PixivNovel | null | unde
 export interface NovelImmersiveReaderViewProps {
   novelId: number
   title: string
+  caption: string
   text: string
   coverUrl?: string | null
   textEmbeddedImages?: Record<string, TextEmbeddedImage>
@@ -270,6 +272,7 @@ function buildHorizontalImmersiveHtml(options: BuildHtmlOptions): string {
     initialChunkId,
     initialPage,
     title,
+    caption,
     seriesNav,
     imageCache,
     ambientActive,
@@ -1787,6 +1790,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
   // 自治章节状态机：允许在沉浸全屏阅读器内部直接换章连续阅读，绝不退出全屏
   const [activeNovelId, setActiveNovelId] = useState(novelId)
   const [activeTitle, setActiveTitle] = useState(title)
+  const [activeCaption, setActiveCaption] = useState(caption)
   const [activeText, setActiveText] = useState(text)
   const [activeCoverUrl, setActiveCoverUrl] = useState<string | null | undefined>(coverUrl)
   const [activeImages, setActiveImages] = useState<Record<string, TextEmbeddedImage> | undefined>(
@@ -1816,10 +1820,11 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
   // 当父组件 textEmbeddedImages 或 coverUrl 异步就绪时同步更新
   useEffect(() => {
     if (activeNovelId === novelId) {
+      setActiveCaption(caption)
       if (textEmbeddedImages) setActiveImages(textEmbeddedImages)
       if (coverUrl !== undefined) setActiveCoverUrl(coverUrl)
     }
-  }, [novelId, textEmbeddedImages, coverUrl, activeNovelId])
+  }, [novelId, caption, textEmbeddedImages, coverUrl, activeNovelId])
 
   // 监听版式变更（字体、字号、行距、以及横竖排切换）
   useEffect(() => {
@@ -1839,7 +1844,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     initialEpisodeNumber: activeNovelId === novelId ? episodeNumber : null,
   })
   const { session: translationSession, snapshot: translation } = useNovelTranslation(
-    activeNovelId, activeTitle, activeText, nav.seriesID
+    activeNovelId, activeTitle, activeCaption, activeText, nav.seriesID
   )
   const translationRef = useRef(translation)
   translationRef.current = translation
@@ -1863,6 +1868,11 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
   const totalPages = useMemo(() => {
     return Math.max(1, groupChunksByPage(chunks).length)
   }, [chunks])
+  const displayedChunks = useMemo(() => {
+    if (settings.pageDisplayMode === "continuous") return chunks
+    const pages = groupChunksByPage(chunks)
+    return pages.find((page) => page.page === currentPage)?.items ?? pages[0]?.items ?? []
+  }, [chunks, currentPage, settings.pageDisplayMode])
 
   // 图片缓存
   const [imageCache, setImageCache] = useState<
@@ -1964,6 +1974,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
 
         setActiveNovelId(targetNovelId)
         setActiveTitle(newTitle)
+        setActiveCaption(cleanHtmlCaption(detail?.caption))
         setActiveText(newText)
         setActiveCoverUrl(newCover)
         setActiveImages(newImages)
@@ -2100,10 +2111,10 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
   // 仅在章节变更、文本分块变更、或横竖排方向切换时载入对应引擎的 HTML
   useEffect(() => {
     const ctrl = controllerRef.current
-    if (!ctrl || chunks.length === 0) return
+    if (!ctrl || displayedChunks.length === 0) return
 
     const html = buildImmersiveHtml({
-      chunks,
+      chunks: displayedChunks,
       settings,
       initialChunkId: currentChunkIdRef.current,
       initialPage: currentPage,
@@ -2117,7 +2128,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     void ctrl.loadHTML(html).then(() => {
       void ctrl.evaluateJavaScript(buildNovelTranslationPatchScript(translationRef.current, currentChunkIdRef.current)).catch(() => {})
     }).catch(() => {})
-  }, [activeNovelId, chunks, activeTitle, settings.layoutDirection, ambientActive])
+  }, [activeNovelId, displayedChunks, activeTitle, settings.layoutDirection, ambientActive])
 
   useEffect(() => {
     const ctrl = controllerRef.current
@@ -2305,7 +2316,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
                 </ZStack>
               }
             >
-              <Button title={`正文翻译 ${translation.done}/${translation.total}`} disabled action={() => {}} />
+              <Button title={`小说翻译 ${translation.done}/${translation.total}`} disabled action={() => {}} />
               <Button
                 title={translation.mode === "translated" ? "显示原文" : "显示译文"}
                 action={() => translationSession.setMode(translation.mode === "translated" ? "original" : "translated")}
@@ -2317,6 +2328,8 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
                   translationSession.setMode("translated")
                   void translationSession.start()
                 }} />
+              ) : translation.summaryStatus === "error" || translation.glossaryStatus === "error" ? (
+                <Button title="重试译名、摘要与术语" action={() => void translationSession.start([])} />
               ) : null}
               {translation.failed > 0 ? (
                 <Button title={`重试失败段落（${translation.failed}）`} action={() => void translationSession.start(

@@ -109,9 +109,15 @@ export function buildNovelTranslationPatchScript(
   anchorId?: string | null
 ): string {
   const translated: Record<string, string> = {}
+  const translatedChapters: Record<string, string> = {}
+  const translatedTitle = snapshot?.mode === "translated" ? snapshot.translatedTitle ?? "" : ""
   if (snapshot?.mode === "translated") {
     for (const block of Object.values(snapshot.blocks)) {
       if (block.status !== "done" || !block.translation) continue
+      if (block.kind === "chapter") {
+        translatedChapters[block.id] = block.translation
+        continue
+      }
       translated[block.id] = block.translation.split("\n").map((line) =>
         line.replace(/[\s\u3000]/g, "")
           ? `<p class="paragraph">${formatPixivRubyToHtml(line)}</p>`
@@ -121,7 +127,15 @@ export function buildNovelTranslationPatchScript(
   }
   return `(() => {
     const rendered = ${JSON.stringify(translated)};
+    const renderedChapters = ${JSON.stringify(translatedChapters)};
+    const renderedTitle = ${JSON.stringify(translatedTitle)};
     const originals = window.__novelTranslationOriginals || (window.__novelTranslationOriginals = {});
+    const titleNode = document.querySelector('.novel-header-title, .vertical-header-title');
+    if (titleNode) {
+      if (window.__novelTranslationOriginalTitle === undefined) window.__novelTranslationOriginalTitle = titleNode.textContent;
+      const nextTitle = renderedTitle || window.__novelTranslationOriginalTitle;
+      if (titleNode.textContent !== nextTitle) titleNode.textContent = nextTitle;
+    }
     const anchor = document.getElementById(${JSON.stringify(anchorId ?? null)});
     const before = anchor && anchor.getBoundingClientRect();
     let changed = false;
@@ -131,6 +145,15 @@ export function buildNovelTranslationPatchScript(
       if (!(id in originals)) originals[id] = node.innerHTML;
       const next = rendered[id] || originals[id];
       if (node.innerHTML !== next) { node.innerHTML = next; changed = true; }
+    });
+    document.querySelectorAll('.chapter-block').forEach((node) => {
+      const id = node.getAttribute('data-chunk-id');
+      const title = node.querySelector('.chapter-title');
+      if (!id || !title) return;
+      const key = 'chapter:' + id;
+      if (!(key in originals)) originals[key] = title.textContent;
+      const next = renderedChapters[id] || originals[key];
+      if (title.textContent !== next) { title.textContent = next; changed = true; }
     });
     if (anchor && before && changed) {
       requestAnimationFrame(() => {
@@ -367,6 +390,16 @@ export function groupChunksByPage(chunks: NovelChunkItem[]): NovelPageBlock[] {
   }
 
   return pages
+}
+
+export function indexNovelChunkPages(chunks: NovelChunkItem[]): Record<string, number> {
+  const result: Record<string, number> = {}
+  let currentPage = 1
+  for (const chunk of chunks) {
+    if (chunk.type === "newpage") currentPage = chunk.page ?? currentPage
+    result[chunk.id] = currentPage
+  }
+  return result
 }
 
 function getLocalImageDataUrl(filePath: string): string | null {
@@ -695,6 +728,8 @@ function NovelChunkRenderer(props: {
   }
 
   if (item.type === "chapter") {
+    const block = translation?.mode === "translated" ? translation.blocks[item.id] : undefined
+    const chapterTitle = block?.status === "done" && block.translation ? block.translation : item.title ?? ""
     return (
       <VStack
         spacing={2}
@@ -712,7 +747,7 @@ function NovelChunkRenderer(props: {
           fontWeight="bold"
           frame={{ maxWidth: "infinity", alignment: "leading" }}
         >
-          {item.title ?? ""}
+          {chapterTitle}
         </Text>
         <Divider />
       </VStack>
@@ -1679,7 +1714,7 @@ export function NovelReaderView(props: {
   ambientPalette?: IllustAmbientPalette | null
   ambientAlgorithm?: AmbientAlgorithm
   onJumpToPage?: (page: number) => void
-  onReady?: (totalPages: number) => void
+  onReady?: (totalPages: number, chunkPages: Record<string, number>) => void
   onProgressChange?: (page: number, chunkId?: string) => void
   onChunkVisible?: (chunkId: string) => void
   translation?: NovelTranslationSnapshot | null
@@ -1731,7 +1766,7 @@ export function NovelReaderView(props: {
     if (syncChunks) {
       setAsyncChunks(null)
       const total = Math.max(1, groupChunksByPage(syncChunks).length)
-      onReadyRef.current?.(total)
+      onReadyRef.current?.(total, indexNovelChunkPages(syncChunks))
       return
     }
 
@@ -1740,7 +1775,7 @@ export function NovelReaderView(props: {
       if (active) {
         setAsyncChunks(parsed)
         const total = Math.max(1, groupChunksByPage(parsed).length)
-        onReadyRef.current?.(total)
+        onReadyRef.current?.(total, indexNovelChunkPages(parsed))
       }
     })
 
@@ -1749,9 +1784,14 @@ export function NovelReaderView(props: {
     }
   }, [text, textEmbeddedImages, syncChunks])
 
+  const currentBlock = pageBlocks.find((b) => b.page === currentPage) ?? pageBlocks[0]
+  const displayedChunks = settings.pageDisplayMode === "paged"
+    ? currentBlock?.items ?? []
+    : chunks
+
   // 竖向排版模式（独立 WebKit 文库本直书引擎，横向翻阅）
   if (settings.layoutDirection === "vertical") {
-    if (chunks.length === 0) {
+    if (displayedChunks.length === 0) {
       return (
         <VStack spacing={0} frame={{ maxWidth: "infinity", height: 60 }} alignment="center">
           <Spacer />
@@ -1767,8 +1807,9 @@ export function NovelReaderView(props: {
 
     return (
       <NovelVerticalReaderView
+        key={settings.pageDisplayMode === "paged" ? `novel-vertical-page-${currentPage}` : "novel-vertical-continuous"}
         novelId={novelId}
-        chunks={chunks}
+        chunks={displayedChunks}
         settings={settings}
         targetChunkId={targetChunkId}
         targetPage={targetPage}
@@ -1796,10 +1837,6 @@ export function NovelReaderView(props: {
     )
   }
 
-  // 仅获取当前页的数据块
-  const currentBlock =
-    pageBlocks.find((b) => b.page === currentPage) ?? pageBlocks[0]
-
   return (
     <VStack
       scrollTargetLayout={true}
@@ -1811,7 +1848,7 @@ export function NovelReaderView(props: {
       <VStack key="novel-top-anchor" frame={{ height: 0 }} />
 
       {/* 第一页且第一页是书签时显示书签提示 */}
-      {currentBlock.page === 1 && markerPage === 1 ? (
+      {(settings.pageDisplayMode === "continuous" || currentBlock.page === 1) && markerPage === 1 ? (
         <HStack
           key="novel-marker-top-hint"
           spacing={12}
@@ -1835,7 +1872,7 @@ export function NovelReaderView(props: {
       ) : null}
 
       {/* 渲染当前页的内容，每个分块挂载精准 key (SwiftUI 节点标识符)，直接作为 scrollTargetLayout 的直接子节点，支持 ScrollViewReader 0ms 精确定位与实时进度感知 */}
-      {currentBlock.items.map((item) => (
+      {displayedChunks.map((item) => (
         <VStack
           key={item.id}
           alignment="leading"

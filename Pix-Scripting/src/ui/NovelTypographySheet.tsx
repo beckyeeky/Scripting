@@ -23,11 +23,13 @@ import { triggerHaptic } from "../platform/haptics"
 import { loadSettings } from "../store/settings"
 import {
   DEFAULT_NOVEL_READER_SETTINGS,
+  NOVEL_TRANSLATION_TARGETS,
   loadNovelReaderSettings,
   onNovelReaderSettingsChanged,
   saveNovelReaderSettings,
   type BuiltinFontId,
   type NovelReaderSettings,
+  type NovelTranslationTargetLanguage,
 } from "../store/novelReaderSettings"
 
 const PRESET_FONTS: { id: BuiltinFontId; name: string; desc: string }[] = [
@@ -202,6 +204,35 @@ export function NovelTypographySheet(props: { onClose?: () => void }) {
 
               <Divider padding={{ leading: 16 }} />
 
+              {/* 多页小说 */}
+              <HStack alignment="center" padding={{ horizontal: 16, vertical: 13 }} frame={{ maxWidth: "infinity" }}>
+                <Text font="body">多页小说</Text>
+                <Spacer />
+                <Menu
+                  label={
+                    <HStack spacing={4} alignment="center">
+                      <Text font="body" foregroundStyle={menuTextColor}>
+                        {settings.pageDisplayMode === "paged" ? "分页显示" : "连续显示"}
+                      </Text>
+                      <Image systemName="chevron.up.chevron.down" font="caption2" foregroundStyle={menuIconColor} />
+                    </HStack>
+                  }
+                >
+                  <Picker
+                    title=""
+                    value={settings.pageDisplayMode}
+                    onChanged={(val: string) =>
+                      updateSetting({ pageDisplayMode: val as "continuous" | "paged" })
+                    }
+                  >
+                    <Text tag="continuous">连续显示（推荐）</Text>
+                    <Text tag="paged">分页显示</Text>
+                  </Picker>
+                </Menu>
+              </HStack>
+
+              <Divider padding={{ leading: 16 }} />
+
               {/* 行距 */}
               <HStack alignment="center" padding={{ horizontal: 16, vertical: 13 }} frame={{ maxWidth: "infinity" }}>
                 <Text font="body">行距</Text>
@@ -236,7 +267,48 @@ export function NovelTypographySheet(props: { onClose?: () => void }) {
             </VStack>
           </VStack>
 
-          {/* 2. 字体 */}
+          {/* 2. 翻译 */}
+          <VStack alignment="leading" spacing={6} frame={{ maxWidth: "infinity" }}>
+            <HStack spacing={6} alignment="center">
+              <Image systemName="character.book.closed" font="headline" foregroundStyle={accentColor} />
+              <Text font="headline" fontWeight="bold">翻译</Text>
+            </HStack>
+            <HStack
+              alignment="center"
+              padding={{ horizontal: 16, vertical: 13 }}
+              glassEffect={appGlass({ type: "rect", cornerRadius: 14 })}
+              frame={{ maxWidth: "infinity" }}
+            >
+              <Text font="body">目标语言</Text>
+              <Spacer />
+              <Menu
+                label={
+                  <HStack spacing={4} alignment="center">
+                    <Text font="body" foregroundStyle={menuTextColor}>
+                      {NOVEL_TRANSLATION_TARGETS.find(
+                        (target) => target.id === settings.translationTargetLanguage
+                      )?.label ?? "简体中文"}
+                    </Text>
+                    <Image systemName="chevron.up.chevron.down" font="caption2" foregroundStyle={menuIconColor} />
+                  </HStack>
+                }
+              >
+                <Picker
+                  title=""
+                  value={settings.translationTargetLanguage}
+                  onChanged={(value: string) => updateSetting({
+                    translationTargetLanguage: value as NovelTranslationTargetLanguage,
+                  })}
+                >
+                  {NOVEL_TRANSLATION_TARGETS.map((target) => (
+                    <Text key={target.id} tag={target.id}>{target.label}</Text>
+                  ))}
+                </Picker>
+              </Menu>
+            </HStack>
+          </VStack>
+
+          {/* 3. 字体 */}
           <VStack alignment="leading" spacing={6} frame={{ maxWidth: "infinity" }}>
             <HStack spacing={6} alignment="center">
               <Text font="headline" fontWeight="bold" foregroundStyle={accentColor}>

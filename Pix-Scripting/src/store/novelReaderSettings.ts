@@ -7,6 +7,20 @@ export type NovelFontId = BuiltinFontId | "custom"
 export type NovelFontWeight = "regular" | "medium" | "bold"
 export type NovelLineSpacingLevel = "compact" | "normal" | "loose"
 export type NovelLayoutDirection = "horizontal" | "vertical"
+export type NovelPageDisplayMode = "continuous" | "paged"
+export type NovelTranslationTargetLanguage = "zh-CN" | "zh-TW" | "en" | "ja" | "ko"
+
+export const NOVEL_TRANSLATION_TARGETS: Array<{
+  id: NovelTranslationTargetLanguage
+  label: string
+  promptName: string
+}> = [
+  { id: "zh-CN", label: "简体中文", promptName: "自然、地道的简体中文" },
+  { id: "zh-TW", label: "繁體中文", promptName: "自然、地道的繁體中文" },
+  { id: "en", label: "English", promptName: "natural, idiomatic English" },
+  { id: "ja", label: "日本語", promptName: "自然で読みやすい日本語" },
+  { id: "ko", label: "한국어", promptName: "자연스럽고 유창한 한국어" },
+]
 
 export interface NovelReaderSettings {
   fontId: NovelFontId
@@ -15,6 +29,8 @@ export interface NovelReaderSettings {
   fontSize: number // 14 ~ 32, 默认 17
   lineSpacingLevel: NovelLineSpacingLevel
   layoutDirection: NovelLayoutDirection
+  pageDisplayMode: NovelPageDisplayMode
+  translationTargetLanguage: NovelTranslationTargetLanguage
 }
 
 export const DEFAULT_NOVEL_READER_SETTINGS: NovelReaderSettings = {
@@ -24,6 +40,8 @@ export const DEFAULT_NOVEL_READER_SETTINGS: NovelReaderSettings = {
   fontSize: 17,
   lineSpacingLevel: "normal",
   layoutDirection: "horizontal",
+  pageDisplayMode: "continuous",
+  translationTargetLanguage: "zh-CN",
 }
 
 const SETTINGS_FILE_NAME = "settings.json"
@@ -86,9 +104,14 @@ export function loadNovelReaderSettings(): NovelReaderSettings {
       const raw = FileManager.readAsStringSync(path, "utf-8")
       if (raw) {
         const parsed = JSON.parse(raw) as Partial<NovelReaderSettings>
+        const translationTargetLanguage = NOVEL_TRANSLATION_TARGETS.some(
+          (target) => target.id === parsed.translationTargetLanguage
+        ) ? parsed.translationTargetLanguage as NovelTranslationTargetLanguage
+          : DEFAULT_NOVEL_READER_SETTINGS.translationTargetLanguage
         cachedSettings = {
           ...DEFAULT_NOVEL_READER_SETTINGS,
           ...parsed,
+          translationTargetLanguage,
         }
         return cachedSettings
       }
@@ -172,4 +195,3 @@ export function calculateLineSpacing(fontSize: number, level: NovelLineSpacingLe
       return Math.round(fontSize * 0.65)
   }
 }
-

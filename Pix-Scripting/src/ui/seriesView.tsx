@@ -88,6 +88,8 @@ import { parseNovelToChunks } from "./NovelReader"
 import { getNovelTranslationSession, type NovelTranslationSession } from "../store/novelTranslation"
 import { resolveEffectiveUID } from "../store/dataDirectory"
 import { onCustomAIConfigChanged } from "../store/customAI"
+import { cleanHtmlCaption } from "../api/aiService"
+import { loadNovelReaderSettings } from "../store/novelReaderSettings"
 
 type SeriesKind = "manga" | "novel"
 type SeriesWorkItem = PixivIllustration | PixivNovel
@@ -473,10 +475,15 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
           const viewer = await session.call((token) => novelViewerData(novel.id, token))
           if (!viewer.text || stopTranslationRef.current || resolveEffectiveUID() !== startingUID) continue
           const blocks = parseNovelToChunks(viewer.text)
-            .filter((item) => item.type === "text" && Boolean(item.text))
-            .map((item) => ({ id: item.id, text: item.text! }))
+            .filter((item) => (item.type === "text" && Boolean(item.text)) ||
+              (item.type === "chapter" && Boolean(item.title)))
+            .map((item) => ({ id: item.id, text: item.type === "chapter" ? item.title! : item.text!,
+              kind: item.type === "chapter" ? "chapter" as const : "text" as const }))
           const translationSession = getNovelTranslationSession({
-            novelId: novel.id, title: novel.title, text: viewer.text, seriesId: seriesID, blocks,
+            novelId: novel.id, title: novel.title, caption: cleanHtmlCaption(novel.caption),
+            text: viewer.text,
+            targetLanguage: loadNovelReaderSettings().translationTargetLanguage,
+            seriesId: seriesID, blocks,
           })
           activeTranslationRef.current = translationSession
           const pending = blocks.filter((block) => translationSession.getSnapshot().blocks[block.id]?.status !== "done")
@@ -486,7 +493,10 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
             selected.push(block.id)
             remainingChars -= block.text.length
           }
-          if (selected.length > 0) {
+          const contextSnapshot = translationSession.getSnapshot()
+          const contextNeedsRetry = contextSnapshot.summaryStatus !== "ready" ||
+            contextSnapshot.glossaryStatus === "pending" || contextSnapshot.glossaryStatus === "error"
+          if (selected.length > 0 || contextNeedsRetry) {
             translationSession.setMode("translated")
             await translationSession.start(selected)
           }

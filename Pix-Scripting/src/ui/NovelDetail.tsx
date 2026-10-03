@@ -259,6 +259,7 @@ export function NovelDetailView(props: { novelID: number }) {
   const proxyRef = useRef<ScrollViewProxy | null>(null)
   const initialScrollChunkIdRef = useRef<string | null>(initialProgress?.chunkId ?? null)
   const lastRecordedChunkRef = useRef<string | null>(initialProgress?.chunkId ?? null)
+  const chunkPageMapRef = useRef<Record<string, number>>({})
   const isRestoringScrollRef = useRef<boolean>(
     Boolean(
       initialProgress?.chunkId &&
@@ -296,8 +297,9 @@ export function NovelDetailView(props: { novelID: number }) {
   const resolvedSeriesID = rawSeriesObj?.id ?? associatedRef?.seriesID ?? null
   const resolvedSeriesTitle = rawSeriesObj?.title ?? associatedRef?.seriesTitle ?? null
   const resolvedEpisodeNumber = novel?.episode_number ?? associatedRef?.episodeNumber ?? null
+  const cleanedCaption = cleanHtmlCaption(novel?.caption)
   const { session: translationSession, snapshot: translation } = useNovelTranslation(
-    novelID, novel?.title ?? "", text, resolvedSeriesID
+    novelID, novel?.title ?? "", cleanedCaption, text, resolvedSeriesID
   )
 
   const coverUrl =
@@ -424,6 +426,7 @@ export function NovelDetailView(props: { novelID: number }) {
     return onNovelReaderSettingsChanged((updated) => {
       const prevDirection = readerSettingsRef.current.layoutDirection
       const newDirection = updated.layoutDirection
+      const prevPageDisplayMode = readerSettingsRef.current.pageDisplayMode
       readerSettingsRef.current = updated
       setReaderSettings(updated)
 
@@ -464,6 +467,13 @@ export function NovelDetailView(props: { novelID: number }) {
               } catch {}
             }, d)
           })
+        }
+      } else if (prevPageDisplayMode !== updated.pageDisplayMode && newDirection === "horizontal") {
+        flushNovelProgress()
+        const saved = getNovelProgress(novelID)
+        const target = saved?.chunkId ?? (saved?.page && saved.page > 1 ? `page-${saved.page}` : undefined)
+        if (target && target !== "novel-top-anchor" && target !== "novel-header-content") {
+          setTimeout(() => performScrollRestoration(target, true), 30)
         }
       }
     })
@@ -785,22 +795,26 @@ export function NovelDetailView(props: { novelID: number }) {
 
   const handlePageChange = useCallback((newPage: number) => {
     if (newPage < 1) return
+    const continuous = readerSettingsRef.current.layoutDirection === "horizontal" &&
+      readerSettingsRef.current.pageDisplayMode === "continuous"
+    const target = continuous && newPage > 1 ? `page-${newPage}` : "novel-top-anchor"
     setCurrentPage(newPage)
     setPagerVisible(true)
     initialScrollChunkIdRef.current = null
-    lastRecordedChunkRef.current = null
+    lastRecordedChunkRef.current = target === "novel-top-anchor" ? null : target
     isRestoringScrollRef.current = false
     hasRestoredScrollRef.current = true
-    scrollPos.setValue("novel-top-anchor")
-    recordNovelProgress(novelID, newPage, undefined, true)
+    scrollPos.setValue(target)
+    recordNovelProgress(novelID, newPage, target === "novel-top-anchor" ? undefined : target, true)
     try {
-      proxyRef.current?.scrollTo("novel-top-anchor", "top")
+      proxyRef.current?.scrollTo(target, "top")
     } catch {
       // ignore
     }
   }, [novelID, scrollPos])
 
-  const handleReaderReady = useCallback((parsedTotalPages: number) => {
+  const handleReaderReady = useCallback((parsedTotalPages: number, chunkPages: Record<string, number>) => {
+    chunkPageMapRef.current = chunkPages
     setTotalPages(parsedTotalPages)
     setReaderReady(true)
     setCurrentPage((prev) => {
@@ -1011,6 +1025,13 @@ export function NovelDetailView(props: { novelID: number }) {
   }
 
   const current = novel
+  const translatedMode = translation?.mode === "translated"
+  const displayedTitle = translatedMode && translation?.translatedTitle
+    ? translation.translatedTitle
+    : current.title
+  const displayedCaption = translatedMode && translation?.translatedCaption
+    ? translation.translatedCaption
+    : current.caption
 
   if (resolvedSeriesID) {
     recordWorkSeriesAssociation(current.id, "novel", resolvedSeriesID, resolvedSeriesTitle, resolvedEpisodeNumber)
@@ -1190,7 +1211,7 @@ export function NovelDetailView(props: { novelID: number }) {
           return (
             <ScrollView
               scrollContentBackground="hidden"
-              navigationTitle={isDetailPane ? current.title : ""}
+              navigationTitle={isDetailPane ? displayedTitle : ""}
               navigationBarTitleDisplayMode="inline"
             onAppear={() => {
               isDisappearedRef.current = false
@@ -1240,18 +1261,24 @@ export function NovelDetailView(props: { novelID: number }) {
                   // 保护性门禁：
                   // 1. 若当前页 > 1，绝不覆写为顶部 undefined；
                   // 2. 若当前已读到正文分块且用户未主动拖拽（非手势交互），绝不抹杀已记录的 chunk。
-                  if (currentPageRef.current > 1) {
+                  if (currentPageRef.current > 1 && readerSettingsRef.current.pageDisplayMode === "paged") {
                     return
                   }
                   if (lastRecordedChunkRef.current && !isUserDraggingRef.current) {
                     return
                   }
                   lastRecordedChunkRef.current = null
-                  recordNovelProgress(novelID, currentPageRef.current, undefined)
+                  if (readerSettingsRef.current.pageDisplayMode === "continuous" && currentPageRef.current !== 1) {
+                    setCurrentPage(1)
+                  }
+                  recordNovelProgress(novelID,
+                    readerSettingsRef.current.pageDisplayMode === "continuous" ? 1 : currentPageRef.current,
+                    undefined)
                   return
                 }
 
                 if (visibleChunkId) {
+                  const visiblePage = chunkPageMapRef.current[visibleChunkId] ?? currentPageRef.current
                   // 单调防倒退保护：如果用户已读到后面的正文 chunk（如 chunk-10 以上），
                   // 而新进入的 visibleChunkId 是最开头的分块（如 chunk-0/chunk-1），且用户未发生主动向上拖拽，
                   // 坚决判定为尺寸突变排版重流的瞬态露顶，拒绝写入！
@@ -1267,7 +1294,8 @@ export function NovelDetailView(props: { novelID: number }) {
                   }
 
                   lastRecordedChunkRef.current = visibleChunkId
-                  recordNovelProgress(novelID, currentPageRef.current, visibleChunkId)
+                  if (visiblePage !== currentPageRef.current) setCurrentPage(visiblePage)
+                  recordNovelProgress(novelID, visiblePage, visibleChunkId)
                 }
               },
             }}
@@ -1547,7 +1575,7 @@ export function NovelDetailView(props: { novelID: number }) {
                     />
                   </Menu>
                   {translationSession && translation ? (
-                    <Menu title={`正文翻译 ${translation.done}/${translation.total}`} systemImage="character.book.closed">
+                    <Menu title={`小说翻译 ${translation.done}/${translation.total}`} systemImage="character.book.closed">
                       <Button
                         title={translation.mode === "translated" ? "显示原文" : "显示译文"}
                         systemImage="arrow.left.arrow.right"
@@ -1563,6 +1591,12 @@ export function NovelDetailView(props: { novelID: number }) {
                             translationSession.setMode("translated")
                             void translationSession.start()
                           }}
+                        />
+                      ) : translation.summaryStatus === "error" || translation.glossaryStatus === "error" ? (
+                        <Button
+                          title="重试译名、摘要与术语"
+                          systemImage="arrow.clockwise"
+                          action={() => void translationSession.start([])}
                         />
                       ) : null}
                       {translation.failed > 0 ? (
@@ -1673,7 +1707,7 @@ export function NovelDetailView(props: { novelID: number }) {
           <VStack alignment="leading" spacing={8}>
             {/* 小说标题 */}
             <Text font="subheadline" fontWeight="semibold" foregroundStyle="secondaryLabel">
-              {current.title}
+              {displayedTitle}
             </Text>
 
             {/* 统计指标 */}
@@ -1784,7 +1818,7 @@ export function NovelDetailView(props: { novelID: number }) {
           {/* 简介 */}
           <ExpandableIntroduction
             title="简介"
-            caption={current.caption}
+            caption={displayedCaption}
             routeDestination={renderDestination}
           />
 
@@ -1958,6 +1992,7 @@ export function NovelDetailView(props: { novelID: number }) {
             <NovelImmersiveReaderView
               novelId={current.id}
               title={current.title}
+              caption={cleanedCaption}
               coverUrl={coverUrl}
               text={text ?? ""}
               textEmbeddedImages={textEmbeddedImages}

@@ -124,6 +124,8 @@ test("翻译请求实际下发关闭参数，其他 AI 请求不受影响", asyn
 
 test("长段拆分仍保留换行与 Pixiv 链接占位符", async () => {
   const passage = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "translateNovelPassage", {
+    novelTranslationTargetName: (target) => target === "en" ? "natural English" : "简体中文",
+    validateNovelTranslation() {},
     executeUniversalAI: async (request) => request.messages[0].content.split("占位符：\n")[1],
   })
   const link = "[[jumpuri:来源 > https://example.com]]"
@@ -136,6 +138,8 @@ test("长段拆分仍保留换行与 Pixiv 链接占位符", async () => {
   assert.equal(await passage(crossingLink, { title: "测试" }), crossingLink)
   const requested = []
   const sentencePassage = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "translateNovelPassage", {
+    novelTranslationTargetName: (target) => target === "en" ? "natural English" : "简体中文",
+    validateNovelTranslation() {},
     executeUniversalAI: async (request) => {
       const source = request.messages[0].content.split("占位符：\n")[1]
       requested.push(source)
@@ -149,29 +153,104 @@ test("长段拆分仍保留换行与 Pixiv 链接占位符", async () => {
 
 test("链接占位符重复或错序时拒绝译文，避免破坏原文导航", async () => {
   const wrong = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "translateNovelPassage", {
+    novelTranslationTargetName: () => "简体中文",
+    validateNovelTranslation() {},
     executeUniversalAI: async () => "__PIXIV_LINK_1__ __PIXIV_LINK_0__",
   })
   await assert.rejects(wrong("[[jumpuri:甲 > https://example.com/a]] [[jumpuri:乙 > https://example.com/b]]",
     { title: "测试" }), /链接占位符/)
   const duplicate = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "translateNovelPassage", {
+    novelTranslationTargetName: () => "简体中文",
+    validateNovelTranslation() {},
     executeUniversalAI: async () => "__PIXIV_LINK_0__ __PIXIV_LINK_0__",
   })
   await assert.rejects(duplicate("[[jumpuri:甲 > https://example.com/a]]", { title: "测试" }), /链接占位符/)
+  const invented = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "translateNovelPassage", {
+    novelTranslationTargetName: () => "简体中文",
+    validateNovelTranslation() {},
+    executeUniversalAI: async () => "__PIXIV_LINK_0__ __PIXIV_LINK_9__",
+  })
+  await assert.rejects(invented("[[jumpuri:甲 > https://example.com/a]]", { title: "测试" }), /原文不存在/)
+})
+
+test("译文质量检查拦截漏译、模型寒暄与重复输出", () => {
+  const validate = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "validateNovelTranslation", {
+    translationQualityError: (reason) => { throw new Error(`译文质量检查失败：${reason}`) },
+  })
+  assert.throws(() => validate("あ".repeat(100), "太短", "zh-CN"), /译文过短/)
+  assert.throws(() => validate("This is source text ".repeat(5), "译文：这是结果", "zh-CN"), /额外说明/)
+  assert.throws(() => validate("This is source text ".repeat(5), "This is source text ".repeat(5), "zh-CN"), /完全相同/)
+  const repeated = ["这是足够长的一行重复译文", "这是足够长的一行重复译文", "这是足够长的一行重复译文"].join("\n")
+  assert.throws(() => validate("あ".repeat(120), repeated, "zh-CN"), /重复内容/)
+  assert.doesNotThrow(() => validate("あ".repeat(100), "这是自然且完整的中文译文。".repeat(5), "zh-CN"))
+})
+
+test("失败重试三分时保护 Pixiv 标记并原样保留接缝", () => {
+  const tokenizeNovelPassageForSplit = loadExportedFunction(
+    "Pix-Scripting/src/api/aiService.ts", "tokenizeNovelPassageForSplit"
+  )
+  const splitBoundaryPriority = loadExportedFunction(
+    "Pix-Scripting/src/api/aiService.ts", "splitBoundaryPriority"
+  )
+  const findNovelSplitBoundary = loadExportedFunction(
+    "Pix-Scripting/src/api/aiService.ts", "findNovelSplitBoundary", { splitBoundaryPriority }
+  )
+  const split = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "splitNovelPassageIntoThree", {
+    tokenizeNovelPassageForSplit,
+    findNovelSplitBoundary,
+  })
+  const marker = "[[jumpuri:来源 > https://example.com]]"
+  const source = `${"甲".repeat(55)}  \n${marker}\n\n${"乙".repeat(55)}。${"丙".repeat(55)}`
+  const result = split(source)
+  assert.ok(result)
+  assert.equal(result.parts.join("|").split(marker).length, 2)
+  assert.equal(result.parts[0] + result.separators[0] + result.parts[1] +
+    result.separators[1] + result.parts[2], source)
+})
+
+test("章节标题和目标语言会进入单块翻译提示词", async () => {
+  let prompt = ""
+  const passage = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "translateNovelPassage", {
+    novelTranslationTargetName: () => "natural, idiomatic English",
+    validateNovelTranslation() {},
+    executeUniversalAI: async (request) => {
+      prompt = `${request.systemPrompt}\n${request.messages[0].content}`
+      return "The First Encounter"
+    },
+  })
+  assert.equal(await passage("初めての出会い", {
+    title: "作品", kind: "chapter", targetLanguage: "en",
+  }), "The First Encounter")
+  assert.match(prompt, /章节标题/)
+  assert.match(prompt, /natural, idiomatic English/)
 })
 
 test("长篇摘要和术语表同时参考开头、中段、结尾", async () => {
   const sampleNovelContext = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "sampleNovelContext")
+  const parseTaggedNovelContext = loadExportedFunction(
+    "Pix-Scripting/src/api/aiService.ts", "parseTaggedNovelContext"
+  )
   const prompts = []
+  const systemPrompts = []
   const generate = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "generateNovelTranslationContext", {
     sampleNovelContext,
+    parseTaggedNovelContext,
+    novelTranslationTargetName: (target) => target === "en" ? "natural English" : "简体中文",
     executeUniversalAI: async (request) => {
       assert.equal(request.temperature, 0.2)
       prompts.push(request.messages[0].content)
-      return prompts.length === 1 ? "摘要" : "人物｜Alice｜爱丽丝"
+      systemPrompts.push(request.systemPrompt)
+      return prompts.length === 1
+        ? "<TITLE>测试译名</TITLE><CAPTION>简介译文</CAPTION><SUMMARY>摘要</SUMMARY>"
+        : "人物｜Alice｜爱丽丝"
     },
   })
   const long = `${"甲".repeat(5900)}中段人物${"乙".repeat(5900)}结尾人物`
-  const context = await generate("测试", long, { summary: true, glossary: true })
+  const context = await generate("测试", "原文简介", long, {
+    summary: true, glossary: true, targetLanguage: "en",
+  })
+  assert.equal(context.translatedTitle, "测试译名")
+  assert.equal(context.translatedCaption, "简介译文")
   assert.equal(context.summary, "摘要")
   assert.equal(context.glossary, "人物｜Alice｜爱丽丝")
   assert.equal(prompts.length, 2)
@@ -181,6 +260,7 @@ test("长篇摘要和术语表同时参考开头、中段、结尾", async () =>
     assert.match(prompt, /结尾人物/)
     assert.ok(prompt.length < 9300)
   }
+  for (const prompt of systemPrompts) assert.match(prompt, /natural English/)
 })
 
 test("WebView 在相同正文块内切换译文和原文，不改块标识", () => {
@@ -190,15 +270,46 @@ test("WebView 在相同正文块内切换译文和原文，不改块标识", () 
   const block = { id: "chunk-1", html: "<p>原文</p>", getAttribute(name) { return name === "data-chunk-id" ? this.id : null },
     get innerHTML() { return this.html }, set innerHTML(value) { this.html = value },
     getBoundingClientRect: () => ({ left: 0, top: 100 }) }
-  const document = { querySelectorAll: () => [block], getElementById: () => block }
+  const chapterTitle = { textContent: "第一章" }
+  const chapter = { id: "chapter-1", getAttribute(name) { return name === "data-chunk-id" ? this.id : null },
+    querySelector: () => chapterTitle }
+  const title = { textContent: "原题" }
+  const document = {
+    querySelector: () => title,
+    querySelectorAll: (selector) => selector === ".text-chunk-block" ? [block]
+      : selector === ".chapter-block" ? [chapter] : [],
+    getElementById: () => block,
+  }
   const window = { scrollBy() {} }
-  const snapshot = { mode: "translated", blocks: { "chunk-1": { id: "chunk-1", status: "done", translation: "译文 <ok>" } } }
+  const snapshot = { mode: "translated", translatedTitle: "译题",
+    blocks: {
+      "chunk-1": { id: "chunk-1", kind: "text", status: "done", translation: "译文 <ok>" },
+      "chapter-1": { id: "chapter-1", kind: "chapter", status: "done", translation: "第一章译文" },
+    } }
   vm.runInNewContext(build(snapshot, "chunk-1"), { document, window, requestAnimationFrame: (callback) => callback() })
   assert.equal(block.html, '<p class="paragraph">译文 &lt;ok&gt;</p>')
+  assert.equal(title.textContent, "译题")
+  assert.equal(chapterTitle.textContent, "第一章译文")
   vm.runInNewContext(build({ ...snapshot, mode: "original" }, "chunk-1"),
     { document, window, requestAnimationFrame: (callback) => callback() })
   assert.equal(block.html, "<p>原文</p>")
+  assert.equal(title.textContent, "原题")
+  assert.equal(chapterTitle.textContent, "第一章")
   assert.equal(block.id, "chunk-1")
+})
+
+test("多页小说默认连续显示，并能为每个正文块建立页码索引", () => {
+  const indexPages = loadExportedFunction("Pix-Scripting/src/ui/NovelReader.tsx", "indexNovelChunkPages")
+  assert.deepEqual(JSON.parse(JSON.stringify(indexPages([
+    { id: "chunk-0", type: "text" },
+    { id: "page-2", type: "newpage", page: 2 },
+    { id: "chapter-1", type: "chapter" },
+    { id: "chunk-3", type: "text" },
+  ]))), { "chunk-0": 1, "page-2": 2, "chapter-1": 2, "chunk-3": 2 })
+  const settingsSource = fs.readFileSync(path.join(__dirname, "..",
+    "Pix-Scripting/src/store/novelReaderSettings.ts"), "utf8")
+  assert.match(settingsSource, /pageDisplayMode:\s*"continuous"/)
+  assert.match(settingsSource, /translationTargetLanguage:\s*"zh-CN"/)
 })
 
 function createStoreFixture(options = {}) {
@@ -211,25 +322,27 @@ function createStoreFixture(options = {}) {
   let maxActive = 0
   let summaryCalls = 0
   const events = []
-  const passage = async (text) => {
+  const passage = async (text, requestOptions) => {
     events.push(`passage:${text}`)
     translationCalls++
     active++
     maxActive = Math.max(maxActive, active)
     try {
-      if (options.translate) return await options.translate(text)
+      if (options.translate) return await options.translate(text, requestOptions)
       await new Promise((resolve) => setTimeout(resolve, 5))
       return `译：${text}`
     } finally { active-- }
   }
-  const context = async (_title, _text, needs) => {
+  const context = async (_title, _caption, _text, needs) => {
     if (needs.summary) {
       summaryCalls++
       events.push("summary-start")
-      if (options.summary) return { summary: await options.summary() }
+      if (options.summary) return { translatedTitle: `译：${_title}`,
+        translatedCaption: _caption ? `译：${_caption}` : undefined, summary: await options.summary() }
       await new Promise((resolve) => setTimeout(resolve, 2))
       events.push("summary-end")
-      return { summary: "人物与背景摘要" }
+      return { translatedTitle: `译：${_title}`,
+        translatedCaption: _caption ? `译：${_caption}` : undefined, summary: "人物与背景摘要" }
     }
     if (options.glossary) return { glossary: await options.glossary(_title) }
     return { glossary: "人物｜Alice｜爱丽丝\n地点｜Town｜城镇" }
@@ -242,6 +355,13 @@ function createStoreFixture(options = {}) {
       isAIAvailable: () => true, translateNovelPassage: passage,
       generateNovelTranslationContext: context,
       getNovelTranslationThinkingNotice: () => "已请求关闭思考",
+      validateNovelTranslation: options.validateTranslation ?? (() => {}),
+      splitNovelPassageIntoThree: options.splitRetry ?? ((text) => {
+        const size = Math.floor(text.length / 3)
+        if (size < 1) return null
+        return { parts: [text.slice(0, size), text.slice(size, size * 2), text.slice(size * 2)],
+          separators: ["", ""] }
+      }),
     },
     "./customAI": {
       loadCustomAIProfile: config, isCustomAIConfigured: () => true,
@@ -272,12 +392,14 @@ function createStoreFixture(options = {}) {
 
 test("摘要先于双请求并发，缓存按账号/模型/原文隔离且不保存密钥", async () => {
   const f = createStoreFixture()
-  const input = { novelId: 7, title: "第一话", text: "Alice in Town", seriesId: 99,
+  const input = { novelId: 7, title: "第一话", caption: "原文简介", text: "Alice in Town", seriesId: 99,
     blocks: [{ id: "a", text: "Alice" }, { id: "b", text: "Town" }, { id: "c", text: "next" }] }
   const session = f.module.getNovelTranslationSession(input)
   await session.start()
   assert.equal(session.getSnapshot().done, 3)
   assert.equal(session.getSnapshot().summaryStatus, "ready")
+  assert.equal(session.getSnapshot().translatedTitle, "译：第一话")
+  assert.equal(session.getSnapshot().translatedCaption, "译：原文简介")
   assert.equal(session.getSnapshot().glossaryCount, 2)
   assert.equal(f.getSummaryCalls(), 1)
   assert.equal(f.getMaxActive(), 2)
@@ -286,7 +408,10 @@ test("摘要先于双请求并发，缓存按账号/模型/原文隔离且不保
   assert.ok(saved)
   assert.equal(saved.includes("SECRET-DO-NOT-CACHE"), false)
   f.module.discardNovelTranslationSessions()
-  assert.equal(f.module.getNovelTranslationSession(input).getSnapshot().done, 3)
+  const restored = f.module.getNovelTranslationSession(input).getSnapshot()
+  assert.equal(restored.done, 3)
+  assert.equal(restored.translatedTitle, "译：第一话")
+  assert.equal(restored.translatedCaption, "译：原文简介")
   f.setUID("200")
   assert.equal(f.module.getNovelTranslationSession(input).getSnapshot().done, 0)
   f.setUID("100")
@@ -301,6 +426,114 @@ test("摘要先于双请求并发，缓存按账号/模型/原文隔离且不保
   assert.equal(revised.blocks.b.status, "pending")
   assert.equal(revised.summaryStatus, "pending")
   assert.equal(f.getCalls(), 3)
+})
+
+test("简介变化会使同步生成的译名、摘要和正文译文一起失效", async () => {
+  const f = createStoreFixture()
+  const input = { novelId: 17, title: "标题", caption: "旧简介", text: "Alice",
+    blocks: [{ id: "a", text: "Alice" }] }
+  await f.module.getNovelTranslationSession(input).start()
+  const updated = f.module.getNovelTranslationSession({ ...input, caption: "新简介" })
+  assert.equal(updated.getSnapshot().done, 0)
+  assert.equal(updated.getSnapshot().summaryStatus, "pending")
+  await updated.start()
+  assert.equal(updated.getSnapshot().translatedCaption, "译：新简介")
+  assert.equal(f.getSummaryCalls(), 2)
+  assert.equal(f.getCalls(), 2)
+})
+
+test("正文完成后仍可单独重试失败的译名、简介与摘要", async () => {
+  let attempts = 0
+  const f = createStoreFixture({ summary: async () => {
+    if (++attempts === 1) throw new Error("模拟摘要失败")
+    return "恢复后的摘要"
+  } })
+  const input = { novelId: 18, title: "标题", caption: "简介", text: "Alice",
+    blocks: [{ id: "a", text: "Alice" }] }
+  const session = f.module.getNovelTranslationSession(input)
+  await session.start()
+  assert.equal(session.getSnapshot().done, 1)
+  assert.equal(session.getSnapshot().summaryStatus, "error")
+  await session.start([])
+  assert.equal(session.getSnapshot().done, 1)
+  assert.equal(session.getSnapshot().summaryStatus, "ready")
+  assert.equal(session.getSnapshot().summary, "恢复后的摘要")
+  assert.equal(f.getCalls(), 1)
+})
+
+test("原块失败后仅三分一次，子段失败不会递归拆分", async () => {
+  let calls = 0
+  const source = "失敗する長い段落。".repeat(12)
+  const success = createStoreFixture({ translate: async (text) => {
+    calls++
+    if (calls === 1) throw new Error("译文质量检查失败：译文过短")
+    return `译：${text}`
+  } })
+  const input = { novelId: 30, title: "三分重试", caption: "", text: source,
+    targetLanguage: "zh-CN", blocks: [{ id: "a", text: source, kind: "text" }] }
+  const recovered = success.module.getNovelTranslationSession(input)
+  await recovered.start()
+  assert.equal(recovered.getSnapshot().done, 1)
+  assert.equal(success.getCalls(), 4)
+
+  let childCalls = 0
+  const failure = createStoreFixture({ translate: async (text) => {
+    childCalls++
+    if (childCalls === 1 || childCalls === 3) throw new Error("模拟失败")
+    return `译：${text}`
+  } })
+  const failed = failure.module.getNovelTranslationSession({ ...input, novelId: 31 })
+  await failed.start()
+  assert.equal(failed.getSnapshot().failed, 1)
+  assert.equal(failure.getCalls(), 3)
+})
+
+test("章节标题参与翻译，目标语言使用独立缓存文件", async () => {
+  const kinds = []
+  const f = createStoreFixture({ translate: async (text, options) => {
+    kinds.push(`${options.kind}:${options.targetLanguage}`)
+    return `译：${text}`
+  } })
+  const base = { novelId: 32, title: "章节与语言", caption: "", text: "[chapter: 序章]\nAlice",
+    seriesId: null, blocks: [
+      { id: "chapter-1", text: "序章", kind: "chapter" },
+      { id: "chunk-1", text: "Alice", kind: "text" },
+    ] }
+  const chinese = f.module.getNovelTranslationSession({ ...base, targetLanguage: "zh-CN" })
+  await chinese.start()
+  assert.equal(chinese.getSnapshot().done, 2)
+  assert.ok(kinds.includes("chapter:zh-CN"))
+  assert.ok(f.files.has("/cache/NovelTranslations/users/100/32.json"))
+
+  const english = f.module.getNovelTranslationSession({ ...base, targetLanguage: "en" })
+  assert.equal(english.getSnapshot().done, 0)
+  await english.start()
+  assert.ok(kinds.includes("chapter:en"))
+  assert.ok(f.files.has("/cache/NovelTranslations/users/100/32-en.json"))
+
+  f.module.discardNovelTranslationSessions()
+  assert.equal(f.module.getNovelTranslationSession({ ...base, targetLanguage: "zh-CN" }).getSnapshot().done, 2)
+})
+
+test("升级旧缓存时保留正文译文，只补生成标题和简介", async () => {
+  const f = createStoreFixture()
+  const input = { novelId: 19, title: "标题", caption: "简介", text: "Alice",
+    blocks: [{ id: "a", text: "Alice" }] }
+  await f.module.getNovelTranslationSession(input).start()
+  const cachePath = "/cache/NovelTranslations/users/100/19.json"
+  const legacy = JSON.parse(f.files.get(cachePath))
+  delete legacy.captionFingerprint
+  delete legacy.translatedTitle
+  delete legacy.translatedCaption
+  f.files.set(cachePath, JSON.stringify(legacy))
+  f.module.discardNovelTranslationSessions()
+  const migrated = f.module.getNovelTranslationSession(input)
+  assert.equal(migrated.getSnapshot().done, 1)
+  assert.equal(migrated.getSnapshot().summaryStatus, "pending")
+  await migrated.start([])
+  assert.equal(migrated.getSnapshot().translatedTitle, "译：标题")
+  assert.equal(migrated.getSnapshot().translatedCaption, "译：简介")
+  assert.equal(f.getCalls(), 1)
 })
 
 test("系列既有译名优先，清理仅删除当前账号缓存", async () => {

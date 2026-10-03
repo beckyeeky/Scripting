@@ -23,6 +23,10 @@ import {
   type SignalLike,
 } from "./aiAdapters"
 import { translationThinkingControl } from "./aiAdapters/translationThinking"
+import {
+  NOVEL_TRANSLATION_TARGETS,
+  type NovelTranslationTargetLanguage,
+} from "../store/novelReaderSettings"
 
 const globalAITaskControllers = new Set<AbortController>()
 
@@ -466,6 +470,119 @@ export async function streamTranslateNovel(
   return accumulatedResult
 }
 
+function novelTranslationTargetName(target: NovelTranslationTargetLanguage): string {
+  return NOVEL_TRANSLATION_TARGETS.find((item) => item.id === target)?.promptName
+    ?? NOVEL_TRANSLATION_TARGETS[0].promptName
+}
+
+function translationQualityError(reason: string): never {
+  throw new Error(`译文质量检查失败：${reason}`)
+}
+
+/** 对明显漏译、异常长度、模型寒暄和重复输出做保守检查。 */
+export function validateNovelTranslation(
+  original: string,
+  translated: string,
+  targetLanguage: NovelTranslationTargetLanguage = "zh-CN",
+  kind: "text" | "chapter" = "text"
+): void {
+  const output = translated.trim()
+  if (!output) translationQualityError("模型返回空译文")
+  if (/^(?:以下是|这是|翻译结果|译文|translation)\s*[:：]/i.test(output)) {
+    translationQualityError("模型输出了额外说明")
+  }
+  const sourceLength = Array.from(original.replace(/[\s\p{P}\p{S}]/gu, "")).length
+  const outputLength = Array.from(output.replace(/[\s\p{P}\p{S}]/gu, "")).length
+  if (kind === "text" && sourceLength >= 80) {
+    const ratio = outputLength / Math.max(sourceLength, 1)
+    if (ratio < 0.15) translationQualityError("译文过短，可能存在漏译")
+    if (ratio > 5.5) translationQualityError("译文过长，可能混入解释或重复内容")
+  }
+  const foreignScript = targetLanguage === "en"
+    ? /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/u
+    : targetLanguage === "ja"
+    ? /[\uac00-\ud7af]|[A-Za-z]{4,}/u
+    : targetLanguage === "ko"
+    ? /[\u3040-\u30ff]|[A-Za-z]{4,}/u
+    : /[\u3040-\u30ff\uac00-\ud7af]|[A-Za-z]{4,}/u
+  if (sourceLength >= 40 && foreignScript.test(original) && original.trim() === output) {
+    translationQualityError("译文与外语原文完全相同")
+  }
+  const substantialLines = output.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length >= 12)
+  for (let index = 2; index < substantialLines.length; index++) {
+    if (substantialLines[index] === substantialLines[index - 1] &&
+      substantialLines[index] === substantialLines[index - 2]) {
+      translationQualityError("检测到连续重复内容")
+    }
+  }
+}
+
+type SplitNovelPassageRetry = {
+  parts: [string, string, string]
+  separators: [string, string]
+}
+
+function tokenizeNovelPassageForSplit(text: string): string[] {
+  const tokens: string[] = []
+  const protectedPattern = /\[\[(?:jumpuri|rb):[^\]]+\]\]|\[(?:uploadedimage|pixivimage|jump|newpage|chapter)\s*[:：]?[^\]]*\]/gi
+  let cursor = 0
+  for (const match of text.matchAll(protectedPattern)) {
+    const index = match.index ?? cursor
+    tokens.push(...Array.from(text.slice(cursor, index)), match[0])
+    cursor = index + match[0].length
+  }
+  tokens.push(...Array.from(text.slice(cursor)))
+  return tokens
+}
+
+function splitBoundaryPriority(previousToken: string): number {
+  if (/\n$/u.test(previousToken)) return 3
+  if (/[。！？!?；;]$/u.test(previousToken)) return 2
+  if (/[,，、:：\s]$/u.test(previousToken)) return 1
+  return 0
+}
+
+function findNovelSplitBoundary(tokens: string[], target: number, minimum: number, maximum: number): number {
+  const center = Math.max(minimum, Math.min(maximum, Math.round(target)))
+  const radius = Math.max(1, Math.ceil(tokens.length / 6))
+  for (let priority = 3; priority >= 1; priority--) {
+    for (let distance = 0; distance <= radius; distance++) {
+      const candidates = distance === 0 ? [center] : [center - distance, center + distance]
+      for (const candidate of candidates) {
+        if (candidate < minimum || candidate > maximum) continue
+        if (splitBoundaryPriority(tokens[candidate - 1]) === priority) return candidate
+      }
+    }
+  }
+  return center
+}
+
+/** 原块失败时仅使用一次；保护 Pixiv 标记并保留三段接缝空白。 */
+export function splitNovelPassageIntoThree(text: string): SplitNovelPassageRetry | null {
+  const tokens = tokenizeNovelPassageForSplit(text)
+  if (tokens.length < 3) return null
+  const first = findNovelSplitBoundary(tokens, tokens.length / 3, 1, tokens.length - 2)
+  const second = findNovelSplitBoundary(tokens, tokens.length * 2 / 3, first + 1, tokens.length - 1)
+  const raw = [tokens.slice(0, first).join(""), tokens.slice(first, second).join(""), tokens.slice(second).join("")]
+  const separators: [string, string] = ["", ""]
+  const parts = raw.map((part, index) => {
+    let content = part
+    if (index > 0) {
+      const leading = content.match(/^\s+/u)?.[0] ?? ""
+      separators[index - 1] += leading
+      content = content.slice(leading.length)
+    }
+    if (index < raw.length - 1) {
+      const trailing = content.match(/\s+$/u)?.[0] ?? ""
+      separators[index] = trailing + separators[index]
+      content = content.slice(0, content.length - trailing.length)
+    }
+    return content
+  })
+  if (parts.some((part) => !part)) return null
+  return { parts: parts as [string, string, string], separators }
+}
+
 /** 小说阅读器使用的单块翻译；阅读器的分块和位置由上层保持不变。 */
 export async function translateNovelPassage(
   original: string,
@@ -474,6 +591,8 @@ export async function translateNovelPassage(
     summary?: string
     glossary?: string
     signal?: SignalLike
+    targetLanguage?: NovelTranslationTargetLanguage
+    kind?: "text" | "chapter"
   }
 ): Promise<string> {
   if (original.length > 2200) {
@@ -500,6 +619,8 @@ export async function translateNovelPassage(
     }
   }
   const protectedLinks: string[] = []
+  const targetLanguage = options.targetLanguage ?? "zh-CN"
+  const targetName = novelTranslationTargetName(targetLanguage)
   const source = original
     .replace(/\[\[jumpuri:[^\]]+\]\]/gi, (link) => {
       const index = protectedLinks.push(link) - 1
@@ -511,10 +632,10 @@ export async function translateNovelPassage(
     `作品：《${options.title}》`,
     options.summary ? `故事背景（仅供参考）：\n${options.summary}` : "",
     options.glossary ? `固定译法（优先遵守）：\n${options.glossary}` : "",
-    `请将以下小说正文完整翻译成简体中文，只输出译文。保留原段落换行与 __PIXIV_LINK_N__ 占位符：\n${source}`,
+    `请将以下${options.kind === "chapter" ? "章节标题" : "小说正文"}完整翻译成${targetName}，只输出译文。保留原段落换行与 __PIXIV_LINK_N__ 占位符：\n${source}`,
   ].filter(Boolean).join("\n\n")
   const translated = (await executeUniversalAI({
-    systemPrompt: "你是 Pixiv 小说翻译者。准确翻译人物、对话和叙事，不添加解释、标题或译者注。绝不能删除或修改 __PIXIV_LINK_N__ 占位符。",
+    systemPrompt: `你是 Pixiv 小说翻译者。准确翻译为${targetName}，保持人物、对话、叙事和章节标题风格，不添加解释、额外标题或译者注。绝不能删除或修改 __PIXIV_LINK_N__ 占位符。`,
     messages: [{ role: "user", content: prompt }],
     temperature: 0.2,
     disableThinking: true,
@@ -531,6 +652,10 @@ export async function translateNovelPassage(
     previousMarkerEnd = position + marker.length
     restored = restored.replace(marker, protectedLinks[i])
   }
+  if (/__PIXIV_LINK_\d+__/.test(restored)) {
+    throw new Error("链接占位符包含原文不存在的编号")
+  }
+  validateNovelTranslation(original, restored, targetLanguage, options.kind ?? "text")
   return restored
 }
 
@@ -541,28 +666,49 @@ function sampleNovelContext(text: string): string {
   return `【开头节选】\n${text.slice(0, windowSize)}\n\n【中段节选】\n${text.slice(middleStart, middleStart + windowSize)}\n\n【结尾节选】\n${text.slice(-windowSize)}`
 }
 
-/** 摘要和术语生成失败时由翻译会话降级为无上下文翻译。 */
+export interface NovelTranslationContext {
+  translatedTitle?: string
+  translatedCaption?: string
+  summary?: string
+  glossary?: string
+}
+
+function parseTaggedNovelContext(value: string, hasCaption: boolean): NovelTranslationContext {
+  const read = (tag: string) => value.match(new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, "i"))?.[1]?.trim()
+  const translatedTitle = read("TITLE")
+  const translatedCaption = read("CAPTION")
+  const summary = read("SUMMARY")
+  if (!translatedTitle || !summary || (hasCaption && !translatedCaption)) {
+    throw new Error("标题、简介或摘要格式无效")
+  }
+  return { translatedTitle, translatedCaption: translatedCaption || undefined, summary }
+}
+
+/** 标题、简介、摘要和术语生成失败时由翻译会话降级为无上下文翻译。 */
 export async function generateNovelTranslationContext(
   title: string,
+  caption: string,
   text: string,
-  needs: { summary: boolean; glossary: boolean; knownGlossary?: string },
+  needs: { summary: boolean; glossary: boolean; knownGlossary?: string; targetLanguage?: NovelTranslationTargetLanguage },
   signal?: SignalLike
-): Promise<{ summary?: string; glossary?: string }> {
+): Promise<NovelTranslationContext> {
   const sample = sampleNovelContext(text)
-  const result: { summary?: string; glossary?: string } = {}
+  const result: NovelTranslationContext = {}
+  const targetName = novelTranslationTargetName(needs.targetLanguage ?? "zh-CN")
   if (needs.summary) {
-    result.summary = (await executeUniversalAI({
-      systemPrompt: "提炼小说背景，供后续逐段翻译保持人名、关系和叙事一致。最多 300 字，不复述情节细节。",
-      messages: [{ role: "user", content: `《${title}》\n${sample}` }],
+    const metadata = await executeUniversalAI({
+      systemPrompt: `将 Pixiv 小说标题和简介翻译为${targetName}，并用同一种目标语言提炼供后续逐段翻译使用的故事背景摘要。只输出 <TITLE>译文</TITLE><CAPTION>译文</CAPTION><SUMMARY>摘要</SUMMARY>；标签各出现一次，不输出 Markdown 或解释。简介为空时 CAPTION 留空；摘要最多 300 字，强调人物、关系、背景与叙事视角，不复述枝节。`,
+      messages: [{ role: "user", content: `原文标题：\n${title}\n\n原文简介：\n${caption || "（空）"}\n\n小说正文节选：\n${sample}` }],
       temperature: 0.2,
       disableThinking: true,
       options: { onChunk: () => {}, signal },
-    })).trim()
+    })
+    Object.assign(result, parseTaggedNovelContext(metadata, Boolean(caption.trim())))
   }
   if (needs.glossary) {
     if (signal?.aborted) return result
     result.glossary = (await executeUniversalAI({
-      systemPrompt: "提取小说中反复出现且影响翻译一致性的人名与专有名词。每行严格使用：类别｜原文｜简体中文译法｜备注。最多 30 行，不输出解释；确无术语时只输出「无」。",
+      systemPrompt: `提取小说中反复出现且影响翻译一致性的人名与专有名词。每行严格使用：类别｜原文｜${targetName}译法｜备注。最多 30 行，不输出解释；确无术语时只输出「无」。`,
       messages: [{ role: "user", content: `《${title}》\n${needs.knownGlossary ? `系列已确定译法（不要重新命名）：\n${needs.knownGlossary}\n` : ""}${sample}` }],
       temperature: 0.2,
       disableThinking: true,

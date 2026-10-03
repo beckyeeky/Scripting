@@ -1,9 +1,17 @@
 import { AbortController } from "scripting"
-import { isAIAvailable, translateNovelPassage, generateNovelTranslationContext, getNovelTranslationThinkingNotice } from "../api/aiService"
+import {
+  isAIAvailable,
+  translateNovelPassage,
+  generateNovelTranslationContext,
+  getNovelTranslationThinkingNotice,
+  splitNovelPassageIntoThree,
+  validateNovelTranslation,
+} from "../api/aiService"
 import { loadCustomAIProfile, isCustomAIConfigured, getEffectiveGeneralEndpoint } from "./customAI"
 import { resolveGeneralAIConfigRoute } from "../api/aiAdapters"
 import { pixivDataDirectory, resolveEffectiveUID } from "./dataDirectory"
 import { recoverFile, writeTextSafely } from "./safeFile"
+import type { NovelTranslationTargetLanguage } from "./novelReaderSettings"
 
 export type TranslationDisplayMode = "original" | "translated"
 export type TranslationBlockStatus = "pending" | "running" | "done" | "error"
@@ -12,6 +20,7 @@ export type TranslationContextStatus = "pending" | "running" | "ready" | "skippe
 export interface TranslationBlock {
   id: string
   original: string
+  kind: "text" | "chapter"
   translation?: string
   status: TranslationBlockStatus
   error?: string
@@ -19,6 +28,7 @@ export interface TranslationBlock {
 
 export interface NovelTranslationSnapshot {
   novelId: number
+  targetLanguage: NovelTranslationTargetLanguage
   mode: TranslationDisplayMode
   running: boolean
   blocks: Record<string, TranslationBlock>
@@ -28,6 +38,8 @@ export interface NovelTranslationSnapshot {
   phase: "idle" | "summary" | "glossary" | "translating"
   summaryStatus: TranslationContextStatus
   glossaryStatus: TranslationContextStatus
+  translatedTitle?: string
+  translatedCaption?: string
   summary?: string
   glossary?: string
   glossaryCount: number
@@ -39,9 +51,11 @@ export interface NovelTranslationSnapshot {
 export interface NovelTranslationInput {
   novelId: number
   title: string
+  caption: string
   text: string
+  targetLanguage: NovelTranslationTargetLanguage
   seriesId?: number | null
-  blocks: Array<{ id: string; text: string }>
+  blocks: Array<{ id: string; text: string; kind?: "text" | "chapter" }>
 }
 
 interface StoredTranslation {
@@ -49,9 +63,12 @@ interface StoredTranslation {
   model: string
   source: string
   titleFingerprint?: string
+  captionFingerprint?: string
   seriesId?: number | null
   mode: TranslationDisplayMode
   blocks: Record<string, { source: string; translation?: string; error?: string }>
+  translatedTitle?: string
+  translatedCaption?: string
   summary?: string
   glossary?: string
   glossarySkipped?: boolean
@@ -63,21 +80,28 @@ function fingerprint(value: string): string {
   return Crypto.sha256(data).toHexString()
 }
 
-function modelIdentity(): string {
-  if (!isCustomAIConfigured()) return "scripting-assistant"
+function modelIdentity(targetLanguage: NovelTranslationTargetLanguage): string {
+  if (!isCustomAIConfigured()) return targetLanguage === "zh-CN"
+    ? "scripting-assistant"
+    : `scripting-assistant:${targetLanguage}`
   const config = resolveGeneralAIConfigRoute(loadCustomAIProfile().general)
   // 密钥不参与指纹，也不写入缓存；翻译提示词或思考策略变更时自动失效。
   return fingerprint(JSON.stringify({ cacheVersion: 2, promptVersion: 3, thinkingPolicy: "off-v1",
     protocol: config.protocol, endpoint: getEffectiveGeneralEndpoint(config),
-    model: config.model, temperature: config.temperature ?? null }))
+    model: config.model, temperature: config.temperature ?? null,
+    ...(targetLanguage === "zh-CN" ? {} : { targetLanguage }) }))
 }
 
-function novelPath(uid: string, novelId: number): string {
-  return `${pixivDataDirectory()}/NovelTranslations/users/${uid}/${novelId}.json`
+function cacheLanguageSuffix(targetLanguage: NovelTranslationTargetLanguage): string {
+  return targetLanguage === "zh-CN" ? "" : `-${targetLanguage}`
 }
 
-function seriesPath(uid: string, seriesId: number): string {
-  return `${pixivDataDirectory()}/NovelTranslations/users/${uid}/series-${seriesId}.json`
+function novelPath(uid: string, novelId: number, targetLanguage: NovelTranslationTargetLanguage): string {
+  return `${pixivDataDirectory()}/NovelTranslations/users/${uid}/${novelId}${cacheLanguageSuffix(targetLanguage)}.json`
+}
+
+function seriesPath(uid: string, seriesId: number, targetLanguage: NovelTranslationTargetLanguage): string {
+  return `${pixivDataDirectory()}/NovelTranslations/users/${uid}/series-${seriesId}${cacheLanguageSuffix(targetLanguage)}.json`
 }
 
 function readStored(path: string): StoredTranslation | null {
@@ -97,6 +121,7 @@ function cleanError(error: unknown): string {
   if (/401|403|unauthorized|api.?key|鉴权/i.test(value)) return "模型鉴权失败，请检查智能助手设置"
   if (/429|rate.limit|限流/i.test(value)) return "模型限流，请稍后重试"
   if (/timeout|超时|abort/i.test(value)) return "请求超时，请重试"
+  if (/译文质量检查失败|链接占位符/.test(value)) return value.slice(0, 160)
   return "翻译失败，请检查网络与模型设置后重试"
 }
 
@@ -133,21 +158,29 @@ export class NovelTranslationSession {
   private persistent: boolean
 
   constructor(input: NovelTranslationInput) {
-    this.input = input
+    const targetLanguage = input.targetLanguage ?? "zh-CN"
+    this.input = { ...input, targetLanguage }
     this.uid = resolveEffectiveUID()
-    this.model = modelIdentity()
-    this.persistent = this.model !== "scripting-assistant"
-    const saved = this.persistent ? readStored(novelPath(this.uid, input.novelId)) : null
+    this.model = modelIdentity(targetLanguage)
+    this.persistent = isCustomAIConfigured()
+    const saved = this.persistent ? readStored(novelPath(this.uid, input.novelId, targetLanguage)) : null
     const source = fingerprint(input.text)
     const titleFingerprint = fingerprint(input.title)
+    const captionFingerprint = fingerprint(input.caption ?? "")
     const sameTitle = saved?.titleFingerprint === titleFingerprint
+    // 旧缓存没有简介指纹：首次升级时保留昂贵的正文译文，并补生成标题/简介；之后简介变化会正常失效。
+    const sameCaption = !saved?.captionFingerprint || saved.captionFingerprint === captionFingerprint
     const sameSeries = (saved?.seriesId ?? null) === (input.seriesId ?? null)
-    this.stored = saved?.model === this.model ? { ...saved, source, titleFingerprint, seriesId: input.seriesId ?? null,
-      blocks: sameTitle ? saved.blocks : {},
-      summary: saved.source === source && sameTitle ? saved.summary : undefined,
+    const sameContext = saved?.source === source && sameTitle && sameCaption
+    this.stored = saved?.model === this.model ? { ...saved, source, titleFingerprint, captionFingerprint,
+      seriesId: input.seriesId ?? null,
+      blocks: sameTitle && sameCaption ? saved.blocks : {},
+      translatedTitle: sameContext ? saved.translatedTitle : undefined,
+      translatedCaption: sameContext ? saved.translatedCaption : undefined,
+      summary: sameContext ? saved.summary : undefined,
       glossary: saved.source === source && sameTitle && sameSeries ? saved.glossary : undefined,
       glossarySkipped: saved.source === source && sameTitle && sameSeries ? saved.glossarySkipped : undefined } : {
-      version: 2, model: this.model, source, titleFingerprint, seriesId: input.seriesId ?? null,
+      version: 2, model: this.model, source, titleFingerprint, captionFingerprint, seriesId: input.seriesId ?? null,
       mode: saved?.mode ?? "original", blocks: {},
     }
     this.snapshot = this.hydrate()
@@ -162,6 +195,7 @@ export class NovelTranslationSession {
       blocks[item.id] = {
         id: item.id,
         original: item.text,
+        kind: item.kind ?? "text",
         translation: valid ? saved.translation : undefined,
         status: valid && saved.translation ? "done" : valid && saved.error ? "error" : "pending",
         error: valid ? saved.error : undefined,
@@ -171,16 +205,20 @@ export class NovelTranslationSession {
       source: fingerprint(block.original), translation: block.translation, error: block.error,
     }]))
     const seriesKey = this.input.seriesId ? `${this.uid}:${this.model}:${this.input.seriesId}` : ""
-    const seriesFile = this.input.seriesId && this.persistent ? readStored(seriesPath(this.uid, this.input.seriesId)) : null
+    const seriesFile = this.input.seriesId && this.persistent
+      ? readStored(seriesPath(this.uid, this.input.seriesId, this.input.targetLanguage)) : null
     const inherited = seriesKey
       ? seriesGlossaries.get(seriesKey) ?? (seriesFile?.model === this.model ? seriesFile.glossary ?? "" : "")
       : ""
     const glossary = mergeGlossary(inherited, this.stored.glossary ?? "")
     const needsGlossary = this.input.text.length >= 500 || Boolean(this.input.seriesId)
-    return this.count({ novelId: this.input.novelId, mode: this.stored.mode, running: false, blocks,
+    return this.count({ novelId: this.input.novelId, targetLanguage: this.input.targetLanguage,
+      mode: this.stored.mode, running: false, blocks,
       done: 0, total: 0, failed: 0, phase: "idle",
-      summaryStatus: this.stored.summary ? "ready" : "pending",
+      summaryStatus: this.stored.summary && this.stored.translatedTitle &&
+        (!this.input.caption || this.stored.translatedCaption) ? "ready" : "pending",
       glossaryStatus: glossary ? "ready" : needsGlossary && !this.stored.glossarySkipped ? "pending" : "skipped",
+      translatedTitle: this.stored.translatedTitle, translatedCaption: this.stored.translatedCaption,
       summary: this.stored.summary, glossary, glossaryCount: glossaryEntries(glossary).size,
       seriesGlossaryCount: glossaryEntries(inherited).size,
       thinkingNotice: getNovelTranslationThinkingNotice() })
@@ -201,7 +239,7 @@ export class NovelTranslationSession {
     this.stored.mode = this.snapshot.mode
     if (!this.persistent) return
     try {
-      writeTextSafely(novelPath(this.uid, this.input.novelId), JSON.stringify(this.stored))
+      writeTextSafely(novelPath(this.uid, this.input.novelId, this.input.targetLanguage), JSON.stringify(this.stored))
     } catch {
       this.snapshot = { ...this.snapshot, message: CACHE_WRITE_WARNING }
     }
@@ -238,6 +276,7 @@ export class NovelTranslationSession {
     this.pause()
     this.stored = { version: 2, model: this.model, source: fingerprint(this.input.text),
       titleFingerprint: fingerprint(this.input.title),
+      captionFingerprint: fingerprint(this.input.caption ?? ""),
       seriesId: this.input.seriesId ?? null, mode: "original", blocks: {} }
     this.snapshot = this.hydrate()
     this.publish()
@@ -253,7 +292,9 @@ export class NovelTranslationSession {
     const targets = Object.values(this.snapshot.blocks).filter((b) =>
       onlyIds ? onlyIds.includes(b.id) : b.status !== "done"
     )
-    if (targets.length === 0) return
+    const needsContext = this.snapshot.summaryStatus !== "ready" ||
+      this.snapshot.glossaryStatus === "pending" || this.snapshot.glossaryStatus === "error"
+    if (targets.length === 0 && !needsContext) return
     const run = ++this.runId
     this.snapshot = { ...this.snapshot, running: true, message: undefined }
     this.publish()
@@ -267,8 +308,10 @@ export class NovelTranslationSession {
         this.controllers.delete(contextController)
       }
       if (run !== this.runId || contextController.signal.aborted) return
-      this.snapshot = { ...this.snapshot, phase: "translating" }
-      this.publish()
+      if (targets.length > 0) {
+        this.snapshot = { ...this.snapshot, phase: "translating" }
+        this.publish()
+      }
       let cursor = 0
       const worker = async () => {
         while (run === this.runId && cursor < targets.length) {
@@ -279,10 +322,29 @@ export class NovelTranslationSession {
           block.error = undefined
           this.publish()
           try {
-            const translation = await translateNovelPassage(block.original, {
-              title: this.input.title, summary: context.summary, glossary: context.glossary,
-              signal: controller.signal,
-            })
+            const options = { title: this.input.title, summary: context.summary, glossary: context.glossary,
+              signal: controller.signal, targetLanguage: this.input.targetLanguage, kind: block.kind }
+            let translation: string
+            try {
+              translation = await translateNovelPassage(block.original, options)
+            } catch (initialError) {
+              if (run !== this.runId || controller.signal.aborted) return
+              const errorText = initialError instanceof Error ? initialError.message : String(initialError)
+              const retryable = block.kind === "text" && block.original.length >= 60 &&
+                !/401|403|unauthorized|api.?key|鉴权|429|rate.limit|限流|timeout|超时|abort/i.test(errorText)
+              const split = retryable ? splitNovelPassageIntoThree(block.original) : null
+              if (!split) throw initialError
+              const translatedParts: string[] = []
+              for (const part of split.parts) {
+                if (run !== this.runId || controller.signal.aborted) return
+                // 子段直达单块翻译接口，不再进入本层失败拆分，保证原块最多三分一次。
+                translatedParts.push(await translateNovelPassage(part, options))
+              }
+              translation = translatedParts[0] + split.separators[0] +
+                translatedParts[1] + split.separators[1] + translatedParts[2]
+              validateNovelTranslation(block.original, translation,
+                this.input.targetLanguage, block.kind)
+            }
             if (run !== this.runId || controller.signal.aborted) return
             if (!translation.trim()) throw new Error("empty translation")
             block.translation = translation.trim()
@@ -319,21 +381,27 @@ export class NovelTranslationSession {
   private async getContext(signal: { aborted: boolean; addEventListener?: any; removeEventListener?: any }): Promise<{ summary?: string; glossary?: string }> {
     const needsGlossary = this.input.text.length >= 500 || Boolean(this.input.seriesId)
     const seriesKey = this.input.seriesId ? `${this.uid}:${this.model}:${this.input.seriesId}` : ""
-    const seriesFile = this.input.seriesId && this.persistent ? readStored(seriesPath(this.uid, this.input.seriesId)) : null
+    const seriesFile = this.input.seriesId && this.persistent
+      ? readStored(seriesPath(this.uid, this.input.seriesId, this.input.targetLanguage)) : null
     const inherited = seriesKey
       ? seriesGlossaries.get(seriesKey) ?? (seriesFile?.model === this.model ? seriesFile.glossary ?? "" : "")
       : ""
-    if (!this.stored.summary) {
+    if (!this.stored.summary || !this.stored.translatedTitle ||
+      (this.input.caption && !this.stored.translatedCaption)) {
       this.snapshot = { ...this.snapshot, phase: "summary", summaryStatus: "running" }
       this.publish()
       try {
-        const context = await generateNovelTranslationContext(this.input.title, this.input.text, {
-          summary: true, glossary: false,
+        const context = await generateNovelTranslationContext(this.input.title, this.input.caption, this.input.text, {
+          summary: true, glossary: false, targetLanguage: this.input.targetLanguage,
         }, signal)
         if (signal.aborted) return {}
-        if (!context.summary) throw new Error("摘要为空")
+        if (!context.summary || !context.translatedTitle ||
+          (this.input.caption && !context.translatedCaption)) throw new Error("标题、简介或摘要为空")
+        this.stored.translatedTitle = context.translatedTitle
+        this.stored.translatedCaption = context.translatedCaption
         this.stored.summary = context.summary
-        this.snapshot = { ...this.snapshot, summary: context.summary, summaryStatus: "ready" }
+        this.snapshot = { ...this.snapshot, translatedTitle: context.translatedTitle,
+          translatedCaption: context.translatedCaption, summary: context.summary, summaryStatus: "ready" }
         this.persist(); this.publish()
       } catch {
         if (signal.aborted) return {}
@@ -345,8 +413,9 @@ export class NovelTranslationSession {
       this.snapshot = { ...this.snapshot, phase: "glossary", glossaryStatus: "running" }
       this.publish()
       try {
-        const context = await generateNovelTranslationContext(this.input.title, this.input.text, {
+        const context = await generateNovelTranslationContext(this.input.title, this.input.caption, this.input.text, {
           summary: false, glossary: true, knownGlossary: inherited,
+          targetLanguage: this.input.targetLanguage,
         }, signal)
         if (signal.aborted) return {}
         const normalized = mergeGlossary("", context.glossary ?? "")
@@ -366,7 +435,7 @@ export class NovelTranslationSession {
     let latestInherited = inherited
     let glossary = mergeGlossary(inherited, this.stored.glossary ?? "")
     if (this.input.seriesId) {
-      const path = seriesPath(this.uid, this.input.seriesId)
+      const path = seriesPath(this.uid, this.input.seriesId, this.input.targetLanguage)
       // 其他章节可能在摘要/术语生成期间写入了新词，提交前重新读取并合并。
       const latestSeriesFile = this.persistent ? readStored(path) : null
       latestInherited = seriesGlossaries.get(seriesKey)
@@ -385,7 +454,8 @@ export class NovelTranslationSession {
       }
     }
     if (signal.aborted) return {}
-    this.snapshot = { ...this.snapshot, summary: this.stored.summary, glossary,
+    this.snapshot = { ...this.snapshot, translatedTitle: this.stored.translatedTitle,
+      translatedCaption: this.stored.translatedCaption, summary: this.stored.summary, glossary,
       glossaryCount: glossaryEntries(glossary).size,
       seriesGlossaryCount: glossaryEntries(latestInherited).size,
       glossaryStatus: glossary ? "ready" : this.snapshot.glossaryStatus }
@@ -399,7 +469,7 @@ const resumeAfterMinimize = new Set<NovelTranslationSession>()
 
 export function getNovelTranslationSession(input: NovelTranslationInput): NovelTranslationSession {
   const owner = `${resolveEffectiveUID()}:${input.novelId}:`
-  const key = `${owner}${modelIdentity()}:${input.seriesId ?? 0}:${fingerprint(input.title)}:${fingerprint(input.text)}:${fingerprint(JSON.stringify(input.blocks))}`
+  const key = `${owner}${modelIdentity(input.targetLanguage ?? "zh-CN")}:${input.seriesId ?? 0}:${fingerprint(input.title)}:${fingerprint(input.caption ?? "")}:${fingerprint(input.text)}:${fingerprint(JSON.stringify(input.blocks))}`
   let session = sessions.get(key)
   if (!session) {
     // 同一本小说的新原文或新模型不得与旧请求同时写入同一个缓存文件。
@@ -444,7 +514,7 @@ export function novelTranslationCacheUsage(): { count: number; bytes: number } {
   let count = 0
   let bytes = 0
   for (const name of FileManager.readDirectorySync(dir, false)) {
-    if (!/^(?:\d+|series-\d+)\.json(?:\.bak)?$/.test(name)) continue
+    if (!/^(?:\d+|series-\d+)(?:-[A-Za-z-]+)?\.json(?:\.bak)?$/.test(name)) continue
     const path = `${dir}/${name}`
     if (FileManager.isDirectorySync(path)) continue
     count += 1
@@ -466,7 +536,7 @@ export function clearNovelTranslationCache(): void {
   const dir = `${pixivDataDirectory()}/NovelTranslations/users/${uid}`
   if (!FileManager.existsSync(dir)) return
   for (const name of FileManager.readDirectorySync(dir, false)) {
-    if (!/^(?:\d+|series-\d+)\.json(?:\.bak)?$/.test(name)) continue
+    if (!/^(?:\d+|series-\d+)(?:-[A-Za-z-]+)?\.json(?:\.bak)?$/.test(name)) continue
     const path = `${dir}/${name}`
     if (!FileManager.isDirectorySync(path)) FileManager.removeSync(path)
   }

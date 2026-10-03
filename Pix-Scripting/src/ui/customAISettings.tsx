@@ -64,11 +64,22 @@ import {
 declare const Pasteboard: any
 declare const Safari: any
 import { triggerHaptic } from "../platform/haptics"
+import {
+  NOVEL_TRANSLATION_TARGETS,
+  loadNovelReaderSettings,
+  onNovelReaderSettingsChanged,
+  saveNovelReaderSettings,
+  type NovelReaderSettings,
+  type NovelTranslationTargetLanguage,
+} from "../store/novelReaderSettings"
 declare const Dialog: any
 
 export function CustomAISettingsView() {
   const [profile, setProfile] = useState<CustomAIProfile>(() => loadCustomAIProfile())
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings())
+  const [novelReaderSettings, setNovelReaderSettings] = useState<NovelReaderSettings>(
+    () => loadNovelReaderSettings()
+  )
   const [showKeyText, setShowKeyText] = useState(false)
   const [showImageKeyText, setShowImageKeyText] = useState(false)
 
@@ -94,9 +105,13 @@ export function CustomAISettingsView() {
     const unsubSettings = onSettingsChanged(() => {
       setSettings(loadSettings())
     })
+    const unsubNovelReader = onNovelReaderSettingsChanged((updated) => {
+      setNovelReaderSettings(updated)
+    })
     return () => {
       unsub()
       unsubSettings()
+      unsubNovelReader()
     }
   }, [])
 
@@ -801,7 +816,27 @@ export function CustomAISettingsView() {
         </HStack>
       </Section>
 
-      {/* 2. 生图模型 */}
+      {/* 2. 小说翻译 */}
+      <Section
+        header={<Text>小说翻译</Text>}
+        footer={<Text foregroundStyle="secondaryLabel">切换目标语言后会建立独立翻译会话，避免误用其他语言的缓存。</Text>}
+      >
+        <Picker
+          title="目标语言"
+          value={novelReaderSettings.translationTargetLanguage}
+          onChanged={(value: string) => {
+            saveNovelReaderSettings({
+              translationTargetLanguage: value as NovelTranslationTargetLanguage,
+            })
+          }}
+        >
+          {NOVEL_TRANSLATION_TARGETS.map((target) => (
+            <Text key={target.id} tag={target.id}>{target.label}</Text>
+          ))}
+        </Picker>
+      </Section>
+
+      {/* 3. 生图模型 */}
       <Section
         header={<Text>生图模型</Text>}
       >
