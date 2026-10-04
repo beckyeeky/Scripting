@@ -26,7 +26,7 @@ import {
   VStack,
   ZStack,
 } from "scripting"
-import { useLayoutMetrics } from "./Hooks"
+import { useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useExperimentalAmbientPalette } from "./ambient"
 import { AppNavigationLink, useDualRoute } from "./DualRouteContext"
 import {
@@ -53,7 +53,6 @@ import {
   type ExperimentalAmbientAlgorithm,
   type FeedColumnCap,
   type GeminiMotionSpeed,
-  type GlassStrength,
   type LaunchPage,
   type PrivacyShieldMaterial,
   type QuickActionButtonAction,
@@ -145,7 +144,7 @@ export function SettingsView() {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layoutMetrics.width >= 675
+    layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH
 
   function setExpandedKey<K extends keyof SectionExpandedState>(key: K, value: boolean) {
     setExpanded((prev) => ({ ...prev, [key]: value }))
@@ -551,7 +550,16 @@ export function SettingsView() {
         }}
       >
       {/* 1. 内容显示 */}
-      <Section>
+      <Section
+        header={
+          <HStack spacing={4} alignment="center">
+            <Image systemName="info.circle" font="caption" foregroundStyle="secondaryLabel" />
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              部分设置仅在 Scripting TestFlight 版本中生效
+            </Text>
+          </HStack>
+        }
+      >
         <DisclosureGroup
           isExpanded={expanded.content}
           onChanged={(v) => setExpandedKey("content", v)}
@@ -1181,15 +1189,7 @@ export function SettingsView() {
                             ? "色调"
                             : "系统"
                     }`,
-                    `玻璃:${
-                      settings.glassCustomTintEnabled
-                        ? "色调"
-                        : settings.glassStrength === "system"
-                          ? "系统"
-                          : settings.glassStrength === "clear"
-                            ? "透明"
-                            : "柔和"
-                    }`,
+                    settings.glassCustomTintEnabled ? "色调:开" : null,
                   ]
                     .filter(Boolean)
                     .join("·")}
@@ -1216,38 +1216,6 @@ export function SettingsView() {
             <Text tag="clear">透明</Text>
             <Text tag="soft">柔和</Text>
             <Text tag="tinted">色调</Text>
-          </Picker>
-          <Picker
-            disabled={settings.glassCustomTintEnabled}
-            label={
-              <VStack alignment="leading" spacing={2}>
-                <Text>玻璃效果</Text>
-                {settings.glassCustomTintEnabled ? (
-                  <Text font="caption2" foregroundStyle="secondaryLabel">
-                    已由下方自定义色调接管
-                  </Text>
-                ) : null}
-                <Text font="caption2" foregroundStyle="secondaryLabel">
-                  仅对新打开的页面生效
-                </Text>
-              </VStack>
-            }
-            value={
-              settings.glassCustomTintEnabled ? "tinted" : settings.glassStrength
-            }
-            onChanged={(value: string) =>
-              update({ glassStrength: value as GlassStrength })
-            }
-          >
-            {settings.glassCustomTintEnabled ? (
-              <Text tag="tinted">色调</Text>
-            ) : (
-              <>
-                <Text tag="system">系统</Text>
-                <Text tag="clear">透明</Text>
-                <Text tag="soft">柔和</Text>
-              </>
-            )}
           </Picker>
           <Toggle
             value={settings.glassCustomTintEnabled}
@@ -1341,11 +1309,9 @@ export function SettingsView() {
           >
             <VStack alignment="leading" spacing={2}>
               <Text>玻璃交互</Text>
-              {!settings.glassCustomTintEnabled && settings.glassStrength === "system" ? (
-                <Text font="caption2" foregroundStyle="secondaryLabel">
-                  「玻璃效果」为「系统」时不生效
-                </Text>
-              ) : null}
+              <Text font="caption2" foregroundStyle="secondaryLabel">
+                仅对新打开的页面生效
+              </Text>
             </VStack>
           </Toggle>
         </DisclosureGroup>
@@ -1514,7 +1480,7 @@ export function SettingsView() {
               <Spacer />
               {!expanded.widgets ? (
                 <Text font="footnote" foregroundStyle="tertiaryLabel">
-                  {formatWidgetSummary(settings)}
+                  {Device.isiPad ? formatWidgetSummary(settings) : "展开"}
                 </Text>
               ) : null}
             </HStack>

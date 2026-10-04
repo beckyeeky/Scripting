@@ -13,7 +13,7 @@ import {
   useRef,
   useState,
 } from "scripting"
-import { useLayoutMetrics } from "./Hooks"
+import { useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useDualRoute } from "./DualRouteContext"
 import { SCRIPT_VERSION } from "../config"
 import { loadSettings, onSettingsChanged, updateSettings } from "../store/settings"
@@ -40,7 +40,7 @@ export function AboutView() {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layoutMetrics.width >= 675
+    layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH
 
   useEffect(() => {
     return onSettingsChanged(() => {

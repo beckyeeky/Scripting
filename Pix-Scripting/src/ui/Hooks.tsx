@@ -915,6 +915,14 @@ export const COMPACT_LAYOUT_MAX_WIDTH = 500
 /** 宽版布局阈值 */
 export const WIDE_LAYOUT_MIN_WIDTH = 500
 
+/**
+ * iPad 宽屏阈值（对齐平行视界双栏 SPLIT_SHELL_MIN_WIDTH = 640pt）。
+ *
+ * · 屏幕/窗口宽 >= 640pt：iPad 大屏/宽屏态（分栏允许开启，单栏下启用宽屏大胶囊）；
+ * · 屏幕/窗口宽 < 640pt：紧凑小窗态（台前调度缩放小窗、侧拉小窗等，自动降级为 Compact 紧凑态）。
+ */
+export const IPAD_WIDE_MIN_WIDTH = 640
+
 export interface LayoutMetrics {
   width: number
   height: number

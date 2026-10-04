@@ -47,7 +47,7 @@ import { setActiveTabKind } from "../store/routeNavigation"
 import { destinationElement } from "./DestinationElement"
 import { useDualRoute } from "./DualRouteContext"
 import { DockSegmentedBar, useRegisterBottomAccessory } from "./bottomAccessory"
-import { useLatest, usePagedList, currentBatchSize, useLayoutMetrics } from "./Hooks"
+import { useLatest, usePagedList, currentBatchSize, useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl, recordActiveAmbientImageUrl } from "./ambient"
 import type {
   PixivIllustration,
@@ -105,7 +105,7 @@ export function FollowFeedView(props: {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layout.width >= 675
+    layout.width >= IPAD_WIDE_MIN_WIDTH
   const shouldHideTitle = isFullScreenPad
   const { ambientBackground } = useExperimentalAmbientPalette(ambientImageUrl, isTabActive || activated)
   const refreshHandlerRef = useRef<() => Promise<void>>(() => Promise.resolve())
@@ -290,7 +290,7 @@ function followToolbar(props: {
     props.isFullScreenPad ??
     (Device.isiPad &&
       !props.isSplitViewActive &&
-      layoutMetrics.width >= 675)
+      layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH)
   const isCompact = props.isCompact ?? layoutMetrics.isCompact
   const isClassic = !props.isAppleMusic
   const baseTitle =
@@ -374,10 +374,13 @@ function followToolbar(props: {
       </Picker>
     )
 
+  const wideMenuTitle =
+    props.hideNovels ? baseTitle : `${baseTitle} · ${kindLabel}`
+
   const trailingMenuLabel = isFullScreenPad ? (
     <HStack alignment="center" spacing={4}>
       <Text font="subheadline" fontWeight="semibold">
-        {fullTitle}
+        {wideMenuTitle}
       </Text>
       <Image
         systemName="chevron.down"
@@ -392,7 +395,7 @@ function followToolbar(props: {
   const trailingMenu = (
     <Menu label={trailingMenuLabel}>
       {modePicker}
-      {isClassic && !props.hideNovels ? kindPicker : null}
+      {(isClassic || isFullScreenPad) && !props.hideNovels ? kindPicker : null}
     </Menu>
   )
 

@@ -21,7 +21,7 @@ import {
 } from "../store/settings"
 import { isNovelContentVisible } from "../store/contentFilter"
 import { onNovelMarkerChanged } from "../store/bookmarkSync"
-import { useLatest, usePagedList, currentBatchSize, useLayoutMetrics } from "./Hooks"
+import { useLatest, usePagedList, currentBatchSize, useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl, recordActiveAmbientImageUrl } from "./ambient"
 import { destinationElement } from "./DestinationElement"
 import {
@@ -77,7 +77,7 @@ export function NovelLibraryView() {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layoutMetrics.width >= 675
+    layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH
 
   const sortedItems = useMemo(() => {
     if (!isAscending) return paged.items

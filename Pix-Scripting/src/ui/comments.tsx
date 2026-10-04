@@ -923,7 +923,7 @@ function flattenCommentTokens(tokens: CommentMixedToken[]): CommentRenderItem[] 
         }
       }
     } else {
-      const chunks = splitTextIntoSafeChunks(tok.text, 4)
+      const chunks = splitTextIntoSafeChunks(tok.text, 8)
       for (let j = 0; j < chunks.length; j++) {
         items.push({
           kind: "text",
@@ -979,7 +979,7 @@ function CommentFlowLine(props: { line: string }) {
           )
         }
         return (
-          <Text key={item.key} font="footnote">
+          <Text key={item.key} font="footnote" textSelection={true}>
             {item.text}
           </Text>
         )
@@ -1029,6 +1029,7 @@ function CommentBody(props: { comment: PixivComment }) {
       alignment="leading"
       spacing={4}
       frame={{ maxWidth: "infinity", alignment: "leading" }}
+      textSelection={true}
     >
       {lines.map((line, lineIdx) => {
         if (!line.trim()) {

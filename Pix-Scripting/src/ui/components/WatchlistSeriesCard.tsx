@@ -12,7 +12,7 @@ import {
   ZStack,
   useState,
 } from "scripting"
-import { appGlass } from "./glass"
+import { appGlass, appInteractiveGlass } from "./glass"
 import { AppNavigationLink, useDualRoute } from "../DualRouteContext"
 import { AvatarImage, CachedImage } from "./CachedImage"
 import { formatNumber } from "./formatUtils"
@@ -229,7 +229,7 @@ export function WatchlistSeriesCard(props: {
         <ZStack
           alignment="center"
           frame={{ width: 34, height: 34 }}
-          glassEffect={appGlass("circle")}
+          glassEffect={appInteractiveGlass("circle")}
           contentShape="circle"
           offset={{ x: -8, y: -8 }}
           zIndex={2}

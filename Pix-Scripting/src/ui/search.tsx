@@ -24,7 +24,7 @@ import {
   VStack,
   ZStack,
 } from "scripting"
-import { appGlass, appThemeColor } from "./components/glass"
+import { appGlass, appInteractiveGlass, appThemeColor } from "./components/glass"
 import {
   PAGE_TOOLBAR_BACKGROUND,
   PAGE_TOOLBAR_BACKGROUND_VISIBILITY,
@@ -91,6 +91,7 @@ import {
   useLatest,
   usePagedList,
   useLayoutMetrics,
+  IPAD_WIDE_MIN_WIDTH,
 } from "./Hooks"
 import { useExperimentalAmbientPalette } from "./ambient"
 import type {
@@ -502,7 +503,7 @@ export function SearchView(props: {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layoutMetrics.width >= 675
+    layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH
   const [visitedScopes, setVisitedScopes] = useState<Set<SearchScope>>(() => new Set([scope]))
 
   useEffect(() => {
@@ -1101,7 +1102,7 @@ export function SearchView(props: {
         refreshable={async () => {
           if (submitted && !searchPresented) {
             await targetPaged.refresh()
-          } else if (!submitted && !searchPresented && !query.trim()) {
+          } else if (!submitted && (!searchPresented || Device.isiPad) && !query.trim()) {
             if (targetScope === "illust") {
               await loadTrendingIllustData()
             } else if (targetScope === "novel") {
@@ -1142,8 +1143,51 @@ export function SearchView(props: {
             </VStack>
           ) : null}
 
-          {/* 2. 搜索激活态且未输入关键词：展示搜索历史记录 */}
-          {!isSuggestingActive && searchPresented && !query.trim() ? (
+          {/* 2. iPad 专属合屏模式：上方搜索记录（有则根据全屏/分栏自适应双列/单列，无则隐去） + 下方热门标签/推荐用户 */}
+          {!isSuggestingActive && !submitted && !query.trim() && Device.isiPad ? (
+            <VStack spacing={8} frame={{ maxWidth: "infinity" }}>
+              <SearchHistorySection
+                history={getSearchHistory(targetScope)}
+                isDoubleColumn={isFullScreenPad}
+                hideIfEmpty={true}
+                bottomInset={0}
+                onSelect={(item) => {
+                  submitSearch(item)
+                }}
+                onRemove={(item) => {
+                  removeSearchHistory(item, targetScope)
+                }}
+                onClear={() => {
+                  clearSearchHistory(targetScope)
+                }}
+              />
+              {targetScope === "illust" ? (
+                <TrendingSection
+                  tags={trendingIllust}
+                  loading={trendingIllustLoading}
+                  error={trendingIllustError}
+                  onRetry={loadTrendingIllustData}
+                  onSelect={submitSearch}
+                />
+              ) : targetScope === "novel" ? (
+                <TrendingSection
+                  tags={trendingNovel}
+                  loading={trendingNovelLoading}
+                  error={trendingNovelError}
+                  onRetry={loadTrendingNovelData}
+                  onSelect={submitSearch}
+                />
+              ) : (
+                <RecommendedUsersSection
+                  paged={userRecommendedPaged}
+                  hideNovels={hideNovels}
+                />
+              )}
+            </VStack>
+          ) : null}
+
+          {/* 3. iPhone 模式：激活搜索态且未输入关键词，单独展示搜索历史记录 */}
+          {!isSuggestingActive && searchPresented && !query.trim() && !Device.isiPad ? (
             <SearchHistorySection
               history={getSearchHistory(targetScope)}
               onSelect={(item) => {
@@ -1158,8 +1202,8 @@ export function SearchView(props: {
             />
           ) : null}
 
-          {/* 3. 默认未搜索状态：展示对应分类的热门标签或推荐用户 */}
-          {!isSuggestingActive && !submitted && !searchPresented && !query.trim() ? (
+          {/* 4. iPhone 模式：默认未搜索状态，单独展示热门标签或推荐用户 */}
+          {!isSuggestingActive && !submitted && !searchPresented && !query.trim() && !Device.isiPad ? (
             targetScope === "illust" ? (
               <TrendingSection
                 tags={trendingIllust}
@@ -1198,7 +1242,7 @@ export function SearchView(props: {
                   alignment="center"
                   spacing={6}
                   padding={{ horizontal: 12, vertical: 6 }}
-                  glassEffect={appGlass("capsule")}
+                  glassEffect={appInteractiveGlass("capsule")}
                   contentShape="capsule"
                 >
                   <Image systemName="magnifyingglass" font="caption" foregroundStyle="secondaryLabel" />
@@ -1243,7 +1287,14 @@ export function SearchView(props: {
                   }}
                   contentShape="capsule"
                 >
-                  <HStack alignment="center" spacing={4} padding={{ horizontal: 8, vertical: 5 }}>
+                  <HStack
+                    alignment="center"
+                    spacing={4}
+                    padding={{ horizontal: 10, vertical: 6 }}
+                    glassEffect={appInteractiveGlass("capsule")}
+                    contentShape="capsule"
+                    clipShape="capsule"
+                  >
                     <Image
                       systemName="arrow.uturn.backward"
                       font="caption"
@@ -1251,6 +1302,7 @@ export function SearchView(props: {
                     />
                     <Text
                       font="subheadline"
+                      fontWeight="medium"
                       foregroundStyle={appThemeColor("systemBlue")}
                     >
                       返回热门
@@ -1474,7 +1526,7 @@ export function SearchView(props: {
           onChanged: onQueryChanged,
           placement: isResultsPage
             ? "navigationBarDrawerAutomaticDisplay"
-            : "navigationBarDrawer",
+            : "navigationBarDrawerAlwaysDisplay",
           prompt: "输入关键词",
           presented: {
             value: searchPresented,
@@ -1596,13 +1648,9 @@ function searchToolbar(props: {
     </Picker>
   )
 
-  const wideMenuTitle = isClassic
-    ? isUserScope
-      ? "用户"
-      : `${menuScopeLabel} · ${sortLabel}`
-    : isUserScope
-      ? "用户"
-      : sortLabel
+  const wideMenuTitle = isUserScope
+    ? "用户"
+    : `${menuScopeLabel} · ${sortLabel}`
 
   const wideMenuLabel = (
     <HStack alignment="center" spacing={4}>
@@ -1625,7 +1673,7 @@ function searchToolbar(props: {
 
   const searchMenuNode = (
     <Menu key="search-main-menu" label={menuLabel}>
-      {isClassic || (isFullScreenPad && isUserScope) ? scopePicker : null}
+      {isClassic || isFullScreenPad ? scopePicker : null}
       {!isUserScope ? sortPicker : null}
       {!isUserScope ? (
         <Button
@@ -1860,13 +1908,87 @@ function UserSuggestionsSection(props: {
 
 // -------------------- 搜索记录组件（iOS 现代卡片设计） --------------------
 
+function SearchHistoryItem(props: {
+  item: string
+  onSelect: (query: string) => void
+  onRemove: (query: string) => void
+}) {
+  const { item, onSelect, onRemove } = props
+
+  return (
+    <HStack alignment="center" spacing={0} frame={{ maxWidth: "infinity" }}>
+      <Button
+        buttonStyle="plain"
+        action={() => onSelect(item)}
+        contentShape="rect"
+        frame={{ maxWidth: "infinity", alignment: "leading" }}
+      >
+        <HStack
+          spacing={10}
+          alignment="center"
+          contentShape="rect"
+          padding={{ horizontal: 14, vertical: 12 }}
+          frame={{ maxWidth: "infinity", alignment: "leading" }}
+        >
+          <Image
+            systemName="magnifyingglass"
+            font="subheadline"
+            foregroundStyle="secondaryLabel"
+          />
+          <Text font="body" foregroundStyle="label" lineLimit={1}>
+            {item}
+          </Text>
+          <Spacer />
+        </HStack>
+      </Button>
+      <Button
+        buttonStyle="plain"
+        contentShape="rect"
+        action={() => {
+          try {
+            triggerHaptic("medium")
+          } catch {}
+          onRemove(item)
+        }}
+      >
+        <HStack
+          alignment="center"
+          contentShape="rect"
+          padding={{ horizontal: 12, vertical: 12 }}
+        >
+          <Image
+            systemName="xmark.circle.fill"
+            font="subheadline"
+            foregroundStyle="secondaryLabel"
+          />
+        </HStack>
+      </Button>
+    </HStack>
+  )
+}
+
 function SearchHistorySection(props: {
   history: string[]
+  isDoubleColumn?: boolean
+  hideIfEmpty?: boolean
+  bottomInset?: number
   onSelect: (query: string) => void
   onRemove: (query: string) => void
   onClear: () => void
 }) {
-  const { history, onSelect, onRemove, onClear } = props
+  const {
+    history,
+    isDoubleColumn = false,
+    hideIfEmpty = false,
+    bottomInset = Math.round(loadSettings().feedBottomInset / 2),
+    onSelect,
+    onRemove,
+    onClear,
+  } = props
+
+  if (hideIfEmpty && history.length === 0) {
+    return null
+  }
 
   const handleClear = async () => {
     try {
@@ -1890,11 +2012,18 @@ function SearchHistorySection(props: {
     }
   }
 
+  const pairs: [string, string?][] = []
+  if (isDoubleColumn) {
+    for (let i = 0; i < history.length; i += 2) {
+      pairs.push([history[i], history[i + 1]])
+    }
+  }
+
   return (
     <VStack
       alignment="leading"
       spacing={8}
-      padding={{ horizontal: 8, bottom: Math.round(loadSettings().feedBottomInset / 2) }}
+      padding={{ horizontal: 8, bottom: bottomInset }}
       frame={{ maxWidth: "infinity" }}
     >
       <HStack alignment="center" spacing={8} frame={{ maxWidth: "infinity" }} padding={{ horizontal: 4, vertical: 4 }}>
@@ -1908,13 +2037,20 @@ function SearchHistorySection(props: {
             action={() => void handleClear()}
             contentShape="capsule"
           >
-            <HStack alignment="center" spacing={4} padding={{ horizontal: 8, vertical: 5 }}>
+            <HStack
+              alignment="center"
+              spacing={4}
+              padding={{ horizontal: 10, vertical: 5 }}
+              glassEffect={appInteractiveGlass("capsule")}
+              contentShape="capsule"
+              clipShape="capsule"
+            >
               <Image
                 systemName="trash"
                 font="caption"
                 foregroundStyle="systemRed"
               />
-              <Text font="subheadline" foregroundStyle="systemRed">
+              <Text font="subheadline" fontWeight="medium" foregroundStyle="systemRed">
                 清除记录
               </Text>
             </HStack>
@@ -1941,63 +2077,42 @@ function SearchHistorySection(props: {
           clipShape={{ type: "rect", cornerRadius: 12 }}
           frame={{ maxWidth: "infinity" }}
         >
-          {history.map((item, index) => (
-            <VStack key={`${item}-${index}`} spacing={0} frame={{ maxWidth: "infinity" }}>
-              {index > 0 ? <Divider /> : null}
-              <HStack
-                alignment="center"
-                spacing={0}
-                frame={{ maxWidth: "infinity" }}
-              >
-                <Button
-                  buttonStyle="plain"
-                  action={() => onSelect(item)}
-                  contentShape="rect"
-                  frame={{ maxWidth: "infinity", alignment: "leading" }}
-                >
-                  <HStack
-                    spacing={10}
-                    alignment="center"
-                    contentShape="rect"
-                    padding={{ horizontal: 14, vertical: 12 }}
-                    frame={{ maxWidth: "infinity", alignment: "leading" }}
-                  >
-                    <Image
-                      systemName="magnifyingglass"
-                      font="subheadline"
-                      foregroundStyle="secondaryLabel"
-                    />
-                    <Text font="body" foregroundStyle="label" lineLimit={1}>
-                      {item}
-                    </Text>
-                    <Spacer />
+          {isDoubleColumn
+            ? pairs.map((pair, rowIndex) => (
+                <VStack key={`pair-${rowIndex}`} spacing={0} frame={{ maxWidth: "infinity" }}>
+                  {rowIndex > 0 ? <Divider /> : null}
+                  <HStack alignment="center" spacing={0} frame={{ maxWidth: "infinity" }}>
+                    <VStack frame={{ maxWidth: "infinity", alignment: "leading" }}>
+                      <SearchHistoryItem
+                        item={pair[0]}
+                        onSelect={onSelect}
+                        onRemove={onRemove}
+                      />
+                    </VStack>
+                    {pair[1] ? (
+                      <VStack frame={{ maxWidth: "infinity", alignment: "leading" }}>
+                        <SearchHistoryItem
+                          item={pair[1]}
+                          onSelect={onSelect}
+                          onRemove={onRemove}
+                        />
+                      </VStack>
+                    ) : (
+                      <Spacer frame={{ maxWidth: "infinity" }} />
+                    )}
                   </HStack>
-                </Button>
-                <Button
-                  buttonStyle="plain"
-                  contentShape="rect"
-                  action={() => {
-                    try {
-                      triggerHaptic("medium")
-                    } catch {}
-                    onRemove(item)
-                  }}
-                >
-                  <HStack
-                    alignment="center"
-                    contentShape="rect"
-                    padding={{ horizontal: 12, vertical: 12 }}
-                  >
-                    <Image
-                      systemName="xmark.circle.fill"
-                      font="subheadline"
-                      foregroundStyle="secondaryLabel"
-                    />
-                  </HStack>
-                </Button>
-              </HStack>
-            </VStack>
-          ))}
+                </VStack>
+              ))
+            : history.map((item, index) => (
+                <VStack key={`${item}-${index}`} spacing={0} frame={{ maxWidth: "infinity" }}>
+                  {index > 0 ? <Divider /> : null}
+                  <SearchHistoryItem
+                    item={item}
+                    onSelect={onSelect}
+                    onRemove={onRemove}
+                  />
+                </VStack>
+              ))}
         </VStack>
       )}
     </VStack>

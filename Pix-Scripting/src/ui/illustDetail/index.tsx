@@ -21,6 +21,7 @@ import {
 } from "../components"
 import { CommentsSheet } from "../comments"
 import { IllustAISheet } from "../aiSheet"
+import { loadSettings } from "../../store/settings"
 import { useIllustDetailState } from "./useIllustDetailState"
 import { IllustMediaViewport } from "./IllustMediaViewport"
 import { IllustMetaSection } from "./IllustMetaSection"
@@ -214,6 +215,11 @@ export function IllustDetailView(props: { illustID: number }) {
           <IllustAuthorCard
             user={current.user}
             illustType={current.type}
+            onFollowSuccess={() => {
+              if (loadSettings().showRelatedUsersOnFollow) {
+                actions.setShowRelatedUsers(true)
+              }
+            }}
           />
 
           {/* 关联推荐作品流 */}

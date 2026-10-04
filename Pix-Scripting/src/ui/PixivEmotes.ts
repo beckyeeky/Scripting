@@ -109,16 +109,54 @@ export function hasPixivEmoji(text: string): boolean {
   return matches.some((code) => EMOJI_CODE_TO_URL.has(code))
 }
 
-export function splitTextIntoSafeChunks(text: string, maxChunkLength: number = 4): string[] {
+/**
+ * 智能断句与安全分片算法：
+ * 1. 优先按中英文标点、符号与空格自然断句，保留完整语义短语；
+ * 2. 对超长无标点连续文本按 maxChunkLength（默认 8）进行安全保底切片，彻底杜绝 FlowLayout 横向溢出。
+ */
+export function splitTextIntoSafeChunks(
+  text: string,
+  maxChunkLength: number = 8
+): string[] {
   if (!text) return []
   if (text.length <= maxChunkLength) return [text]
+
   const chunks: string[] = []
-  let cursor = 0
-  while (cursor < text.length) {
-    chunks.push(text.slice(cursor, cursor + maxChunkLength))
-    cursor += maxChunkLength
+  const punctuationRegex = /([，,。\.！!？\?；;、~～\s\n]+)/g
+  const parts = text.split(punctuationRegex)
+
+  let current = ""
+  for (const part of parts) {
+    if (!part) continue
+
+    // 若单个片段自身就超过安全上限（例如连续超长无标点字符）
+    if (part.length > maxChunkLength) {
+      if (current) {
+        chunks.push(current)
+        current = ""
+      }
+      let cursor = 0
+      while (cursor < part.length) {
+        chunks.push(part.slice(cursor, cursor + maxChunkLength))
+        cursor += maxChunkLength
+      }
+      continue
+    }
+
+    // 尝试与当前累积串合并
+    if (current.length + part.length <= maxChunkLength) {
+      current += part
+    } else {
+      if (current) chunks.push(current)
+      current = part
+    }
   }
-  return chunks
+
+  if (current) {
+    chunks.push(current)
+  }
+
+  return chunks.length > 0 ? chunks : [text]
 }
 
 export function tokenizeCommentText(text: string): CommentToken[] {
