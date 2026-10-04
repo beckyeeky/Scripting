@@ -51,7 +51,7 @@ import {
   DownloadTaskManager,
   type DownloadTaskItem,
 } from "../downloader/downloadTaskManager"
-import { appToolbar } from "./components"
+import { appToolbar, EmptyView } from "./components"
 import { useLayoutMetrics } from "./Hooks"
 import { destinationElement } from "./DestinationElement"
 import { loadSettings, onSettingsChanged, updateSettings } from "../store/settings"
@@ -595,23 +595,16 @@ export function DownloadTasksView(props: { onClose?: () => void }) {
         }}
       >
       {tasks.length === 0 ? (
-        <Section>
-          <VStack
-            alignment="center"
-            spacing={10}
-            padding={{ vertical: 36, horizontal: 20 }}
-            frame={{ maxWidth: "infinity" }}
-          >
-            <Image
-              systemName="list.clipboard"
-              font="largeTitle"
-              foregroundStyle="secondaryLabel"
-            />
-            <Text font="headline" fontWeight="medium" foregroundStyle="secondaryLabel" multilineTextAlignment="center">
-              暂无任务
-            </Text>
-          </VStack>
-        </Section>
+        <VStack
+          alignment="center"
+          frame={{ maxWidth: "infinity" }}
+          listRowBackground={<Rectangle fill="clear" />}
+        >
+          <EmptyView
+            text="暂无任务"
+            systemImage="list.clipboard"
+          />
+        </VStack>
       ) : null}
 
       {activeTasks.length > 0 ? (
@@ -1429,23 +1422,16 @@ export function DownloadDetailListView(props: {
 
       {/* 文件列表为空时的独立展示 */}
       {files.length === 0 && !loading ? (
-        <Section>
-          <VStack
-            alignment="center"
-            spacing={8}
-            padding={{ vertical: 28 }}
-            frame={{ maxWidth: "infinity" }}
-          >
-            <Image
-              systemName={searchQuery ? "magnifyingglass" : emptyCategoryIcon}
-              font="largeTitle"
-              foregroundStyle="secondaryLabel"
-            />
-            <Text font="subheadline" foregroundStyle="secondaryLabel" multilineTextAlignment="center">
-              {searchQuery ? "未找到匹配的文件" : "当前分类暂无已下载文件"}
-            </Text>
-          </VStack>
-        </Section>
+        <VStack
+          alignment="center"
+          frame={{ maxWidth: "infinity" }}
+          listRowBackground={<Rectangle fill="clear" />}
+        >
+          <EmptyView
+            text={searchQuery ? "未找到匹配的文件" : "当前分类暂无已下载文件"}
+            systemImage={searchQuery ? "magnifyingglass" : emptyCategoryIcon}
+          />
+        </VStack>
       ) : null}
 
       {/* 文件列表有数据时的标准展示 */}
@@ -1992,23 +1978,16 @@ export function DownloadCreatorsListView(props: { onClose?: () => void }) {
 
       {/* 创作者列表为空时的独立展示 */}
       {creators.length === 0 && !loading ? (
-        <Section>
-          <VStack
-            alignment="center"
-            spacing={8}
-            padding={{ vertical: 28 }}
-            frame={{ maxWidth: "infinity" }}
-          >
-            <Image
-              systemName={searchQuery ? "magnifyingglass" : "person.2"}
-              font="largeTitle"
-              foregroundStyle="secondaryLabel"
-            />
-            <Text font="subheadline" foregroundStyle="secondaryLabel" multilineTextAlignment="center">
-              {searchQuery ? "未找到匹配的创作者" : "暂无创作者归档"}
-            </Text>
-          </VStack>
-        </Section>
+        <VStack
+          alignment="center"
+          frame={{ maxWidth: "infinity" }}
+          listRowBackground={<Rectangle fill="clear" />}
+        >
+          <EmptyView
+            text={searchQuery ? "未找到匹配的创作者" : "暂无创作者归档"}
+            systemImage={searchQuery ? "magnifyingglass" : "person.2"}
+          />
+        </VStack>
       ) : null}
 
       {/* 创作者列表有数据时的标准展示 */}
