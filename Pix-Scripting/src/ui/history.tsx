@@ -57,7 +57,7 @@ import {
 import { cacheIllust } from "../store/illustCache"
 import { cacheNovel } from "../store/novelCache"
 import { cardThumbUrlOf, novelThumbUrlOf, prefetch } from "../image/imageLoader"
-import { currentBatchSize, useLatest, usePagedList, useLayoutMetrics } from "./Hooks"
+import { currentBatchSize, useLatest, usePagedList, useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl, recordActiveAmbientImageUrl } from "./ambient"
 import { useDualRoute } from "./DualRouteContext"
 import { getActiveTabKind, onActiveTabChanged, requestPixivRoute, type PixivTabKind } from "../store/routeNavigation"
@@ -191,7 +191,7 @@ export function HistoryView() {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layoutMetrics.width >= 675
+    layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH
   const [showNoticeAlert, setShowNoticeAlert] = useState(false)
   const hasCheckedNoticeRef = useRef(false)
 

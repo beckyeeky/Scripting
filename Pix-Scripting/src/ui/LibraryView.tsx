@@ -44,7 +44,7 @@ import {
   getCachedIllustBookmark,
   getCachedNovelBookmark,
 } from "../store/bookmarkSync"
-import { useAsyncGuard, useLatest, usePagedList, currentBatchSize, useLayoutMetrics } from "./Hooks"
+import { useAsyncGuard, useLatest, usePagedList, currentBatchSize, useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl, recordActiveAmbientImageUrl } from "./ambient"
 import type { PixivBookmarkTag, PixivIllustration, PixivNovel } from "../types"
 import {
@@ -124,7 +124,7 @@ export function LibraryView(props?: { initialKind?: LibraryKind }) {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layoutMetrics.width >= 675
+    layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH
 
   useRegisterBottomAccessory(
     "library",
@@ -248,10 +248,19 @@ function libraryToolbar(props: {
 
   const fullTitle = `我的收藏 · ${kindLabel}`
 
+  const scopeLabel =
+    props.kind === "pixivision"
+      ? "我的收藏"
+      : props.restrict === "private"
+      ? "私密收藏"
+      : "公开收藏"
+
+  const wideMenuTitle = `${scopeLabel} · ${kindLabel}`
+
   const trailingMenuLabel = props.isFullScreenPad ? (
     <HStack alignment="center" spacing={4}>
       <Text font="subheadline" fontWeight="semibold">
-        {fullTitle}
+        {wideMenuTitle}
       </Text>
       <Image
         systemName="chevron.down"

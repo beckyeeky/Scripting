@@ -41,7 +41,7 @@ import {
   isNovelContentVisible,
 } from "../store/contentFilter"
 import { isUserFollowed, onUserFollowChanged } from "../store/userFollow"
-import { useAsyncGuard, useLatest, usePagedList, currentBatchSize, useLayoutMetrics } from "./Hooks"
+import { useAsyncGuard, useLatest, usePagedList, currentBatchSize, useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl, recordActiveAmbientImageUrl } from "./ambient"
 import type { PixivIllustration, PixivNovel } from "../types"
 import { triggerHaptic } from "../platform/haptics"
@@ -87,7 +87,7 @@ export function UserWorksView(props: { userID?: number; title?: string }) {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layoutMetrics.width >= 675
+    layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH
   const [ambientImageUrl, setAmbientImageUrl] = useState<string | null>(
     () => getLastActiveAmbientImageUrl()
   )

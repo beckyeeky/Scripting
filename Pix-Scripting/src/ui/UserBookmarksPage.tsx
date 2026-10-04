@@ -35,7 +35,7 @@ import {
   onIllustBookmarkChanged,
   onNovelBookmarkChanged,
 } from "../store/bookmarkSync"
-import { useAsyncGuard, useLatest, usePagedList, currentBatchSize, useLayoutMetrics } from "./Hooks"
+import { useAsyncGuard, useLatest, usePagedList, currentBatchSize, useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl } from "./ambient"
 import type { PixivIllustration, PixivNovel, PixivWebUserTag } from "../types"
 import {
@@ -79,7 +79,7 @@ export function UserBookmarksView(props: { userID: number }) {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layoutMetrics.width >= 675
+    layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH
 
   useEffect(() => {
     return onSettingsChanged(() => {

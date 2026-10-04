@@ -8,6 +8,7 @@ import {
 } from "scripting"
 import {
   ContainerLayoutContext,
+  IPAD_WIDE_MIN_WIDTH,
   ResponsiveContainer,
   useLayoutMetrics,
 } from "./Hooks"
@@ -22,9 +23,9 @@ import {
 import { loadSettings, onSettingsChanged } from "../store/settings"
 
 /**
- * 启用 iPad 平行视界双栏外壳的最小窗口宽度。
+ * 启用 iPad 平行视界双栏外壳的最小窗口宽度（统一收敛自 IPAD_WIDE_MIN_WIDTH = 640pt）。
  */
-export const SPLIT_SHELL_MIN_WIDTH = 640
+export const SPLIT_SHELL_MIN_WIDTH = IPAD_WIDE_MIN_WIDTH
 
 /** 详情栏主体：必须位于 ResponsiveContainer 内部拿到本栏实宽 */
 function DetailColumnBody(props: {

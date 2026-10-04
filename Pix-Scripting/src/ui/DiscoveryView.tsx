@@ -47,7 +47,7 @@ import {
   DockSegmentedBar,
   useRegisterBottomAccessory,
 } from "./bottomAccessory"
-import { useLatest, usePagedList, currentBatchSize, useLayoutMetrics } from "./Hooks"
+import { useLatest, usePagedList, currentBatchSize, useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl } from "./ambient"
 import type {
   PixivIllustration,
@@ -99,7 +99,7 @@ export function DiscoveryView(props: { onClose: () => void }) {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layout.width >= 675
+    layout.width >= IPAD_WIDE_MIN_WIDTH
   const shouldHideTitle = isFullScreenPad
   const { ambientBackground } = useExperimentalAmbientPalette(ambientImageUrl, isTabActive)
   const refreshHandlerRef = useRef<() => Promise<void>>(() => Promise.resolve())
@@ -604,7 +604,7 @@ function exploreToolbar(props: {
     props.isFullScreenPad ??
     (Device.isiPad &&
       !props.isSplitViewActive &&
-      layoutMetrics.width >= 675)
+      layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH)
   const isCompact = props.isCompact ?? layoutMetrics.isCompact
   const isClassic = !props.isAppleMusic
   const kindLabel =
@@ -628,13 +628,9 @@ function exploreToolbar(props: {
   const trailingMenuLabel = isFullScreenPad ? (
     <HStack alignment="center" spacing={4}>
       <Text font="subheadline" fontWeight="semibold">
-        {props.isAppleMusic
-          ? props.mode === "pixivision"
-            ? "特辑"
-            : baseTitle
-          : props.mode === "pixivision"
-            ? "特辑"
-            : `${baseTitle} · ${kindLabel}`}
+        {props.mode === "pixivision"
+          ? "特辑"
+          : `${baseTitle} · ${kindLabel}`}
       </Text>
       <Image
         systemName="chevron.down"
@@ -657,7 +653,7 @@ function exploreToolbar(props: {
         <Label tag="latest" title="最新" systemImage="clock" />
         <Label tag="pixivision" title="特辑" systemImage="rectangle.stack" />
       </Picker>
-      {isClassic && props.mode !== "pixivision" && (
+      {(isClassic || isFullScreenPad) && props.mode !== "pixivision" && (
         <Picker
           title="媒体类型"
           value={props.kind}

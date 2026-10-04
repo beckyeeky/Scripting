@@ -38,7 +38,7 @@ import {
   RefreshableScrollView,
 } from "./components"
 import { prefetch } from "../image/imageLoader"
-import { currentBatchSize, usePagedList, useLayoutMetrics } from "./Hooks"
+import { currentBatchSize, usePagedList, useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl, recordActiveAmbientImageUrl } from "./ambient"
 import {
   DockActionBar,
@@ -89,7 +89,7 @@ export function UserConnectionsView(props: {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layoutMetrics.width >= 675
+    layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH
 
   useEffect(() => {
     return onSettingsChanged(() => {

@@ -26,7 +26,7 @@ import {
   VStack,
   ZStack,
 } from "scripting"
-import { useLayoutMetrics } from "./Hooks"
+import { useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useExperimentalAmbientPalette } from "./ambient"
 import { AppNavigationLink, useDualRoute } from "./DualRouteContext"
 import {
@@ -141,7 +141,7 @@ export function SettingsView() {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layoutMetrics.width >= 675
+    layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH
 
   function setExpandedKey<K extends keyof SectionExpandedState>(key: K, value: boolean) {
     setExpanded((prev) => ({ ...prev, [key]: value }))

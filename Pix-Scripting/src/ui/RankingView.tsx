@@ -43,7 +43,7 @@ import { setActiveTabKind } from "../store/routeNavigation"
 import { destinationElement } from "./DestinationElement"
 import { useDualRoute } from "./DualRouteContext"
 import { DockSegmentedBar, useRegisterBottomAccessory } from "./bottomAccessory"
-import { useLatest, usePagedList, currentBatchSize, useLayoutMetrics } from "./Hooks"
+import { useLatest, usePagedList, currentBatchSize, useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl } from "./ambient"
 import type { PixivIllustration, PixivNovel } from "../types"
 import {
@@ -128,7 +128,7 @@ export function RankingView(props: { onClose: () => void }) {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layout.width >= 675
+    layout.width >= IPAD_WIDE_MIN_WIDTH
   const shouldHideTitle = isFullScreenPad
   const { ambientBackground } = useExperimentalAmbientPalette(ambientImageUrl, isTabActive)
 
@@ -526,7 +526,7 @@ function rankingToolbar(props: {
     props.isFullScreenPad ??
     (Device.isiPad &&
       !props.isSplitViewActive &&
-      layoutMetrics.width >= 675)
+      layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH)
   const isCompact = props.isCompact ?? layoutMetrics.isCompact
   const isClassic = !props.isAppleMusic
   const baseTitle =
@@ -591,7 +591,7 @@ function rankingToolbar(props: {
   const trailingMenuLabel = isFullScreenPad ? (
     <HStack alignment="center" spacing={4}>
       <Text font="subheadline" fontWeight="semibold">
-        {props.isAppleMusic || props.kind === "advanced" || !modeTitle
+        {props.kind === "advanced" || !modeTitle
           ? baseTitle
           : `${baseTitle} · ${modeTitle}`}
       </Text>
@@ -617,7 +617,7 @@ function rankingToolbar(props: {
       ) : null,
       <Menu key="ranking-wide-menu" label={trailingMenuLabel}>
         {kindPicker}
-        {isClassic && props.kind !== "advanced" && props.activeModes.length > 0 ? modePicker : null}
+        {props.kind !== "advanced" && props.activeModes.length > 0 ? modePicker : null}
       </Menu>,
     ].filter(Boolean)
   ) : (

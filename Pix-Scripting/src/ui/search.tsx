@@ -91,6 +91,7 @@ import {
   useLatest,
   usePagedList,
   useLayoutMetrics,
+  IPAD_WIDE_MIN_WIDTH,
 } from "./Hooks"
 import { useExperimentalAmbientPalette } from "./ambient"
 import type {
@@ -502,7 +503,7 @@ export function SearchView(props: {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layoutMetrics.width >= 675
+    layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH
   const [visitedScopes, setVisitedScopes] = useState<Set<SearchScope>>(() => new Set([scope]))
 
   useEffect(() => {
@@ -1647,13 +1648,9 @@ function searchToolbar(props: {
     </Picker>
   )
 
-  const wideMenuTitle = isClassic
-    ? isUserScope
-      ? "用户"
-      : `${menuScopeLabel} · ${sortLabel}`
-    : isUserScope
-      ? "用户"
-      : sortLabel
+  const wideMenuTitle = isUserScope
+    ? "用户"
+    : `${menuScopeLabel} · ${sortLabel}`
 
   const wideMenuLabel = (
     <HStack alignment="center" spacing={4}>
@@ -1676,7 +1673,7 @@ function searchToolbar(props: {
 
   const searchMenuNode = (
     <Menu key="search-main-menu" label={menuLabel}>
-      {isClassic || (isFullScreenPad && isUserScope) ? scopePicker : null}
+      {isClassic || isFullScreenPad ? scopePicker : null}
       {!isUserScope ? sortPicker : null}
       {!isUserScope ? (
         <Button

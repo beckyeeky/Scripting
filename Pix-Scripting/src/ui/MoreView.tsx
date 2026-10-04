@@ -26,7 +26,7 @@ import { AppNavigationLink, isPaneRoute, useDualRoute } from "./DualRouteContext
 import { session } from "../api/session"
 import { loadSettings, onSettingsChanged } from "../store/settings"
 import { appToolbar, AvatarImage } from "./components"
-import { useLayoutMetrics } from "./Hooks"
+import { useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { requestPixivRoute, setActiveTabKind, useIsCurrentTab } from "../store/routeNavigation"
 import { destinationElement } from "./DestinationElement"
 import { DockActionBar, useRegisterBottomAccessory, type DockActionItem } from "./bottomAccessory"
@@ -55,7 +55,7 @@ export function MoreView(props: { onClose: () => void }) {
   const isFullScreenPad =
     Device.isiPad &&
     !isSplitViewActive &&
-    layout.width >= 675
+    layout.width >= IPAD_WIDE_MIN_WIDTH
   const shouldHideTitle = isFullScreenPad
   const navTitle = shouldHideTitle ? "" : "我的"
   const user = session.user
