@@ -29,7 +29,7 @@
 #### 📥 快速安装
 
 1. 安装 **[Scripting](https://apps.apple.com/app/scripting/id6477833076)** App；
-2. 下载并导入当前移植分支的 [`Release/Pix-Scripting.scripting`](https://raw.githubusercontent.com/beckyeeky/Scripting/feature/pixivreader-port/Release/Pix-Scripting.scripting)；[v1.6.7.9 发布页](https://github.com/beckyeeky/Scripting/releases/tag/v1.6.7.9-pixivreader) 保留旧版本附件；
+2. 下载并导入当前移植分支的 [`Release/Pix-Scripting.scripting`](https://raw.githubusercontent.com/beckyeeky/Scripting/feature/pixivreader-port/Release/Pix-Scripting.scripting)；也可从 [v1.7.2.1 发布页](https://github.com/beckyeeky/Scripting/releases/tag/v1.7.2.1-pixivreader) 下载附件；
 3. 在小说详情或沉浸阅读器中打开「正文翻译」，选择翻译、暂停/继续或原文/译文切换；在小说系列页可分批翻译当前已加载的章节。先在「设置 → 智能助手」配置模型，或使用可用的 Scripting 原生助手。
 
 正文上方有常驻翻译进度条，可直接看已完成段数、摘要与术语状态、暂停/继续、原文/译文切换；展开「摘要与术语」可查看内容、系列继承的术语数及失败段落的单块重试。沉浸阅读时也显示浮动进度条。故事摘要先生成，术语表随后整理，最后最多两个正文请求并发；上下文失败时会显示状态并继续翻译正文。长篇摘要和术语表会抽取开头、中段、结尾各约 3000 字，避免只看到开头；超长正文块优先在换行或句末拆分，保留接缝空行与 Pixiv 链接。
