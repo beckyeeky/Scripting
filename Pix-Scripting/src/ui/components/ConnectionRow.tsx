@@ -14,7 +14,7 @@ import {
   VStack,
   ZStack,
 } from "scripting"
-import { appGlass, appGlassFlag, appThemeColor } from "./glass"
+import { appGlass, appGlassFlag, appInteractiveGlass, appThemeColor } from "./glass"
 import { AppNavigationLink } from "../DualRouteContext"
 import { session } from "../../api/session"
 import { followUser, unfollowUser } from "../../api/pixiv"
@@ -234,7 +234,7 @@ export function ConnectionRow(props: {
         {showFollowControl ? (
           <Button
             buttonStyle="plain"
-            glassEffect={appGlass("circle")}
+            glassEffect={appInteractiveGlass("circle")}
             disabled={followBusy}
             frame={{ width: 38, height: 38 }}
             contentShape="rect"

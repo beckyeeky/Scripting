@@ -20,7 +20,7 @@ import {
   useRef,
   useState,
 } from "scripting"
-import { appGlass } from "./glass"
+import { appGlass, appInteractiveGlass } from "./glass"
 import { sheetDetents, sheetTopBar } from "./pageChrome"
 import {
   addBookmark,
@@ -408,7 +408,7 @@ export function BookmarkButton(props: {
         }}
         buttonStyle="plain"
         frame={{ width: size, height: size }}
-        glassEffect={appGlass("circle")}
+        glassEffect={appInteractiveGlass("circle")}
         contentShape="circle"
         disabled={props.disabled || longPressLocked}
         simultaneousGesture={

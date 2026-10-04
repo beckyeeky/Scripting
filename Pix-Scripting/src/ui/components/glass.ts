@@ -6,22 +6,12 @@ import { loadSettings } from "../../store/settings"
  * 与 ui/components/pageChrome.ts 同构：那边管顶栏，这边管材质。
  *
  * 【本模块做什么】
- * 把「材质」那一半收敛到设置项「液态玻璃」的物理三档与自定义色调开关（存储值见 store/settings.ts）：
- *   system  —— 原样返回（不注入材质）＝ 默认档，完全跟随系统 Liquid Glass 滑块；
- *   clear   —— UIGlass.clear()
- *   soft    —— UIGlass.regular()（系统 API 叫 regular，观感即「柔和」）
- *
- * 当开启「自定义玻璃色调」时，在选定材质基础上叠加用户自选的 tint 颜色与浓度。
- *
- * ⚠️ 选了非 system 档或开启了自定义色调，这些自绘玻璃就不再跟随系统滑块（我们显式指定了材质）。
+ * 默认材质完全跟随系统 Liquid Glass（直接返回 shape，不注入额外材质，零开销）。
+ * 当开启「自定义玻璃色调」时，在 UIGlass.regular() 基础上叠加用户自选的 tint 颜色与浓度。
+ * 当开启「玻璃交互」时，开启点击高亮与弹性形变。
  *
  * ⚠️ 覆盖范围仅限 App 自绘玻璃。系统自绘的部分（TabView 底栏、buttonStyle="glass"
  *   按钮、系统菜单、Sheet 栏）没有强度接口，永远跟随系统 —— 属于已确认的例外。
- *
- * ⚠️ `interactive(...)` 开关（由设置项「玻璃交互」驱动，默认关）：
- *   - 开 = 可交互玻璃 —— 玻璃本身支持点击高亮与弹性形变（观感更「活」，渲染开销更高）；
- *   - 关 = 静态玻璃 —— 与改造前一致。
- *   注意：「系统」档（未开启自定义色调时）不走本模块、没有可附着的 UIGlass，故该开关仅在有效材质下生效。
  *
  * 【用法】
  *   glassEffect={appGlass({ type: "rect", cornerRadius: 14 })}   // 形状形态（绝大多数）
@@ -39,34 +29,26 @@ export const DEFAULT_GLASS_TINT_STRENGTH = 10
 let cachedGlassKey: string | null = null
 let cachedGlass: UIGlass | null = null
 
-/** 当前设置解析出的玻璃材质；「系统」档（未开启色调）返回 null（表示不注入）。
+/** 当前设置解析出的玻璃材质；若既无色调也无交互则返回 null（表示不注入材质，走系统默认 shape）。
  *  ignoreTint=true 时退化为无色调形态。 */
 function currentGlass(ignoreTint: boolean = false): UIGlass | null {
   const settings = loadSettings()
-  const strength = settings.glassStrength
   const isTinted = settings.glassCustomTintEnabled === true && !ignoreTint
-
-  if (strength === "system" && !isTinted) return null
-
   const interactive = settings.glassInteractive === true
-  const key = `${strength}|${
+
+  if (!isTinted && !interactive) return null
+
+  const key = `${
     isTinted ? `tint|${settings.glassTintColor}|${settings.glassTintStrength}` : "notint"
   }|${interactive ? "interactive" : "static"}`
 
   if (key === cachedGlassKey && cachedGlass) return cachedGlass
 
-  let glass: UIGlass
-  if (strength === "clear") {
-    glass = UIGlass.clear()
-    if (isTinted) {
-      glass = glass.tint(tintRGBA(settings.glassTintColor, settings.glassTintStrength))
-    }
-  } else if (isTinted) {
-    glass = UIGlass.regular().tint(
+  let glass = UIGlass.regular()
+  if (isTinted) {
+    glass = glass.tint(
       tintRGBA(settings.glassTintColor, settings.glassTintStrength)
     )
-  } else {
-    glass = UIGlass.regular()
   }
 
   glass = glass.interactive(interactive)
@@ -93,6 +75,45 @@ export function appGlassFlag(fallback: boolean = true): GlassEffectValue {
 export function appGlassNoTint(shape: Shape): GlassEffectValue {
   const glass = currentGlass(true)
   return glass ? { glass, shape } : shape
+}
+
+// 交互控件专用缓存（恒定 interactive: true）
+let cachedInteractiveGlassKey: string | null = null
+let cachedInteractiveGlass: UIGlass | null = null
+
+function currentInteractiveGlass(): UIGlass {
+  const settings = loadSettings()
+  const isTinted = settings.glassCustomTintEnabled === true
+  const key = isTinted
+    ? `tint|${settings.glassTintColor}|${settings.glassTintStrength}`
+    : "notint"
+
+  if (key === cachedInteractiveGlassKey && cachedInteractiveGlass) {
+    return cachedInteractiveGlass
+  }
+
+  let glass = UIGlass.regular()
+  if (isTinted) {
+    glass = glass.tint(
+      tintRGBA(settings.glassTintColor, settings.glassTintStrength)
+    )
+  }
+  glass = glass.interactive(true)
+
+  cachedInteractiveGlassKey = key
+  cachedInteractiveGlass = glass
+  return glass
+}
+
+/**
+ * 高频交互控件专用玻璃：恒定开启 interactive(true)
+ * 专供操作按钮与交互胶囊，默认自带液态弹性形变与按压高亮。
+ * 不受 settings.glassInteractive 影响。
+ * 若开启了「自定义玻璃色调」，自动同步注入用户自选的主题色。
+ */
+export function appInteractiveGlass(shape: Shape): GlassEffectValue {
+  const glass = currentInteractiveGlass()
+  return { glass, shape }
 }
 
 /**

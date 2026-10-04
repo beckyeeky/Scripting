@@ -27,17 +27,6 @@ export const TOP_BAR_EFFECT_VALUES: ReadonlyArray<TopBarEffect> = [
   "tinted",
 ]
 
-/** 玻璃强度：App 自绘玻璃（glassEffect）的材质档位，详见 ui/components/glass.ts
- *  存储值 → 设置页显示名：system=系统 / clear=透明 / soft=柔和
- *  实际映射：system→不注入材质（跟随系统）、clear→UIGlass.clear()、soft→UIGlass.regular()
- *  ⚠️ soft 只是我们对「柔和」这一档的键名，系统素材 API 其实叫 regular；
- *     「顶栏过渡」那边的 soft 才是系统的 soft。同名不同源，别当成同一个常量。 */
-export type GlassStrength = "system" | "clear" | "soft"
-export const GLASS_STRENGTH_VALUES: ReadonlyArray<GlassStrength> = [
-  "system",
-  "clear",
-  "soft",
-]
 export type CloseButtonAction = "minimize" | "exit"
 export type WatchlistSortOrder = "asc" | "desc"
 export type AmbientIntensity = "low" | "medium" | "high"
@@ -146,7 +135,6 @@ export interface AppSettings {
   hideNovels: boolean
   pageLayout: PageLayout
   topBarEffect: TopBarEffect
-  glassStrength: GlassStrength
   glassCustomTintEnabled: boolean
   glassTintColor: string
   glassTintStrength: number
@@ -259,7 +247,6 @@ const DEFAULT_SETTINGS: AppSettings = {
   hideNovels: false,
   pageLayout: "appleMusic",
   topBarEffect: "soft",
-  glassStrength: "system",
   glassCustomTintEnabled: false,
   glassTintColor: "#007aff",
   glassTintStrength: 10,
@@ -545,9 +532,6 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
     topBarEffect: isOneOf(stored?.topBarEffect, TOP_BAR_EFFECT_VALUES)
       ? stored.topBarEffect
       : DEFAULT_SETTINGS.topBarEffect,
-    glassStrength: isOneOf(stored?.glassStrength, GLASS_STRENGTH_VALUES)
-      ? stored.glassStrength
-      : DEFAULT_SETTINGS.glassStrength,
     glassCustomTintEnabled: boolOr(
       stored?.glassCustomTintEnabled,
       DEFAULT_SETTINGS.glassCustomTintEnabled

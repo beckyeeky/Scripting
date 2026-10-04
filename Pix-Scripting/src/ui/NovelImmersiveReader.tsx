@@ -25,7 +25,7 @@ import {
   WebView,
   ZStack,
 } from "scripting"
-import { appGlass, appCustomTint } from "./components/glass"
+import { appGlass, appInteractiveGlass, appCustomTint } from "./components/glass"
 import { useLayoutMetrics } from "./Hooks"
 import { presentExternalURL, routeForDescriptionLink } from "./components"
 import { requestPixivRoute } from "../store/routeNavigation"
@@ -2289,7 +2289,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
                   <ZStack
                     alignment="center"
                     frame={{ width: 38, height: 38 }}
-                    glassEffect={appGlass("circle")}
+                    glassEffect={appInteractiveGlass("circle")}
                     contentShape="circle"
                     shadow={{ color: "#0000001F", radius: 8, y: 2 }}
                     onTapGesture={() => handlePageChange(currentPage - 1)}
@@ -2313,7 +2313,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
                     spacing={6}
                     alignment="center"
                     padding={{ horizontal: 16, vertical: 8 }}
-                    glassEffect={appGlass("capsule")}
+                    glassEffect={appInteractiveGlass("capsule")}
                     contentShape="capsule"
                     background="#80808020"
                     shadow={{ color: "#0000001F", radius: 8, y: 2 }}
@@ -2350,7 +2350,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
                   <ZStack
                     alignment="center"
                     frame={{ width: 38, height: 38 }}
-                    glassEffect={appGlass("circle")}
+                    glassEffect={appInteractiveGlass("circle")}
                     contentShape="circle"
                     shadow={{ color: "#0000001F", radius: 8, y: 2 }}
                     onTapGesture={handleToggleMarker}
@@ -2368,7 +2368,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
                   <ZStack
                     alignment="center"
                     frame={{ width: 38, height: 38 }}
-                    glassEffect={appGlass("circle")}
+                    glassEffect={appInteractiveGlass("circle")}
                     contentShape="circle"
                     shadow={{ color: "#0000001F", radius: 8, y: 2 }}
                     onTapGesture={() => handlePageChange(currentPage + 1)}

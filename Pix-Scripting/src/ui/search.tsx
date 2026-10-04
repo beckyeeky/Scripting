@@ -24,7 +24,7 @@ import {
   VStack,
   ZStack,
 } from "scripting"
-import { appGlass, appThemeColor } from "./components/glass"
+import { appGlass, appInteractiveGlass, appThemeColor } from "./components/glass"
 import {
   PAGE_TOOLBAR_BACKGROUND,
   PAGE_TOOLBAR_BACKGROUND_VISIBILITY,
@@ -1241,7 +1241,7 @@ export function SearchView(props: {
                   alignment="center"
                   spacing={6}
                   padding={{ horizontal: 12, vertical: 6 }}
-                  glassEffect={appGlass("capsule")}
+                  glassEffect={appInteractiveGlass("capsule")}
                   contentShape="capsule"
                 >
                   <Image systemName="magnifyingglass" font="caption" foregroundStyle="secondaryLabel" />
@@ -1290,7 +1290,7 @@ export function SearchView(props: {
                     alignment="center"
                     spacing={4}
                     padding={{ horizontal: 10, vertical: 6 }}
-                    glassEffect={appGlass("capsule")}
+                    glassEffect={appInteractiveGlass("capsule")}
                     contentShape="capsule"
                     clipShape="capsule"
                   >
@@ -2044,7 +2044,7 @@ function SearchHistorySection(props: {
               alignment="center"
               spacing={4}
               padding={{ horizontal: 10, vertical: 5 }}
-              glassEffect={appGlass("capsule")}
+              glassEffect={appInteractiveGlass("capsule")}
               contentShape="capsule"
               clipShape="capsule"
             >

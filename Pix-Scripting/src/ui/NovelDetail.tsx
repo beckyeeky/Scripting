@@ -31,7 +31,7 @@ import {
   type Color,
   type ScrollViewProxy,
 } from "scripting"
-import { appGlass, appThemeColor } from "./components/glass"
+import { appGlass, appInteractiveGlass, appThemeColor } from "./components/glass"
 import {
   addNovelBookmark,
   addNovelMarker,
@@ -1097,7 +1097,7 @@ export function NovelDetailView(props: { novelID: number }) {
         <ZStack
           alignment="center"
           frame={{ width: 46, height: 46 }}
-          glassEffect={appGlass("circle")}
+          glassEffect={appInteractiveGlass("circle")}
           contentShape="circle"
           shadow={{ color: "#0000002E", radius: 8, y: 2 }}
         >
@@ -1124,7 +1124,7 @@ export function NovelDetailView(props: { novelID: number }) {
         <ZStack
           alignment="center"
           frame={{ width: 46, height: 46 }}
-          glassEffect={appGlass("circle")}
+          glassEffect={appInteractiveGlass("circle")}
           contentShape="circle"
           shadow={{ color: "#0000002E", radius: 8, y: 2 }}
         >
