@@ -534,7 +534,16 @@ export function SettingsView() {
         }}
       >
       {/* 1. 内容显示 */}
-      <Section>
+      <Section
+        header={
+          <HStack spacing={4} alignment="center">
+            <Image systemName="info.circle" font="caption" foregroundStyle="secondaryLabel" />
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              部分设置仅在 Scripting TestFlight 版本中生效
+            </Text>
+          </HStack>
+        }
+      >
         <DisclosureGroup
           isExpanded={expanded.content}
           onChanged={(v) => setExpandedKey("content", v)}

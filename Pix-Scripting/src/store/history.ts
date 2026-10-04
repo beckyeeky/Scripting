@@ -95,11 +95,11 @@ const HISTORY_MANGA_FILE = "history_manga.json"
 const HISTORY_NOVEL_FILE = "history_novel.json"
 const DEBOUNCE_DELAY_MS = 1500
 
-/** 各分类历史记录保存上限（插画 7000 条，漫画 1000 条，小说 2000 条） */
+/** 各分类历史记录保存上限（插画 15000 条，漫画 2000 条，小说 3000 条，全站总计 20000 条） */
 export const HISTORY_LIMITS: Record<HistoryContentKind, number> = {
-  illustration: 7000,
-  manga: 1000,
-  novel: 2000,
+  illustration: 15000,
+  manga: 2000,
+  novel: 3000,
 }
 
 export function getHistoryLimitForKind(kind: HistoryContentKind): number {
