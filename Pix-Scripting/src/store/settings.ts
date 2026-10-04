@@ -364,7 +364,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   customWebBaseUrl: "",
 }
 
-const KEY = "pixiv_settings_v1"
+const LEGACY_STORAGE_KEY = "pixiv_settings_v1"
 const SETTINGS_FILE_NAME = "settings.json"
 const WIDGET_DEFAULT_SOURCE_VALUES: readonly WidgetDefaultSource[] = [
   "ranking_day",
@@ -484,7 +484,7 @@ function cacheLimitOf(value: unknown): number | null {
 
 function clampNum(value: unknown, min: number, max: number, fallback: number, step = 1): number {
   if (typeof value === "number" && Number.isFinite(value)) {
-    const v = step === 1 ? Math.round(value) : Math.round(value / step) * step
+    const v = step === 1 ? Math.round(value) : Number((Math.round(value / step) * step).toFixed(4))
     return Math.max(min, Math.min(max, v))
   }
   return fallback
@@ -769,27 +769,26 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
   }
 }
 
+function cleanupLegacyStorage(): void {
+  try {
+    if (typeof Storage !== "undefined" && Storage.contains(LEGACY_STORAGE_KEY)) {
+      Storage.remove(LEGACY_STORAGE_KEY)
+    }
+  } catch {}
+}
+
 function persistSettings(settings: AppSettings): boolean {
-  let fileSaved = false
   try {
     writeTextSafely(settingsFilePath(), JSON.stringify(settings, null, 2), (raw) => {
       const parsed = JSON.parse(raw)
       if (typeof parsed !== "object" || parsed === null) throw new Error("设置格式错误")
     })
-    fileSaved = true
+    cleanupLegacyStorage()
+    return true
   } catch (error: any) {
     console.log("settings file persist error:", error?.message ?? error)
+    return false
   }
-
-  let storageSaved = false
-  try {
-    Storage.set(KEY, settings)
-    storageSaved = true
-  } catch (error: any) {
-    console.log("settings storage persist error:", error?.message ?? error)
-  }
-
-  return fileSaved || storageSaved
 }
 
 export function resetSettings(): AppSettings {
@@ -835,7 +834,11 @@ export function loadSettings(): AppSettings {
 
   let needPersist = false
   if (!stored) {
-    stored = Storage.get<Partial<AppSettings> & Record<string, unknown>>(KEY) ?? null
+    try {
+      if (typeof Storage !== "undefined") {
+        stored = Storage.get<Partial<AppSettings> & Record<string, unknown>>(LEGACY_STORAGE_KEY) ?? null
+      }
+    } catch {}
     needPersist = true
   }
 
@@ -843,6 +846,8 @@ export function loadSettings(): AppSettings {
   cachedSettings = merged
   if (needPersist || !FileManager.existsSync(path)) {
     persistSettings(merged)
+  } else {
+    cleanupLegacyStorage()
   }
   return merged
 }
