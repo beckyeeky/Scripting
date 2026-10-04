@@ -1526,7 +1526,7 @@ export function SearchView(props: {
           onChanged: onQueryChanged,
           placement: isResultsPage
             ? "navigationBarDrawerAutomaticDisplay"
-            : "navigationBarDrawer",
+            : "navigationBarDrawerAlwaysDisplay",
           prompt: "输入关键词",
           presented: {
             value: searchPresented,
