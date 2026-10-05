@@ -1,6 +1,7 @@
 import {
   Button,
   Circle,
+  Device,
   Group,
   HStack,
   Image,
@@ -29,7 +30,8 @@ import {
 } from "../store/blocklist"
 import { loadSettings, onSettingsChanged } from "../store/settings"
 import { AvatarImage, EmptyView } from "./components"
-import { AppNavigationLink } from "./DualRouteContext"
+import { AppNavigationLink, useDualRoute } from "./DualRouteContext"
+import { useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import {
   PAGE_TOOLBAR_BACKGROUND,
   PAGE_TOOLBAR_BACKGROUND_VISIBILITY,
@@ -46,6 +48,12 @@ export function BlockedSettingsView() {
   const [blocklist, setBlocklist] = useState(loadBlocklist())
   const [pageLayout, setPageLayout] = useState(() => loadSettings().pageLayout)
   const isAppleMusic = pageLayout === "appleMusic"
+  const { isSplitViewActive } = useDualRoute()
+  const layoutMetrics = useLayoutMetrics()
+  const isFullScreenPad =
+    Device.isiPad &&
+    !isSplitViewActive &&
+    layoutMetrics.width >= IPAD_WIDE_MIN_WIDTH
 
   useEffect(() => onBlocklistChanged(() => setBlocklist(loadBlocklist())), [])
   useEffect(() => {
@@ -114,55 +122,92 @@ export function BlockedSettingsView() {
   const avatarURL = user?.profile_image_urls?.px_170x170 ?? null
   const { ambientBackground } = useExperimentalAmbientPalette(avatarURL, true)
 
-  const navTitle = !isAppleMusic ? `屏蔽设置 · ${scope === "tag" ? "标签" : "用户"}` : "屏蔽设置"
+  const fullTitle = `屏蔽设置 · ${scope === "tag" ? "标签" : "用户"}`
+  const navTitle = !isAppleMusic ? fullTitle : "屏蔽设置"
 
   return (
     <ZStack
       frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
-      navigationTitle={navTitle}
+      navigationTitle={isFullScreenPad ? "" : navTitle}
       navigationBarTitleDisplayMode="inline"
       toolbarBackground={PAGE_TOOLBAR_BACKGROUND}
       toolbarBackgroundVisibility={PAGE_TOOLBAR_BACKGROUND_VISIBILITY}
       toolbar={{
-        principal: (
+        principal: isFullScreenPad ? undefined : (
           <Text font="title2" fontWeight="bold">
             {navTitle}
           </Text>
         ),
-        topBarTrailing: [
-          isAppleMusic ? (
-            <Button
-              key="clear-button"
-              disabled={currentCount === 0}
-              action={handleClearConfirm}
-            >
-              <Image
-                systemName="trash"
-                foregroundStyle={currentCount === 0 ? "secondaryLabel" : "systemRed"}
-              />
-            </Button>
-          ) : (
-            <Menu key="more-menu" label={<Image systemName="ellipsis.circle" />}>
-              <Picker
-                title="屏蔽类型"
-                value={scope}
-                onChanged={(value: string) => {
-                  setScope(value as BlockedScope)
-                }}
+        topBarTrailing: isFullScreenPad
+          ? [
+              <Menu
+                key="blocked-settings-wide-menu"
+                label={
+                  <HStack alignment="center" spacing={4}>
+                    <Text font="subheadline" fontWeight="semibold">
+                      {fullTitle}
+                    </Text>
+                    <Image
+                      systemName="chevron.down"
+                      font="caption2"
+                      foregroundStyle="secondaryLabel"
+                    />
+                  </HStack>
+                }
               >
-                <Label tag="tag" title="屏蔽标签" systemImage="tag" />
-                <Label tag="user" title="屏蔽用户" systemImage="person.crop.circle.badge.xmark" />
-              </Picker>
-              <Button
-                title={`清空已屏蔽${scope === "tag" ? "标签" : "用户"}`}
-                systemImage="trash"
-                role="destructive"
-                disabled={currentCount === 0}
-                action={handleClearConfirm}
-              />
-            </Menu>
-          ),
-        ],
+                <Picker
+                  title="屏蔽类型"
+                  value={scope}
+                  onChanged={(value: string) => {
+                    setScope(value as BlockedScope)
+                  }}
+                >
+                  <Label tag="tag" title="屏蔽标签" systemImage="tag" />
+                  <Label tag="user" title="屏蔽用户" systemImage="person.crop.circle.badge.xmark" />
+                </Picker>
+                <Button
+                  title={`清空已屏蔽${scope === "tag" ? "标签" : "用户"}`}
+                  systemImage="trash"
+                  role="destructive"
+                  disabled={currentCount === 0}
+                  action={handleClearConfirm}
+                />
+              </Menu>,
+            ]
+          : [
+              isAppleMusic ? (
+                <Button
+                  key="clear-button"
+                  disabled={currentCount === 0}
+                  action={handleClearConfirm}
+                >
+                  <Image
+                    systemName="trash"
+                    foregroundStyle={currentCount === 0 ? "secondaryLabel" : "systemRed"}
+                  />
+                </Button>
+              ) : (
+                <Menu key="more-menu" label={<Image systemName="ellipsis.circle" />}>
+                  <Picker
+                    title="屏蔽类型"
+                    value={scope}
+                    onChanged={(value: string) => {
+                      setScope(value as BlockedScope)
+                    }}
+                  >
+                    <Label tag="tag" title="屏蔽标签" systemImage="tag" />
+                    <Label tag="user" title="屏蔽用户" systemImage="person.crop.circle.badge.xmark" />
+                  </Picker>
+                  <Button
+                    title={`清空已屏蔽${scope === "tag" ? "标签" : "用户"}`}
+                    systemImage="trash"
+                    role="destructive"
+                    disabled={currentCount === 0}
+                    action={handleClearConfirm}
+                  />
+                </Menu>
+              ),
+            ],
       }}
     >
       {typeof ambientBackground === "object" && ambientBackground !== null ? (
