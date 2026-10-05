@@ -23,10 +23,10 @@ export interface TranscendAmbientBackgroundProps {
 export function TranscendAmbientBackground(props: TranscendAmbientBackgroundProps) {
   const intensityAlpha =
     props.intensity === "high"
-      ? props.isDark ? 0.88 : 0.95
+      ? props.isDark ? 0.88 : 0.98
       : props.intensity === "low"
-        ? props.isDark ? 0.42 : 0.58
-        : props.isDark ? 0.65 : 0.80
+        ? props.isDark ? 0.42 : 0.68
+        : props.isDark ? 0.65 : 0.88
 
   /**
    * 光斑几何**比例化**（2026-09-17）：
