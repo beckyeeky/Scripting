@@ -1021,7 +1021,6 @@ export function PixivisionDetailView(props: { articleID: number }) {
                             hero={true}
                             cardWidth={heroCardWidth}
                             compact={true}
-                            showBookmarkButton={false}
                             illust={illust}
                             priority={idx}
                           />
@@ -1254,7 +1253,6 @@ export function PixivisionDetailView(props: { articleID: number }) {
                           hero={true}
                           cardWidth={heroCardWidth}
                           compact={true}
-                          showBookmarkButton={false}
                           illust={illust}
                           priority={index}
                         />

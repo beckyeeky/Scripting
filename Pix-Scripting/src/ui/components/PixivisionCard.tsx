@@ -11,6 +11,7 @@ import {
   ZStack,
   useMemo,
   useState,
+  type CommonViewProps,
 } from "scripting"
 import { appGlass } from "./glass"
 import { AppNavigationLink, useDualRoute } from "../DualRouteContext"
@@ -30,8 +31,9 @@ export function PixivisionCard(props: {
   onAppear?: () => void
   priority?: number
   isSprint?: boolean
+  contextMenu?: CommonViewProps["contextMenu"]
 }) {
-  const { article, cardWidth: customCardWidth, onAppear, priority, isSprint } = props
+  const { article, cardWidth: customCardWidth, onAppear, priority, isSprint, contextMenu } = props
   const { width: screenWidth } = useLayoutMetrics()
   const [isAppeared, setIsAppeared] = useState(false)
   const { isItemActive } = useDualRoute()
@@ -73,6 +75,7 @@ export function PixivisionCard(props: {
         onAppear={handleAppear}
         padding={4}
         glassEffect={appGlass({ type: "rect", cornerRadius: 16 })}
+        contextMenu={contextMenu}
         shadow={
           isSelected
             ? { color: "accentColor", radius: 10, y: 0 }
