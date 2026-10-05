@@ -15,7 +15,6 @@ import {
   Spacer,
   Text,
   useCallback,
-  useColorScheme,
   useEffect,
   useMemo,
   useRef,
@@ -26,7 +25,7 @@ import {
   ZStack,
 } from "scripting"
 import { appGlass, appInteractiveGlass, appCustomTint } from "./components/glass"
-import { useLayoutMetrics } from "./Hooks"
+import { useLayoutMetrics, useEffectiveIsDark } from "./Hooks"
 import { presentExternalURL, routeForDescriptionLink } from "./components"
 import { requestPixivRoute } from "../store/routeNavigation"
 import {
@@ -1799,8 +1798,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     ambientPalette,
     ambientAlgorithm,
   } = useNovelExperimentalAmbientPalette(activeCoverUrl)
-  const colorScheme = useColorScheme()
-  const isDark = colorScheme === "dark"
+  const isDark = useEffectiveIsDark()
   const ambientActive = ambientEnabled && (!!ambientBackground || !!ambientPalette)
   const ambientBgCss = generateAmbientBackgroundCss(ambientPalette, ambientAlgorithm, isDark)
 
@@ -2238,6 +2236,8 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     <NavigationStack tint={appCustomTint()}>
       <ZStack
         frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+        background="systemBackground"
+        preferredColorScheme={isDark ? "dark" : "light"}
         statusBarHidden={!controlsVisible}
         toolbarVisibility={{
           visibility: controlsVisible ? "visible" : "hidden",

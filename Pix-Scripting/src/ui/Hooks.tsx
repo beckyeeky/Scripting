@@ -13,7 +13,7 @@ import {
   type KeywordPoint,
 } from "scripting"
 import { session } from "../api/session"
-import { getImageBatchSize, loadSettings, onSettingsChanged } from "../store/settings"
+import { getImageBatchSize, loadSettings, onSettingsChanged, getEffectiveIsDark } from "../store/settings"
 import { onBlocklistChanged } from "../store/blocklist"
 import {
   getIllustContentBlockReason,
@@ -1036,4 +1036,22 @@ export function useLayoutMetrics(): LayoutMetrics {
     hasContainerMetrics,
   }
 }
+
+/**
+ * 响应式深浅色判定 Hook：
+ * 联动当前设置（系统 / 浅色 / 深色）与系统外观，设置变更时自动触发重渲染
+ */
+export function useEffectiveIsDark(): boolean {
+  const colorScheme = useColorScheme()
+  const [isDark, setIsDark] = useState(() => getEffectiveIsDark(loadSettings(), colorScheme))
+
+  useEffect(() => {
+    return onSettingsChanged(() => {
+      setIsDark(getEffectiveIsDark(loadSettings(), colorScheme))
+    })
+  }, [colorScheme])
+
+  return isDark
+}
+
 

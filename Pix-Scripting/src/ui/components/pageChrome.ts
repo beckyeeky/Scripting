@@ -1,5 +1,5 @@
 import { Device, type CommonViewProps } from "scripting"
-import { loadSettings, type TopBarEffect } from "../../store/settings"
+import { loadSettings, getPreferredColorScheme, type TopBarEffect } from "../../store/settings"
 
 /**
  * 页面顶部（导航栏）通用外观 —— 集中一处，全库只此一份，调观感只改这里。
@@ -112,11 +112,14 @@ export function unifiedTopBar(): {
   toolbarBackgroundVisibility: CommonViewProps["toolbarBackgroundVisibility"]
   scrollEdgeEffectStyle: CommonViewProps["scrollEdgeEffectStyle"]
   scrollEdgeEffectHidden: CommonViewProps["scrollEdgeEffectHidden"]
+  preferredColorScheme?: CommonViewProps["preferredColorScheme"]
 } {
+  const currentSettings = loadSettings()
   return {
     toolbarBackground: PAGE_TOOLBAR_BACKGROUND,
     toolbarBackgroundVisibility: PAGE_TOOLBAR_BACKGROUND_VISIBILITY,
-    ...topBarScrollEdge(loadSettings().topBarEffect),
+    preferredColorScheme: getPreferredColorScheme(currentSettings),
+    ...topBarScrollEdge(currentSettings.topBarEffect),
   }
 }
 

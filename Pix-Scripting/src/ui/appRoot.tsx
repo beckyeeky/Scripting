@@ -278,6 +278,8 @@ export function RootView() {
 
   // 顶栏过渡：由设置驱动，随设置变更即时生效（上方已订阅 onSettingsChanged）
   const topBarEdge = topBarScrollEdge(settings.topBarEffect)
+  const preferredColorScheme =
+    settings.colorScheme === "system" ? undefined : settings.colorScheme
 
   const dismiss = Navigation.useDismiss()
 
@@ -289,6 +291,7 @@ export function RootView() {
         ignoresSafeArea={true}
         scrollEdgeEffectStyle={topBarEdge.scrollEdgeEffectStyle}
         scrollEdgeEffectHidden={topBarEdge.scrollEdgeEffectHidden}
+        preferredColorScheme={preferredColorScheme}
       >
         <ResponsiveContainer>
           <NavigationStack>
@@ -320,6 +323,7 @@ export function RootView() {
       ignoresSafeArea={true}
       scrollEdgeEffectStyle={topBarEdge.scrollEdgeEffectStyle}
       scrollEdgeEffectHidden={topBarEdge.scrollEdgeEffectHidden}
+      preferredColorScheme={preferredColorScheme}
       sheet={{
         isPresented: activeStartupSheet !== "none",
         onChanged: (val: boolean) => {

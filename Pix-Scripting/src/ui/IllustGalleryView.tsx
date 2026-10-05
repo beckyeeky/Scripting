@@ -39,6 +39,7 @@ import { triggerHaptic } from "../platform/haptics"
 import {
   getDetailImageQuality,
   getDownloadImageQuality,
+  getPreferredColorScheme,
 } from "../store/settings"
 import type { PixivIllustration } from "../types"
 
@@ -536,6 +537,8 @@ export function IllustGalleryView(props: {
     <NavigationStack tint={appCustomTint()}>
       <ZStack
         frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+        background="systemBackground"
+        preferredColorScheme={getPreferredColorScheme()}
         navigationTitle={!isSingle ? `${currentPageIndex + 1} / ${pageCount}` : ""}
         navigationBarTitleDisplayMode="inline"
         statusBarHidden={!isNavVisible}

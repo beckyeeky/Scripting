@@ -13,6 +13,12 @@ export type QuickActionButtonAction = "bookmark" | "follow" | "download"
 export type QuickActionButtonPosition = "trailing" | "leading"
 export type PageLayout = "classic" | "appleMusic"
 export const PAGE_LAYOUT_VALUES: ReadonlyArray<PageLayout> = ["appleMusic", "classic"]
+export type ColorSchemeMode = "system" | "light" | "dark"
+export const COLOR_SCHEME_MODE_VALUES: ReadonlyArray<ColorSchemeMode> = [
+  "system",
+  "light",
+  "dark",
+]
 
 /** 顶栏过渡：导航栏与滚动内容交界处的处理方式，详见 ui/components/pageChrome.ts
  *  与设置项「玻璃效果」**共用同一套强度轴命名**：system=系统 / clear=透明 / soft=柔和 / tinted=色调
@@ -116,6 +122,13 @@ export const ALL_NOVEL_RANKING_OPTIONS: ReadonlyArray<RankingOptionDef> = [
   { key: "week_r18g", title: "R18G每周", type: "novel", requiresR18: true, requiresR18G: true },
 ]
 
+export const DEFAULT_ILLUST_RANKING_MODES = ["day", "week", "month"]
+export const DEFAULT_MANGA_RANKING_MODES = ["day_manga", "week_manga", "month_manga"]
+export const DEFAULT_NOVEL_RANKING_MODES = ["day", "week", "week_rookie"]
+export const DEFAULT_ILLUST_RANKING_MODES_IPAD = ["day", "week", "month", "week_original", "week_rookie"]
+export const DEFAULT_MANGA_RANKING_MODES_IPAD = ["day_manga", "week_manga", "month_manga", "week_rookie_manga"]
+export const DEFAULT_NOVEL_RANKING_MODES_IPAD = ["day", "week", "week_rookie"]
+
 
 export interface ActiveCustomRankingTab {
   id: string
@@ -134,6 +147,7 @@ export interface AppSettings {
   exemptFilterForPersonal: boolean
   hideNovels: boolean
   pageLayout: PageLayout
+  colorScheme: ColorSchemeMode
   topBarEffect: TopBarEffect
   glassCustomTintEnabled: boolean
   glassTintColor: string
@@ -246,6 +260,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   exemptFilterForPersonal: true,
   hideNovels: false,
   pageLayout: "appleMusic",
+  colorScheme: "system",
   topBarEffect: "soft",
   glassCustomTintEnabled: false,
   glassTintColor: "#007aff",
@@ -318,27 +333,12 @@ const DEFAULT_SETTINGS: AppSettings = {
   dismissDownloadManagerNotice: false,
   dismissHistoryNotice: false,
   customRankingEnabled: false,
-  customRankingIllustModes: ["day", "week", "month"],
-  customRankingMangaModes: ["day_manga", "week_manga", "month_manga"],
-  customRankingNovelModes: ["day", "week", "week_rookie"],
-  customRankingIllustModesIpad: [
-    "day",
-    "week",
-    "month",
-    "week_original",
-    "week_rookie",
-  ],
-  customRankingMangaModesIpad: [
-    "day_manga",
-    "week_manga",
-    "month_manga",
-    "week_rookie_manga",
-  ],
-  customRankingNovelModesIpad: [
-    "day",
-    "week",
-    "week_rookie",
-  ],
+  customRankingIllustModes: DEFAULT_ILLUST_RANKING_MODES,
+  customRankingMangaModes: DEFAULT_MANGA_RANKING_MODES,
+  customRankingNovelModes: DEFAULT_NOVEL_RANKING_MODES,
+  customRankingIllustModesIpad: DEFAULT_ILLUST_RANKING_MODES_IPAD,
+  customRankingMangaModesIpad: DEFAULT_MANGA_RANKING_MODES_IPAD,
+  customRankingNovelModesIpad: DEFAULT_NOVEL_RANKING_MODES_IPAD,
   widgetSourceSmallIos: "ranking_day",
   widgetSourceMediumIos: "pixivision",
   widgetSourceLargeIos: "ranking_week",
@@ -461,6 +461,10 @@ function isOneOf<T extends string>(value: unknown, values: readonly T[]): value 
   return typeof value === "string" && values.includes(value as T)
 }
 
+function enumOr<T extends string>(val: unknown, values: readonly T[], fallback: T): T {
+  return isOneOf(val, values) ? val : fallback
+}
+
 function qualityOr<T extends string>(val: unknown, legacy: unknown, allowed: readonly T[], fallback: T): T {
   if (isOneOf(val, allowed)) return val
   if (isOneOf(legacy, allowed)) return legacy
@@ -497,6 +501,10 @@ function parseStringArray(value: unknown, fallback: string[]): string[] {
   return fallback
 }
 
+function widgetSourceOr(val: unknown, fallback: WidgetDefaultSource): WidgetDefaultSource {
+  return isOneOf(val, WIDGET_DEFAULT_SOURCE_VALUES) ? val : fallback
+}
+
 function parseCustomBaseUrl(value: unknown, fallback: string): string {
   if (typeof value !== "string") return fallback
   const trimmed = value.trim()
@@ -511,9 +519,7 @@ function parseCustomBaseUrl(value: unknown, fallback: string): string {
 function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): AppSettings {
   return {
     ...DEFAULT_SETTINGS,
-    launchPage: isOneOf(stored?.launchPage, LAUNCH_PAGE_VALUES)
-      ? stored.launchPage
-      : DEFAULT_SETTINGS.launchPage,
+    launchPage: enumOr(stored?.launchPage, LAUNCH_PAGE_VALUES, DEFAULT_SETTINGS.launchPage),
     showR18: boolOr(stored?.showR18, DEFAULT_SETTINGS.showR18),
     showR18G: boolOr(stored?.showR18G, DEFAULT_SETTINGS.showR18G),
     showAI: boolOr(stored?.showAI, DEFAULT_SETTINGS.showAI),
@@ -526,12 +532,9 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
       DEFAULT_SETTINGS.exemptFilterForPersonal
     ),
     hideNovels: boolOr(stored?.hideNovels, DEFAULT_SETTINGS.hideNovels),
-    pageLayout: isOneOf(stored?.pageLayout, PAGE_LAYOUT_VALUES)
-      ? stored.pageLayout
-      : DEFAULT_SETTINGS.pageLayout,
-    topBarEffect: isOneOf(stored?.topBarEffect, TOP_BAR_EFFECT_VALUES)
-      ? stored.topBarEffect
-      : DEFAULT_SETTINGS.topBarEffect,
+    pageLayout: enumOr(stored?.pageLayout, PAGE_LAYOUT_VALUES, DEFAULT_SETTINGS.pageLayout),
+    colorScheme: enumOr(stored?.colorScheme, COLOR_SCHEME_MODE_VALUES, DEFAULT_SETTINGS.colorScheme),
+    topBarEffect: enumOr(stored?.topBarEffect, TOP_BAR_EFFECT_VALUES, DEFAULT_SETTINGS.topBarEffect),
     glassCustomTintEnabled: boolOr(
       stored?.glassCustomTintEnabled,
       DEFAULT_SETTINGS.glassCustomTintEnabled
@@ -559,12 +562,8 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
     heroFirstFeedCard: boolOr(stored?.heroFirstFeedCard, DEFAULT_SETTINGS.heroFirstFeedCard),
     compactIllustCard: boolOr(stored?.compactIllustCard, DEFAULT_SETTINGS.compactIllustCard),
     ambientImmersion: boolOr(stored?.ambientImmersion, DEFAULT_SETTINGS.ambientImmersion),
-    ambientIntensity: isOneOf(stored?.ambientIntensity, AMBIENT_INTENSITY_VALUES)
-      ? stored.ambientIntensity
-      : DEFAULT_SETTINGS.ambientIntensity,
-    ambientAlgorithm: isOneOf(stored?.ambientAlgorithm, BASE_AMBIENT_ALGORITHM_VALUES)
-      ? stored.ambientAlgorithm
-      : DEFAULT_SETTINGS.ambientAlgorithm,
+    ambientIntensity: enumOr(stored?.ambientIntensity, AMBIENT_INTENSITY_VALUES, DEFAULT_SETTINGS.ambientIntensity),
+    ambientAlgorithm: enumOr(stored?.ambientAlgorithm, BASE_AMBIENT_ALGORITHM_VALUES, DEFAULT_SETTINGS.ambientAlgorithm),
     novelReaderImmersion: boolOr(
       stored?.novelReaderImmersion,
       DEFAULT_SETTINGS.novelReaderImmersion
@@ -573,15 +572,12 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
       stored?.experimentalImmersion,
       DEFAULT_SETTINGS.experimentalImmersion
     ),
-    experimentalImmersionAlgorithm: isOneOf(
+    experimentalImmersionAlgorithm: enumOr(
       stored?.experimentalImmersionAlgorithm,
-      EXPERIMENTAL_AMBIENT_ALGORITHM_VALUES
-    )
-      ? stored.experimentalImmersionAlgorithm
-      : DEFAULT_SETTINGS.experimentalImmersionAlgorithm,
-    geminiMotionSpeed: isOneOf(stored?.geminiMotionSpeed, GEMINI_MOTION_SPEED_VALUES)
-      ? stored.geminiMotionSpeed
-      : DEFAULT_SETTINGS.geminiMotionSpeed,
+      EXPERIMENTAL_AMBIENT_ALGORITHM_VALUES,
+      DEFAULT_SETTINGS.experimentalImmersionAlgorithm
+    ),
+    geminiMotionSpeed: enumOr(stored?.geminiMotionSpeed, GEMINI_MOTION_SPEED_VALUES, DEFAULT_SETTINGS.geminiMotionSpeed),
     geminiCustomParamsEnabled: boolOr(stored?.geminiCustomParamsEnabled, DEFAULT_SETTINGS.geminiCustomParamsEnabled),
     geminiTransitionIntervalMs: clampNum(stored?.geminiTransitionIntervalMs, 500, 10000, DEFAULT_SETTINGS.geminiTransitionIntervalMs),
     geminiTransitionDurationMs: clampNum(stored?.geminiTransitionDurationMs, 300, 9000, DEFAULT_SETTINGS.geminiTransitionDurationMs),
@@ -593,15 +589,9 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
     geminiBlurRadius: clampNum(stored?.geminiBlurRadius, 30, 200, DEFAULT_SETTINGS.geminiBlurRadius),
     geminiLuminousBoostRatio: clampNum(stored?.geminiLuminousBoostRatio, 0, 100, DEFAULT_SETTINGS.geminiLuminousBoostRatio),
     geminiLightModeAlphaRatio: clampNum(stored?.geminiLightModeAlphaRatio, 10, 100, DEFAULT_SETTINGS.geminiLightModeAlphaRatio),
-    watchlistSortOrder: isOneOf(stored?.watchlistSortOrder, WATCHLIST_SORT_VALUES)
-      ? stored.watchlistSortOrder
-      : DEFAULT_SETTINGS.watchlistSortOrder,
-    longPressBookmarkAction: isOneOf(stored?.longPressBookmarkAction, LONG_PRESS_ACTION_VALUES)
-      ? stored.longPressBookmarkAction
-      : DEFAULT_SETTINGS.longPressBookmarkAction,
-    closeButtonAction: isOneOf(stored?.closeButtonAction, CLOSE_BUTTON_ACTION_VALUES)
-      ? stored.closeButtonAction
-      : DEFAULT_SETTINGS.closeButtonAction,
+    watchlistSortOrder: enumOr(stored?.watchlistSortOrder, WATCHLIST_SORT_VALUES, DEFAULT_SETTINGS.watchlistSortOrder),
+    longPressBookmarkAction: enumOr(stored?.longPressBookmarkAction, LONG_PRESS_ACTION_VALUES, DEFAULT_SETTINGS.longPressBookmarkAction),
+    closeButtonAction: enumOr(stored?.closeButtonAction, CLOSE_BUTTON_ACTION_VALUES, DEFAULT_SETTINGS.closeButtonAction),
     feedImageQualityIos: isOneOf(stored?.feedImageQualityIos, FEED_QUALITY_VALUES)
       ? stored.feedImageQualityIos
       : isOneOf(stored?.feedImageQuality, FEED_QUALITY_VALUES)
@@ -612,12 +602,8 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
     detailImageQualityIpad: qualityOr(stored?.detailImageQualityIpad, stored?.detailImageQuality, DETAIL_QUALITY_VALUES, DEFAULT_SETTINGS.detailImageQualityIpad),
     downloadImageQualityIos: qualityOr(stored?.downloadImageQualityIos, stored?.downloadImageQuality, DOWNLOAD_QUALITY_VALUES, DEFAULT_SETTINGS.downloadImageQualityIos),
     downloadImageQualityIpad: qualityOr(stored?.downloadImageQualityIpad, stored?.downloadImageQuality, DOWNLOAD_QUALITY_VALUES, DEFAULT_SETTINGS.downloadImageQualityIpad),
-    ugoiraExportFormat: isOneOf(stored?.ugoiraExportFormat, UGOIRA_EXPORT_FORMAT_VALUES)
-      ? stored.ugoiraExportFormat
-      : DEFAULT_SETTINGS.ugoiraExportFormat,
-    downloadStorageMode: isOneOf(stored?.downloadStorageMode, DOWNLOAD_STORAGE_MODE_VALUES)
-      ? stored.downloadStorageMode
-      : DEFAULT_SETTINGS.downloadStorageMode,
+    ugoiraExportFormat: enumOr(stored?.ugoiraExportFormat, UGOIRA_EXPORT_FORMAT_VALUES, DEFAULT_SETTINGS.ugoiraExportFormat),
+    downloadStorageMode: enumOr(stored?.downloadStorageMode, DOWNLOAD_STORAGE_MODE_VALUES, DEFAULT_SETTINGS.downloadStorageMode),
     downloadCustomDirectoryBookmark: trimmedOrNull(stored?.downloadCustomDirectoryBookmark),
     downloadCustomDirectoryPath: trimmedOrNull(stored?.downloadCustomDirectoryPath),
     downloadPhotoAlbumName:
@@ -626,9 +612,7 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
         : DEFAULT_SETTINGS.downloadPhotoAlbumName,
     prefetchEnabled: boolOr(stored?.prefetchEnabled, DEFAULT_SETTINGS.prefetchEnabled),
     privacyShieldEnabled: boolOr(stored?.privacyShieldEnabled, DEFAULT_SETTINGS.privacyShieldEnabled),
-    privacyShieldMaterial: isOneOf(stored?.privacyShieldMaterial, PRIVACY_SHIELD_MATERIAL_VALUES)
-      ? stored.privacyShieldMaterial
-      : DEFAULT_SETTINGS.privacyShieldMaterial,
+    privacyShieldMaterial: enumOr(stored?.privacyShieldMaterial, PRIVACY_SHIELD_MATERIAL_VALUES, DEFAULT_SETTINGS.privacyShieldMaterial),
     cacheLimitMB: cacheLimitOf(stored?.cacheLimitMB),
     recordHistory: boolOr(stored?.recordHistory, DEFAULT_SETTINGS.recordHistory),
     imageBatchConcurrency: clampNum(stored?.imageBatchConcurrency, 1, 90, DEFAULT_SETTINGS.imageBatchConcurrency),
@@ -688,68 +672,31 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
       stored?.customRankingNovelModesIpad,
       DEFAULT_SETTINGS.customRankingNovelModesIpad
     ),
-    widgetSourceSmallIos: isOneOf(stored?.widgetSourceSmallIos, WIDGET_DEFAULT_SOURCE_VALUES)
-      ? stored.widgetSourceSmallIos
-      : DEFAULT_SETTINGS.widgetSourceSmallIos,
-    widgetSourceMediumIos: isOneOf(stored?.widgetSourceMediumIos, WIDGET_DEFAULT_SOURCE_VALUES)
-      ? stored.widgetSourceMediumIos
-      : DEFAULT_SETTINGS.widgetSourceMediumIos,
-    widgetSourceLargeIos: isOneOf(stored?.widgetSourceLargeIos, WIDGET_DEFAULT_SOURCE_VALUES)
-      ? stored.widgetSourceLargeIos
-      : DEFAULT_SETTINGS.widgetSourceLargeIos,
-    widgetSourceSmallIpad: isOneOf(stored?.widgetSourceSmallIpad, WIDGET_DEFAULT_SOURCE_VALUES)
-      ? stored.widgetSourceSmallIpad
-      : DEFAULT_SETTINGS.widgetSourceSmallIpad,
-    widgetSourceMediumIpad: isOneOf(stored?.widgetSourceMediumIpad, WIDGET_DEFAULT_SOURCE_VALUES)
-      ? stored.widgetSourceMediumIpad
-      : DEFAULT_SETTINGS.widgetSourceMediumIpad,
-    widgetSourceLargeIpad: isOneOf(stored?.widgetSourceLargeIpad, WIDGET_DEFAULT_SOURCE_VALUES)
-      ? stored.widgetSourceLargeIpad
-      : DEFAULT_SETTINGS.widgetSourceLargeIpad,
-    widgetSourceExtraLargeIpad: isOneOf(stored?.widgetSourceExtraLargeIpad, WIDGET_DEFAULT_SOURCE_VALUES)
-      ? stored.widgetSourceExtraLargeIpad
-      : DEFAULT_SETTINGS.widgetSourceExtraLargeIpad,
-    widgetSourceExtraLargePortraitIos: isOneOf(stored?.widgetSourceExtraLargePortraitIos, WIDGET_DEFAULT_SOURCE_VALUES)
-      ? stored.widgetSourceExtraLargePortraitIos
-      : DEFAULT_SETTINGS.widgetSourceExtraLargePortraitIos,
-    widgetSourceExtraLargePortraitIpad: isOneOf(stored?.widgetSourceExtraLargePortraitIpad, WIDGET_DEFAULT_SOURCE_VALUES)
-      ? stored.widgetSourceExtraLargePortraitIpad
-      : DEFAULT_SETTINGS.widgetSourceExtraLargePortraitIpad,
+    widgetSourceSmallIos: widgetSourceOr(stored?.widgetSourceSmallIos, DEFAULT_SETTINGS.widgetSourceSmallIos),
+    widgetSourceMediumIos: widgetSourceOr(stored?.widgetSourceMediumIos, DEFAULT_SETTINGS.widgetSourceMediumIos),
+    widgetSourceLargeIos: widgetSourceOr(stored?.widgetSourceLargeIos, DEFAULT_SETTINGS.widgetSourceLargeIos),
+    widgetSourceSmallIpad: widgetSourceOr(stored?.widgetSourceSmallIpad, DEFAULT_SETTINGS.widgetSourceSmallIpad),
+    widgetSourceMediumIpad: widgetSourceOr(stored?.widgetSourceMediumIpad, DEFAULT_SETTINGS.widgetSourceMediumIpad),
+    widgetSourceLargeIpad: widgetSourceOr(stored?.widgetSourceLargeIpad, DEFAULT_SETTINGS.widgetSourceLargeIpad),
+    widgetSourceExtraLargeIpad: widgetSourceOr(stored?.widgetSourceExtraLargeIpad, DEFAULT_SETTINGS.widgetSourceExtraLargeIpad),
+    widgetSourceExtraLargePortraitIos: widgetSourceOr(stored?.widgetSourceExtraLargePortraitIos, DEFAULT_SETTINGS.widgetSourceExtraLargePortraitIos),
+    widgetSourceExtraLargePortraitIpad: widgetSourceOr(stored?.widgetSourceExtraLargePortraitIpad, DEFAULT_SETTINGS.widgetSourceExtraLargePortraitIpad),
     widgetPoolCapacity: clampNum(stored?.widgetPoolCapacity, 10, 30, DEFAULT_SETTINGS.widgetPoolCapacity),
     widgetReloadIntervalMinutes: clampNum(stored?.widgetReloadIntervalMinutes, 1, 1440, DEFAULT_SETTINGS.widgetReloadIntervalMinutes),
     quickActionButtonEnabled: boolOr(
       stored?.quickActionButtonEnabled,
       DEFAULT_SETTINGS.quickActionButtonEnabled
     ),
-    quickActionButtonAction: isOneOf(
-      stored?.quickActionButtonAction,
-      QUICK_ACTION_BUTTON_ACTION_VALUES
-    )
-      ? stored.quickActionButtonAction
-      : DEFAULT_SETTINGS.quickActionButtonAction,
-    quickActionButtonPosition: isOneOf(
-      stored?.quickActionButtonPosition,
-      QUICK_ACTION_BUTTON_POSITION_VALUES
-    )
-      ? stored.quickActionButtonPosition
-      : DEFAULT_SETTINGS.quickActionButtonPosition,
-    hapticFeedbackPreference: isOneOf(
-      stored?.hapticFeedbackPreference,
-      HAPTIC_FEEDBACK_PREFERENCE_VALUES
-    )
-      ? stored.hapticFeedbackPreference
-      : DEFAULT_SETTINGS.hapticFeedbackPreference,
+    quickActionButtonAction: enumOr(stored?.quickActionButtonAction, QUICK_ACTION_BUTTON_ACTION_VALUES, DEFAULT_SETTINGS.quickActionButtonAction),
+    quickActionButtonPosition: enumOr(stored?.quickActionButtonPosition, QUICK_ACTION_BUTTON_POSITION_VALUES, DEFAULT_SETTINGS.quickActionButtonPosition),
+    hapticFeedbackPreference: enumOr(stored?.hapticFeedbackPreference, HAPTIC_FEEDBACK_PREFERENCE_VALUES, DEFAULT_SETTINGS.hapticFeedbackPreference),
     novelImmersiveReaderEnabled: stored?.novelImmersiveReaderEnabled === true,
-    imageSourceMode: isOneOf(stored?.imageSourceMode, IMAGE_SOURCE_MODE_VALUES)
-      ? stored.imageSourceMode
-      : DEFAULT_SETTINGS.imageSourceMode,
+    imageSourceMode: enumOr(stored?.imageSourceMode, IMAGE_SOURCE_MODE_VALUES, DEFAULT_SETTINGS.imageSourceMode),
     customImageBaseUrl: parseCustomBaseUrl(
       stored?.customImageBaseUrl,
       DEFAULT_SETTINGS.customImageBaseUrl
     ),
-    apiGatewayMode: isOneOf(stored?.apiGatewayMode, API_GATEWAY_MODE_VALUES)
-      ? stored.apiGatewayMode
-      : DEFAULT_SETTINGS.apiGatewayMode,
+    apiGatewayMode: enumOr(stored?.apiGatewayMode, API_GATEWAY_MODE_VALUES, DEFAULT_SETTINGS.apiGatewayMode),
     customApiBaseUrl: parseCustomBaseUrl(
       stored?.customApiBaseUrl,
       DEFAULT_SETTINGS.customApiBaseUrl
@@ -887,24 +834,12 @@ export function getWidgetSourceForFamily(
   family?: string,
   settings: AppSettings = loadSettings()
 ): WidgetDefaultSource {
-  if (family === "systemExtraLargePortrait") {
-    return Device.isiPad
-      ? settings.widgetSourceExtraLargePortraitIpad
-      : settings.widgetSourceExtraLargePortraitIos
-  }
-  if (family === "systemExtraLarge") {
-    return settings.widgetSourceExtraLargeIpad
-  }
-  if (family === "systemLarge") {
-    return Device.isiPad ? settings.widgetSourceLargeIpad : settings.widgetSourceLargeIos
-  }
-  if (family === "systemMedium") {
-    return Device.isiPad ? settings.widgetSourceMediumIpad : settings.widgetSourceMediumIos
-  }
-  if (family === "systemSmall") {
-    return Device.isiPad ? settings.widgetSourceSmallIpad : settings.widgetSourceSmallIos
-  }
-  return Device.isiPad ? settings.widgetSourceSmallIpad : settings.widgetSourceSmallIos
+  const pad = Device.isiPad
+  if (family === "systemExtraLargePortrait") return pad ? settings.widgetSourceExtraLargePortraitIpad : settings.widgetSourceExtraLargePortraitIos
+  if (family === "systemExtraLarge") return settings.widgetSourceExtraLargeIpad
+  if (family === "systemLarge") return pad ? settings.widgetSourceLargeIpad : settings.widgetSourceLargeIos
+  if (family === "systemMedium") return pad ? settings.widgetSourceMediumIpad : settings.widgetSourceMediumIos
+  return pad ? settings.widgetSourceSmallIpad : settings.widgetSourceSmallIos
 }
 
 export function isRankingOptionVisible(option: RankingOptionDef, settings: AppSettings): boolean {
@@ -922,83 +857,20 @@ export function getVisibleRankingOptions(
   return options.filter((opt) => isRankingOptionVisible(opt, settings))
 }
 
-export const DEFAULT_ILLUST_RANKING_MODES = [
-  "day",
-  "week",
-  "month",
-]
-
-export const DEFAULT_MANGA_RANKING_MODES = [
-  "day_manga",
-  "week_manga",
-  "month_manga",
-]
-
-export const DEFAULT_NOVEL_RANKING_MODES = [
-  "day",
-  "week",
-  "week_rookie",
-]
-
-export const DEFAULT_ILLUST_RANKING_MODES_IPAD = [
-  "day",
-  "week",
-  "month",
-  "week_original",
-  "week_rookie",
-]
-
-export const DEFAULT_MANGA_RANKING_MODES_IPAD = [
-  "day_manga",
-  "week_manga",
-  "month_manga",
-  "week_rookie_manga",
-]
-
-export const DEFAULT_NOVEL_RANKING_MODES_IPAD = [
-  "day",
-  "week",
-  "week_rookie",
-]
-
 export interface CustomRankingTabItem {
   value: string
   title: string
 }
 
-export function resetCustomRankingKind(
-  kind: "illust" | "manga" | "novel"
-): AppSettings {
-  const isiPad = Device.isiPad
-  if (isiPad) {
-    if (kind === "illust") {
-      return updateSettings({
-        customRankingIllustModesIpad: [...DEFAULT_ILLUST_RANKING_MODES_IPAD],
-      })
-    } else if (kind === "manga") {
-      return updateSettings({
-        customRankingMangaModesIpad: [...DEFAULT_MANGA_RANKING_MODES_IPAD],
-      })
-    } else {
-      return updateSettings({
-        customRankingNovelModesIpad: [...DEFAULT_NOVEL_RANKING_MODES_IPAD],
-      })
-    }
-  }
-
-  if (kind === "illust") {
-    return updateSettings({
-      customRankingIllustModes: [...DEFAULT_ILLUST_RANKING_MODES],
-    })
-  } else if (kind === "manga") {
-    return updateSettings({
-      customRankingMangaModes: [...DEFAULT_MANGA_RANKING_MODES],
-    })
-  } else {
-    return updateSettings({
-      customRankingNovelModes: [...DEFAULT_NOVEL_RANKING_MODES],
-    })
-  }
+export function resetCustomRankingKind(kind: "illust" | "manga" | "novel"): AppSettings {
+  const pad = Device.isiPad
+  const key = pad
+    ? kind === "illust" ? "customRankingIllustModesIpad" : kind === "manga" ? "customRankingMangaModesIpad" : "customRankingNovelModesIpad"
+    : kind === "illust" ? "customRankingIllustModes" : kind === "manga" ? "customRankingMangaModes" : "customRankingNovelModes"
+  const val = pad
+    ? kind === "illust" ? DEFAULT_ILLUST_RANKING_MODES_IPAD : kind === "manga" ? DEFAULT_MANGA_RANKING_MODES_IPAD : DEFAULT_NOVEL_RANKING_MODES_IPAD
+    : kind === "illust" ? DEFAULT_ILLUST_RANKING_MODES : kind === "manga" ? DEFAULT_MANGA_RANKING_MODES : DEFAULT_NOVEL_RANKING_MODES
+  return updateSettings({ [key]: [...val] })
 }
 
 export function getCustomRankingModesForKind(
@@ -1194,6 +1066,24 @@ export function resetNetworkSettings(): AppSettings {
     customWebBaseUrl: "",
   })
 }
+
+/** 供 preferredColorScheme 属性消费：system 返回 undefined，light/dark 返回对应值 */
+export function getPreferredColorScheme(
+  settings: AppSettings = loadSettings()
+): "light" | "dark" | undefined {
+  return settings.colorScheme === "system" ? undefined : settings.colorScheme
+}
+
+/** 供小说 WebView 与自绘图表消费：计算当前实质上的深浅模式（若设置是 system 则 fallback 到系统） */
+export function getEffectiveIsDark(
+  settings: AppSettings = loadSettings(),
+  systemColorScheme?: string
+): boolean {
+  if (settings.colorScheme === "dark") return true
+  if (settings.colorScheme === "light") return false
+  return (systemColorScheme ?? Device.colorScheme) === "dark"
+}
+
 
 
 
