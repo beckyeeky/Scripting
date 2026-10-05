@@ -172,11 +172,6 @@ export function BlockWorkSheet(props: {
                     frame={{ maxWidth: "infinity", alignment: "leading" }}
                     contentShape="rect"
                     glassEffect={appGlass({ type: "rect", cornerRadius: 12 })}
-                    border={
-                      blockUserSelected
-                        ? { style: "systemRed", width: 1.5 }
-                        : undefined
-                    }
                   >
                     <Image
                       systemName={
@@ -246,11 +241,6 @@ export function BlockWorkSheet(props: {
                           frame={{ maxWidth: "infinity", alignment: "leading" }}
                           contentShape="rect"
                           glassEffect={appGlass({ type: "rect", cornerRadius: 12 })}
-                          border={
-                            isSelected
-                              ? { style: "systemRed", width: 1.5 }
-                              : undefined
-                          }
                         >
                           <Image
                             systemName={

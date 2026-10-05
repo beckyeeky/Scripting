@@ -10,6 +10,7 @@ import {
   NavigationLink,
   Picker,
   Rectangle,
+  ScrollView,
   Section,
   Text,
   useEffect,
@@ -169,53 +170,47 @@ export function BlockedSettingsView() {
       ) : (
         <Rectangle fill={ambientBackground ?? "clear"} ignoresSafeArea={true} />
       )}
-      <VStack
-        spacing={0}
-      >
-      <List
-        frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
-        scrollContentBackground={ambientBackground ? "hidden" : undefined}
-        toolbarBackground={PAGE_TOOLBAR_BACKGROUND}
-        toolbarBackgroundVisibility={PAGE_TOOLBAR_BACKGROUND_VISIBILITY}
-        contentMargins={{
-          edges: ["top", "horizontal"],
-          insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
-          placement: "scrollContent",
-        }}
-      >
-        {scope === "tag" ? (
-          blocklist.blockedTags.length === 0 ? (
-            <Section>
-              <EmptyView text={empty.text} systemImage={empty.systemImage} />
-            </Section>
-          ) : (
-            <Section header={<Text>已屏蔽标签（{blocklist.blockedTags.length}）</Text>}>
-              {blocklist.blockedTags.map((tag) => (
-                <BlockedTagRow
-                  key={tag}
-                  tag={tag}
-                  onRemove={() => setBlocklist(unblockTag(tag))}
-                />
-              ))}
-            </Section>
-          )
-        ) : blocklist.blockedUsers.length === 0 ? (
-          <Section>
+      <VStack spacing={0} frame={{ maxWidth: "infinity", maxHeight: "infinity" }}>
+        {currentCount === 0 ? (
+          <ScrollView frame={{ maxWidth: "infinity", maxHeight: "infinity" }}>
             <EmptyView text={empty.text} systemImage={empty.systemImage} />
-          </Section>
+          </ScrollView>
         ) : (
-          <Section header={<Text>已屏蔽用户（{blocklist.blockedUsers.length}）</Text>}>
-            {blocklist.blockedUsers.map((user) => (
-              <BlockedUserRow
-                key={user.id}
-                user={user}
-                onRemove={() => setBlocklist(unblockUser(user.id))}
-              />
-            ))}
-          </Section>
+          <List
+            frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+            scrollContentBackground={ambientBackground ? "hidden" : undefined}
+            toolbarBackground={PAGE_TOOLBAR_BACKGROUND}
+            toolbarBackgroundVisibility={PAGE_TOOLBAR_BACKGROUND_VISIBILITY}
+            contentMargins={{
+              edges: ["top", "horizontal"],
+              insets: { top: 0, leading: 8, bottom: 0, trailing: 8 },
+              placement: "scrollContent",
+            }}
+          >
+            {scope === "tag" ? (
+              <Section header={<Text>已屏蔽标签（{blocklist.blockedTags.length}）</Text>}>
+                {blocklist.blockedTags.map((tag) => (
+                  <BlockedTagRow
+                    key={tag}
+                    tag={tag}
+                    onRemove={() => setBlocklist(unblockTag(tag))}
+                  />
+                ))}
+              </Section>
+            ) : (
+              <Section header={<Text>已屏蔽用户（{blocklist.blockedUsers.length}）</Text>}>
+                {blocklist.blockedUsers.map((user) => (
+                  <BlockedUserRow
+                    key={user.id}
+                    user={user}
+                    onRemove={() => setBlocklist(unblockUser(user.id))}
+                  />
+                ))}
+              </Section>
+            )}
+          </List>
         )}
-      </List>
-    </VStack>
+      </VStack>
   </ZStack>
   )
 }
