@@ -45,6 +45,7 @@ import { IpadSplitViewNoticeSheet } from "./components/IpadSplitViewNoticeSheet"
 import { DEFAULT_GLASS_TINT_COLOR, DEFAULT_GLASS_TINT_STRENGTH } from "./components/glass"
 import {
   formatCustomRankingSummary,
+  getPreferredColorScheme,
   loadSettings,
   onSettingsChanged,
   resetSettings,
@@ -393,10 +394,12 @@ export function SettingsView() {
     settings.glassCustomTintEnabled && settings.glassTintColor
       ? (settings.glassTintColor as Color)
       : undefined
+  const preferredColorScheme = getPreferredColorScheme(settings)
 
   return (
     <ZStack
       frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+      preferredColorScheme={preferredColorScheme}
       navigationTitle={isFullScreenPad ? "" : "应用设置"}
       navigationBarTitleDisplayMode="inline"
       toolbarBackground={PAGE_TOOLBAR_BACKGROUND}

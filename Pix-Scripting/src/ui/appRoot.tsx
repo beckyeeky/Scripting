@@ -63,7 +63,7 @@ function LaunchExperienceView() {
       alignment="center"
       frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
       ignoresSafeArea={true}
-      background="#070D1E"
+      background="systemBackground"
     >
       {/* 1. 背景层：若有缓存插画则展示柔和高斯模糊图，若无则无缝展示梦幻流体光晕 */}
       {bgImage ? (

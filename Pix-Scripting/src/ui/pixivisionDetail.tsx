@@ -591,7 +591,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                           <Button key="download" action={handleDownload}>
                             <Image
                               systemName={isDownloading ? "square.and.arrow.down.fill" : "square.and.arrow.down"}
-                              foregroundStyle={isDownloading ? "#0096FA" : undefined}
+                              foregroundStyle={isDownloading ? "systemBlue" : undefined}
                             />
                           </Button>,
                         ]
@@ -617,7 +617,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                   <Text
                     font="subheadline"
                     fontWeight="semibold"
-                    foregroundStyle="#0096FA"
+                    foregroundStyle="systemBlue"
                   >
                     {detail.category || "特辑"}
                   </Text>
@@ -711,7 +711,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                       <Image
                         systemName="list.bullet.indent"
                         font="headline"
-                        foregroundStyle="#0096FA"
+                        foregroundStyle="systemBlue"
                       />
                       <Text font="headline" fontWeight="bold">
                         目录
@@ -742,7 +742,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                             <Text
                               font="caption"
                               fontWeight="bold"
-                              foregroundStyle="#0096FA"
+                              foregroundStyle="systemBlue"
                               frame={{ width: 22 }}
                             >
                               {idx + 1}.
@@ -783,7 +783,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                           <HStack spacing={8} alignment="center">
                             <VStack
                               frame={{ width: 4, height: 18 }}
-                              background="#0096FA"
+                              background="systemBlue"
                               clipShape={{ type: "rect", cornerRadius: 2 }}
                             />
                             <Text font="title3" fontWeight="bold" multilineTextAlignment="leading">
@@ -867,8 +867,8 @@ export function PixivisionDetailView(props: { articleID: number }) {
                             frame={{ maxWidth: "infinity" }}
                           >
                             <HStack spacing={6} alignment="center">
-                              <Image systemName="envelope.fill" font="caption" foregroundStyle="#0096FA" />
-                              <Text font="caption" fontWeight="bold" foregroundStyle="#0096FA">
+                              <Image systemName="envelope.fill" font="caption" foregroundStyle="systemBlue" />
+                              <Text font="caption" fontWeight="bold" foregroundStyle="systemBlue">
                                 读者来信
                               </Text>
                             </HStack>
@@ -969,7 +969,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                           frame={{ maxWidth: "infinity", alignment: "leading" }}
                         >
                           <HStack spacing={8} alignment="top">
-                            <Text font="headline" fontWeight="bold" foregroundStyle="#0096FA">
+                            <Text font="headline" fontWeight="bold" foregroundStyle="systemBlue">
                               Q:
                             </Text>
                             <Text
@@ -1278,7 +1278,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                       <Image
                         systemName="doc.text.image"
                         font="headline"
-                        foregroundStyle="#0096FA"
+                        foregroundStyle="systemBlue"
                       />
                       <Text font="headline" fontWeight="bold">
                         推荐阅读
@@ -1301,7 +1301,7 @@ export function PixivisionDetailView(props: { articleID: number }) {
                       glassEffect={appGlass({ type: "rect", cornerRadius: 14 })}
                       frame={{ maxWidth: "infinity" }}
                     >
-                      <Image systemName="newspaper" font="largeTitle" foregroundStyle="#0096FA" />
+                      <Image systemName="newspaper" font="largeTitle" foregroundStyle="systemBlue" />
                       <Text font="headline" fontWeight="bold">
                         特辑排版结构暂未完全解析
                       </Text>
@@ -1345,10 +1345,10 @@ export function PixivisionDetailView(props: { articleID: number }) {
                       ? "trophy.fill"
                       : "sparkles.rectangle.stack.fill"
                   const iconColor = isLike
-                    ? "#FF453A"
+                    ? "systemRed"
                     : isRanking
-                      ? "#FF9500"
-                      : "#0096FA"
+                      ? "systemOrange"
+                      : "systemBlue"
 
                   return (
                     <VStack

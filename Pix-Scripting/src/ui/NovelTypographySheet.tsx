@@ -295,7 +295,7 @@ export function NovelTypographySheet(props: { onClose?: () => void }) {
                   {!isScriptingPro() ? (
                     <HStack
                       padding={{ horizontal: 5, vertical: 1.5 }}
-                      background="#FF950020"
+                      background="secondarySystemFill"
                       clipShape={{ type: "capsule", style: "continuous" }}
                     >
                       <Text

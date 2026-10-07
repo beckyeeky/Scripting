@@ -24,6 +24,7 @@ import { useIllustBookmark, useUserFollow } from "../Hooks"
 import { isUserFollowed, notifyUserFollowChanged } from "../../store/userFollow"
 import { cacheIllust } from "../../store/illustCache"
 import { loadSettings, getDownloadImageQuality, onSettingsChanged } from "../../store/settings"
+import { getSeriesByWorkID } from "../../store/seriesCache"
 import { downloadIllustToAlbum, exportUgoiraToAlbum } from "../../downloader"
 import { addBookmark, bookmarkDetail, bookmarkTags, followUser, removeBookmark } from "../../api/pixiv"
 import { session } from "../../api/session"
@@ -516,6 +517,11 @@ function renderIllustContextMenu(
         ? "square.and.arrow.down.fill"
         : "square.and.arrow.down"
 
+  const rawSeries = illust.series ?? (illust as any)?.illust_series
+  const rawSeriesObj = Array.isArray(rawSeries) ? rawSeries[0] : rawSeries
+  const associatedRef = getSeriesByWorkID(illust.id, "manga")
+  const seriesID = rawSeriesObj?.id ?? associatedRef?.seriesID ?? null
+
   const defaultMenuItems = (
     <Group>
       <Button
@@ -532,6 +538,15 @@ function renderIllustContextMenu(
           action={onFollowUser}
         />
       ) : null}
+      {seriesID ? (
+        <NavigationLink value={`mangaSeries:${seriesID}`}>
+          <Button
+            title="查看系列"
+            systemImage="books.vertical"
+            action={() => {}}
+          />
+        </NavigationLink>
+      ) : null}
       <NavigationLink value={`relatedIllust:${illust.id}`}>
         <Button
           title="相关作品"
@@ -539,6 +554,15 @@ function renderIllustContextMenu(
           action={() => {}}
         />
       </NavigationLink>
+      <Button
+        title="分享图片"
+        systemImage="square.and.arrow.up"
+        action={() => {
+          triggerHaptic("selection")
+          const shareUrl = `https://www.pixiv.net/artworks/${illust.id}`
+          void ShareSheet.present([shareUrl])
+        }}
+      />
       <Button
         title="屏蔽设置"
         systemImage="nosign"

@@ -10,6 +10,7 @@ import { NovelDetailView } from "./NovelDetail"
 import { NovelLibraryView } from "./NovelLibrary"
 import { TagFeedView } from "./TagFeedPage"
 import { RelatedIllustFeedView } from "./relatedIllustFeed"
+import { RelatedNovelFeedView } from "./relatedNovelFeed"
 import { LibraryView } from "./LibraryView"
 import { HistoryView } from "./history"
 import { notifyDetailDestinationRendered } from "../store/history"
@@ -124,6 +125,11 @@ export function renderDestination(rawPage: string) {
     const id = parseID(page, "relatedIllust:")
     notifyDetailDestinationRendered()
     if (id != null) return <RelatedIllustFeedView illustID={id} />
+  }
+  if (page.startsWith("relatedNovel:")) {
+    const id = parseID(page, "relatedNovel:")
+    notifyDetailDestinationRendered()
+    if (id != null) return <RelatedNovelFeedView novelID={id} />
   }
   if (page.startsWith("tag:")) {
     return <TagFeedView tag={decodeTag(page.slice("tag:".length))} kind="illust" />

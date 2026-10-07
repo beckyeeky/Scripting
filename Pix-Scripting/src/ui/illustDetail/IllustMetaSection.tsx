@@ -36,7 +36,7 @@ export function IllustMetaSection(props: IllustMetaSectionProps) {
     resolvedEpisodeNumber,
   } = props
 
-  const commentAccent = appThemeColor("#0096FA")
+  const commentAccent = appThemeColor("systemBlue")
 
   return (
     <>

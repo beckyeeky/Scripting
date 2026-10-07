@@ -243,7 +243,7 @@ export function LoginView(props: {
           <Button
             title="使用 Pixiv 账号登录"
             buttonStyle="glassProminent"
-            tint="#0096FA"
+            tint="systemBlue"
             controlSize="large"
             action={startLogin}
           />
@@ -255,7 +255,7 @@ export function LoginView(props: {
                 foregroundStyle={
                   error === "登录已取消"
                     ? "rgba(255, 255, 255, 0.75)"
-                    : "#FF6B6B"
+                    : "systemRed"
                 }
                 multilineTextAlignment="center"
               >

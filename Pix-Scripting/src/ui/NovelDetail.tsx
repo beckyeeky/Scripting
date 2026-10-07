@@ -1314,6 +1314,7 @@ export function NovelDetailView(props: { novelID: number }) {
 
                             {/* 中间区域（独立页码毛玻璃胶囊选择器，始终严格居中） */}
                             <Menu
+                              menuStyle="borderlessButton"
                               label={
                                 <HStack
                                   spacing={6}
@@ -1321,7 +1322,6 @@ export function NovelDetailView(props: { novelID: number }) {
                                   padding={{ horizontal: 14, vertical: 8 }}
                                   glassEffect={appGlass("capsule")}
                                   contentShape="capsule"
-                                  background="#80808020"
                                 >
                                   <Text font="body" foregroundStyle="label">
                                     {currentPage} / {totalPages}
@@ -1666,7 +1666,7 @@ export function NovelDetailView(props: { novelID: number }) {
                 }}
               >
                 <HStack spacing={3}>
-                  <Image systemName="bubble.left" font="footnote" foregroundStyle={appThemeColor("#0096FA")} />
+                  <Image systemName="bubble.left" font="footnote" foregroundStyle={appThemeColor("systemBlue")} />
                   <Text font="footnote">
                     {formatNumber(current.total_comments)}
                   </Text>

@@ -1,6 +1,7 @@
 import {
   Button,
   FlowLayout,
+  Group,
   HStack,
   Image,
   LongPressGesture,
@@ -21,14 +22,24 @@ import { appGlass } from "./glass"
 import { AppNavigationLink, useDualRoute } from "../DualRouteContext"
 import { CachedImage } from "./CachedImage"
 import { BookmarkButton, BookmarkDetailSheet } from "./BookmarkDetailSheet"
+import { BlockWorkSheet } from "./BlockWorkSheet"
 import { CORNER_ICON_SIZE, formatNumber, formatWordCount, type CardAction } from "./formatUtils"
 import { useLatest, useNovelBookmark } from "../Hooks"
 import { isUserFollowed, notifyUserFollowChanged } from "../../store/userFollow"
 import { recordNovelMarker } from "../../store/bookmarkSync"
 import { loadSettings } from "../../store/settings"
 import { getSeriesByWorkID, recordWorkSeriesAssociation } from "../../store/seriesCache"
-import { addNovelBookmark, bookmarkDetail, followUser, novelBookmarkDetail, novelBookmarkTags, removeNovelBookmark } from "../../api/pixiv"
+import {
+  addNovelBookmark,
+  bookmarkDetail,
+  followUser,
+  novelBookmarkDetail,
+  novelBookmarkTags,
+  novelViewerData,
+  removeNovelBookmark,
+} from "../../api/pixiv"
 import { session } from "../../api/session"
+import { exportNovelToEpub } from "../../downloader"
 import { novelThumbUrlOf } from "../../image/imageLoader"
 import { cacheNovel } from "../../store/novelCache"
 import type { PixivNovel } from "../../types"
@@ -65,6 +76,7 @@ export function NovelCard(props: {
   footerText?: string
   markerPage?: number
   showEpisodeNumber?: boolean
+  showSeriesTitle?: boolean
   topTrailingAction?: CardAction
   contextMenu?: any
 }) {
@@ -76,6 +88,7 @@ export function NovelCard(props: {
     footerText,
     markerPage,
     showEpisodeNumber = true,
+    showSeriesTitle = true,
     topTrailingAction,
     contextMenu,
   } = props
@@ -90,6 +103,22 @@ export function NovelCard(props: {
     novel.episode_number ??
     getSeriesByWorkID(novel.id, "novel")?.episodeNumber ??
     null
+
+  const rawSeries = novel.series ?? (novel as any)?.novel_series
+  const rawSeriesObj = Array.isArray(rawSeries) ? rawSeries[0] : rawSeries
+  const associatedRef = getSeriesByWorkID(novel.id, "novel")
+  const seriesTitle = rawSeriesObj?.title || associatedRef?.seriesTitle || null
+  const seriesID = rawSeriesObj?.id ?? associatedRef?.seriesID ?? null
+
+  if (seriesID && seriesTitle) {
+    recordWorkSeriesAssociation(
+      novel.id,
+      "novel",
+      seriesID,
+      seriesTitle,
+      episodeNumber
+    )
+  }
 
   const [bookmarked, setBookmarked] = useNovelBookmark(novel.id, novel.is_bookmarked)
   const [bookmarkBusy, setBookmarkBusy] = useState(false)
@@ -169,16 +198,216 @@ export function NovelCard(props: {
     novel.cover?.urls?.["480mw"] ??
     null
 
+  const [followed, setFollowed] = useState(
+    () => isUserFollowed(novel.user.id) ?? novel.user.is_followed ?? false
+  )
+  const [followBusy, setFollowBusy] = useState(false)
+  const isOwnUser = session.userID === novel.user.id
+  const [downloadingEpub, setDownloadingEpub] = useState(false)
+  const [showBlockSheet, setShowBlockSheet] = useState(false)
+
+  useEffect(() => {
+    const next = isUserFollowed(novel.user.id) ?? novel.user.is_followed ?? false
+    if (next !== followed) setFollowed(next)
+  }, [novel.user.id, novel.user.is_followed])
+
+  async function handleFollowUser() {
+    if (followBusy || followed || isOwnUser) return
+    triggerHaptic("medium")
+    setFollowBusy(true)
+    try {
+      await session.call((token) => followUser(novel.user.id, "public", token))
+      notifyUserFollowChanged(novel.user.id, true, "public")
+      setFollowed(true)
+    } catch {
+      // 保持当前状态
+    } finally {
+      setFollowBusy(false)
+    }
+  }
+
+  async function handleDownloadNovel() {
+    if (downloadingEpub) return
+    triggerHaptic("light")
+    setDownloadingEpub(true)
+    try {
+      let fullText = ""
+      const imagesMap: Record<string, string> = {}
+      let cover = coverURL || undefined
+
+      const viewer = await session.call((token) => novelViewerData(novel.id, token))
+      if (viewer && viewer.text) {
+        fullText = viewer.text
+        if (viewer.coverUrl) cover = viewer.coverUrl
+        if (viewer.textEmbeddedImages) {
+          Object.entries(viewer.textEmbeddedImages).forEach(([key, imgObj]) => {
+            const url =
+              imgObj?.urls?.original ||
+              imgObj?.urls?.["1200x1200"] ||
+              imgObj?.urls?.["480mw"] ||
+              (imgObj as any)?.urls?.large ||
+              (imgObj as any)?.urls?.medium ||
+              (imgObj as any)?.url
+            if (url) {
+              imagesMap[key] = url
+              if (imgObj.novelImageId && imgObj.novelImageId !== key) {
+                imagesMap[imgObj.novelImageId] = url
+              }
+            }
+          })
+        }
+      }
+
+      if (!fullText) return
+
+      const isR18 = (novel.x_restrict ?? 0) > 0 || novel.tags?.some((t) => /r-?18/i.test(t.name))
+      const filePath = await exportNovelToEpub({
+        id: novel.id,
+        title: novel.title,
+        author: novel.user?.name || "Unknown",
+        authorId: novel.user?.id,
+        seriesTitle: seriesTitle ?? undefined,
+        description: novel.caption,
+        tags: novel.tags?.map((t) => t.name),
+        createdDate: novel.create_date,
+        isR18,
+        coverUrl: cover,
+        chapters: [
+          {
+            id: novel.id,
+            title: novel.title,
+            text: fullText,
+            images: imagesMap,
+            caption: novel.caption,
+          },
+        ],
+      })
+
+      if (filePath) {
+        triggerHaptic("success")
+        await ShareSheet.present([filePath])
+      }
+    } catch (e: any) {
+      console.log("downloadNovel error:", e?.message ?? e)
+    } finally {
+      setDownloadingEpub(false)
+    }
+  }
+
+  function handleShareNovel() {
+    triggerHaptic("selection")
+    const shareUrl = `https://www.pixiv.net/novel/show.php?id=${novel.id}`
+    void ShareSheet.present([shareUrl])
+  }
+
+  const resolvedContextMenu = useMemo(() => {
+    const defaultMenuItems = (
+      <Group>
+        <Button
+          title={downloadingEpub ? "下载中…" : "下载小说"}
+          systemImage={downloadingEpub ? "square.and.arrow.down.fill" : "square.and.arrow.down"}
+          disabled={downloadingEpub}
+          action={() => void handleDownloadNovel()}
+        />
+        {!followed && !isOwnUser && novel.user ? (
+          <Button
+            title={followBusy ? "关注中…" : "关注作者"}
+            systemImage="person.badge.plus"
+            disabled={followBusy}
+            action={() => void handleFollowUser()}
+          />
+        ) : null}
+        {seriesID ? (
+          <NavigationLink value={`novelSeries:${seriesID}`}>
+            <Button
+              title="查看系列"
+              systemImage="books.vertical"
+              action={() => {}}
+            />
+          </NavigationLink>
+        ) : null}
+        <NavigationLink value={`relatedNovel:${novel.id}`}>
+          <Button
+            title="相关作品"
+            systemImage="sparkles"
+            action={() => {}}
+          />
+        </NavigationLink>
+        <Button
+          title="分享小说"
+          systemImage="square.and.arrow.up"
+          action={handleShareNovel}
+        />
+        <Button
+          title="屏蔽设置"
+          systemImage="nosign"
+          role="destructive"
+          action={() => {
+            triggerHaptic("selection")
+            setShowBlockSheet(true)
+          }}
+        />
+      </Group>
+    )
+
+    if (!contextMenu) {
+      return { menuItems: defaultMenuItems }
+    }
+
+    const customItems = contextMenu.menuItems ?? contextMenu
+    if (contextMenu.override) {
+      return {
+        ...contextMenu,
+        menuItems: customItems,
+      }
+    }
+
+    return {
+      ...contextMenu,
+      menuItems: (
+        <Group>
+          {customItems}
+          {defaultMenuItems}
+        </Group>
+      ),
+    }
+  }, [
+    downloadingEpub,
+    followed,
+    isOwnUser,
+    followBusy,
+    novel.id,
+    novel.user,
+    novel.title,
+    seriesID,
+    contextMenu,
+  ])
+
   return (
     <ZStack
       alignment="topTrailing"
       frame={{ maxWidth: "infinity" }}
+      sheet={
+        showBlockSheet
+          ? {
+              content: (
+                <BlockWorkSheet
+                  user={novel.user}
+                  tags={novel.tags ?? []}
+                  onClose={() => setShowBlockSheet(false)}
+                />
+              ),
+              isPresented: showBlockSheet,
+              onChanged: setShowBlockSheet,
+            }
+          : undefined
+      }
     >
       <ZStack alignment="bottomTrailing" frame={{ maxWidth: "infinity" }}>
-        <AppNavigationLink value={`novel:${novel.id}`} contextMenu={contextMenu}>
+        <AppNavigationLink value={`novel:${novel.id}`} contextMenu={resolvedContextMenu}>
           <HStack
-            spacing={10}
-            padding={10}
+            spacing={6}
+            padding={6}
             onAppear={handleAppear}
             alignment="top"
             glassEffect={appGlass({ type: "rect", cornerRadius: 14 })}
@@ -221,12 +450,21 @@ export function NovelCard(props: {
               spacing={4}
               frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
             >
+              {showSeriesTitle && seriesTitle ? (
+                <Text
+                  font="caption2"
+                  foregroundStyle="secondaryLabel"
+                  lineLimit={1}
+                  frame={{ maxWidth: "infinity", alignment: "leading" }}
+                >
+                  {seriesTitle}
+                </Text>
+              ) : null}
               <Text
                 font="subheadline"
                 fontWeight="semibold"
                 multilineTextAlignment="leading"
                 frame={{ maxWidth: "infinity", alignment: "leading" }}
-                padding={{ trailing: topTrailingAction ? 24 : 0 }}
               >
                 {novel.title}
               </Text>
@@ -276,6 +514,7 @@ export function NovelCard(props: {
           </HStack>
         </AppNavigationLink>
         <BookmarkButton
+          size={30}
           bookmarked={bookmarked}
           disabled={bookmarkBusy}
           onTap={() => void toggleNovelBookmark()}

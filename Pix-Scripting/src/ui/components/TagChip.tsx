@@ -59,7 +59,7 @@ export function TagChip(props: {
       <HStack spacing={3} alignment="center">
         <Text
           font={compact ? "caption2" : "caption"}
-          foregroundStyle="#0096FA"
+          foregroundStyle="systemBlue"
           fontWeight="semibold"
         >
           #

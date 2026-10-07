@@ -276,14 +276,14 @@ function NotificationRow(props: {
 
   const content = (
     <HStack
-      spacing={10}
+      spacing={6}
       alignment="top"
-      padding={10}
+      padding={6}
       glassEffect={appGlass({ type: "rect", cornerRadius: 14 })}
       shadow={{ color: "#0000000F", radius: 18, y: 8 }}
       frame={{ maxWidth: "infinity", alignment: "leading" }}
     >
-      {/* 封面：复用小说卡片封面规范（68×96 竖版 0.71 比例，8px 圆角） */}
+      {/* 封面：复用小说卡片封面规范（68×96 竖版 0.71 比例，8px 同心圆角） */}
       {coverURL ? (
         <ZStack
           frame={{ width: 68, height: 96 }}

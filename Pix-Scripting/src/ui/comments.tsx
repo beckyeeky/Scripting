@@ -403,7 +403,7 @@ export function CommentsSheet(props: {
     settings.glassCustomTintEnabled && settings.glassTintColor
       ? (settings.glassTintColor as Color)
       : undefined
-  const themeColor = appThemeColor("#0096FA") as Color
+  const themeColor = appThemeColor("systemBlue") as Color
 
   return (
     <NavigationStack
@@ -517,7 +517,7 @@ function CommentInputBar(props: {
   const [showEmotePanel, setShowEmotePanel] = useState(false)
   const [emoteTab, setEmoteTab] = useState<string>("emoji")
   const [stampCategoryKey, setStampCategoryKey] = useState<string>("all")
-  const themeColor = appThemeColor("#0096FA")
+  const themeColor = appThemeColor("systemBlue")
 
   // 当外部回复目标切换时，收起表情面板
   useEffect(() => {
@@ -685,7 +685,7 @@ function CommentCard(props: {
   } = props
   const avatarUrl = comment.user.profile_image_urls?.medium ?? null
   const hasReplies = comment.has_replies || (comment.reply_count ?? 0) > 0
-  const themeColor = appThemeColor("#0096FA") as Color
+  const themeColor = appThemeColor("systemBlue") as Color
 
   return (
     <VStack
@@ -824,7 +824,7 @@ function SubCommentRow(props: {
 }) {
   const { comment, onReply, onOpenUser } = props
   const avatarUrl = comment.user.profile_image_urls?.medium ?? null
-  const themeColor = appThemeColor("#0096FA") as Color
+  const themeColor = appThemeColor("systemBlue") as Color
 
   return (
     <VStack
@@ -1083,7 +1083,7 @@ function EmotePickerPanel(props: {
     categoryKey === "all"
       ? "全部"
       : PIXIV_STAMP_CATEGORIES.find((c) => c.key === categoryKey)?.title ?? "分类"
-  const themeColor = appThemeColor("#0096FA") as Color
+  const themeColor = appThemeColor("systemBlue") as Color
 
   return (
     <VStack

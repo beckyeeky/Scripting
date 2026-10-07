@@ -15,6 +15,8 @@ import {
   Toggle,
   VStack,
   ZStack,
+  type Color,
+  type CommonViewProps,
   useCallback,
   useEffect,
   useRef,
@@ -252,7 +254,7 @@ export function BookmarkDetailSheet(props: {
                             <Image
                               systemName="tag.fill"
                               font="footnote"
-                              foregroundStyle="#0096FA"
+                              foregroundStyle="systemBlue"
                             />
                             <TextField
                               key={`custom-tag-${inputSeq}`}
@@ -268,7 +270,7 @@ export function BookmarkDetailSheet(props: {
                             />
                             <Button
                               buttonStyle="glassProminent"
-                              tint="#0096FA"
+                              tint="systemBlue"
                               controlSize="small"
                               disabled={!customTag.trim() || selectedTags.length >= 10}
                               action={addCustomTag}
@@ -344,7 +346,7 @@ export function BookmarkDetailSheet(props: {
                         key={tag.name}
                         title={`${selected ? "✓ " : ""}#${tag.name}`}
                         buttonStyle={selected ? "glassProminent" : "glass"}
-                        tint={selected ? "#0096FA" : undefined}
+                        tint={selected ? "systemBlue" : undefined}
                         controlSize="small"
                         action={() => toggleTag(tag.name)}
                       />
@@ -354,7 +356,7 @@ export function BookmarkDetailSheet(props: {
                     title="自定义标签"
                     systemImage="plus"
                     buttonStyle="glass"
-                    tint="#0096FA"
+                    tint="systemBlue"
                     controlSize="small"
                     disabled={selectedTags.length >= 10}
                     action={openCustomTagInput}
@@ -379,17 +381,23 @@ export function BookmarkButton(props: {
   onSheetChanged?: (presented: boolean) => void
   size?: number
   hero?: boolean
+  shadow?: CommonViewProps["shadow"]
+  offset?: { x: number; y: number }
 }) {
   const [longPressLocked, setLongPressLocked] = useState(false)
-  const size = props.size ?? (props.hero ? 30 : CORNER_ICON_SIZE)
-  const offset = props.hero ? { x: -5, y: -5 } : { x: -4, y: -4 }
+  const size = props.size ?? (props.hero ? 34 : 30)
+  const offset = props.offset ?? { x: -6, y: -6 }
+  const shadow = props.shadow
+  const iconFont = props.hero ? "title3" : "body"
 
   return (
     <ZStack
+      alignment="center"
       frame={{ width: size, height: size }}
-      contentShape="rect"
+      contentShape="circle"
       zIndex={2}
       offset={offset}
+      shadow={shadow}
       allowsHitTesting={!props.disabled && !longPressLocked}
       sheet={
         props.sheetContent && props.onSheetChanged
@@ -421,7 +429,7 @@ export function BookmarkButton(props: {
       >
         <Image
           systemName={props.bookmarked ? "heart.fill" : "heart"}
-          font={props.hero ? "title3" : "body"}
+          font={iconFont}
           foregroundStyle={props.bookmarked ? "systemPink" : undefined}
         />
       </Button>

@@ -132,7 +132,7 @@ export function PixivisionCard(props: {
           <Text
             font="caption"
             fontWeight="semibold"
-            foregroundStyle="#0096FA"
+            foregroundStyle="systemBlue"
           >
             {article.category || "特辑"}
           </Text>

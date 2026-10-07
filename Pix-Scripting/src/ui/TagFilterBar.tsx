@@ -84,7 +84,7 @@ export function TagFilterBar(props: {
               <HStack spacing={3} alignment="center">
                 <Text
                   font="caption"
-                  foregroundStyle={isSelected ? undefined : "#0096FA"}
+                  foregroundStyle={isSelected ? undefined : "systemBlue"}
                   fontWeight="semibold"
                 >
                   #

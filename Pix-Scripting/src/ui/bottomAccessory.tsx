@@ -234,6 +234,11 @@ export function getActiveAccessoryKey(
   if (top === "customAISettings") return "customAISettings"
   if (top.startsWith("searchResults:")) return top
   if (
+    top.startsWith("relatedIllust:") ||
+    top.startsWith("relatedNovel:")
+  )
+    return top
+  if (
     top.startsWith("tag:") ||
     top.startsWith("novelTag:") ||
     top.startsWith("pixivisionTag:") ||
@@ -1395,7 +1400,7 @@ export function renderRouteInfoBar(top: string) {
   }
 
   // 2. 相关作品
-  if (top.startsWith("relatedIllust:")) {
+  if (top.startsWith("relatedIllust:") || top.startsWith("relatedNovel:")) {
     return <DockInfoBar icon="sparkles" title="相关作品推荐" />
   }
 

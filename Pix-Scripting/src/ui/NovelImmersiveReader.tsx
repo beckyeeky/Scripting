@@ -2308,6 +2308,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
 
               {/* 中间：页码毛玻璃胶囊与跳页 Menu Picker */}
               <Menu
+                menuStyle="borderlessButton"
                 label={
                   <HStack
                     spacing={6}
@@ -2315,7 +2316,6 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
                     padding={{ horizontal: 16, vertical: 8 }}
                     glassEffect={appInteractiveGlass("capsule")}
                     contentShape="capsule"
-                    background="#80808020"
                     shadow={{ color: "#0000001F", radius: 8, y: 2 }}
                   >
                     <Text font="body" foregroundStyle="label">
