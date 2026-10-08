@@ -26,6 +26,7 @@ import { loadSettings, onSettingsChanged, updateSettings, type AppSettings } fro
 import { ResponsiveContainer, useLayoutMetrics } from "./Hooks"
 import { SPLIT_SHELL_MIN_WIDTH, SplitShell } from "./SplitShell"
 import { SplitViewContainer } from "./DualRouteContext"
+import { NavigationZoomProvider } from "./NavigationZoomContext"
 import { FeatureHighlightsSheet } from "./components/FeatureHighlightsSheet"
 import { IpadSplitViewNoticeSheet } from "./components/IpadSplitViewNoticeSheet"
 import { topBarScrollEdge } from "./components/pageChrome"
@@ -406,7 +407,9 @@ function ShellSwitcher(props: { onClose: () => void; settings: AppSettings }) {
 function TabViewShell(props: { onClose: () => void; width: number; height: number }) {
   return (
     <SplitViewContainer splitViewEnabled={false}>
-      <MainTabView onClose={props.onClose} />
+      <NavigationZoomProvider>
+        <MainTabView onClose={props.onClose} />
+      </NavigationZoomProvider>
     </SplitViewContainer>
   )
 }

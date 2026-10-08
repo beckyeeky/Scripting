@@ -133,6 +133,7 @@ import {
 import { cleanHtmlCaption } from "../api/aiService"
 import { renderDestination, requestPixivRoute } from "../store/routeNavigation"
 import { AppNavigationLink, useDualRoute } from "./DualRouteContext"
+import { getActiveZoomNamespace } from "./NavigationZoomContext"
 
 const BLOCKED_BY_BLOCKLIST_MESSAGE = "该小说已被屏蔽（标签或作者在黑名单中）"
 const BLOCKED_BY_RESTRICTION_MESSAGE = "该小说被内容显示设置过滤，暂时无法显示"
@@ -1621,10 +1622,18 @@ export function NovelDetailView(props: { novelID: number }) {
             ? []
             : [
                 <AppNavigationLink value={`user:${current.user.id}`}>
-                  <AvatarImage
-                    url={current.user.profile_image_urls?.medium ?? null}
-                    size={28}
-                  />
+                  <ZStack
+                    matchedTransitionSource={
+                      current.user?.id && getActiveZoomNamespace()
+                        ? { id: `user:${current.user.id}`, namespace: getActiveZoomNamespace()! }
+                        : undefined
+                    }
+                  >
+                    <AvatarImage
+                      url={current.user.profile_image_urls?.medium ?? null}
+                      size={28}
+                    />
+                  </ZStack>
                 </AppNavigationLink>,
               ]),
         ],

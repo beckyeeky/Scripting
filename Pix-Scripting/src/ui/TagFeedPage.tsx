@@ -23,6 +23,7 @@ import {
   loadSettings,
   onSettingsChanged,
 } from "../store/settings"
+import { loadBlocklist } from "../store/blocklist"
 import { isIllustContentVisible, isNovelContentVisible } from "../store/contentFilter"
 import { session } from "../api/session"
 import { triggerHaptic } from "../platform/haptics"
@@ -69,6 +70,7 @@ function formatPixivDate(timestamp: number): string {
 }
 
 function defaultTagIllustAdvancedParams(tag: string): AdvancedSearchParams {
+  const settings = loadSettings()
   return {
     word: tag,
     category: "all_illust",
@@ -82,10 +84,14 @@ function defaultTagIllustAdvancedParams(tag: string): AdvancedSearchParams {
     endDate: "",
     startTimestamp: 0,
     endTimestamp: 0,
+    includeR18: settings.showR18,
+    includeR18G: settings.showR18 && settings.showR18G,
+    includeAI: settings.showAI,
   }
 }
 
 function defaultTagNovelAdvancedParams(tag: string): AdvancedSearchParams {
+  const settings = loadSettings()
   return {
     word: tag,
     category: "novel",
@@ -99,6 +105,9 @@ function defaultTagNovelAdvancedParams(tag: string): AdvancedSearchParams {
     endDate: "",
     startTimestamp: 0,
     endTimestamp: 0,
+    includeR18: settings.showR18,
+    includeR18G: settings.showR18 && settings.showR18G,
+    includeAI: settings.showAI,
   }
 }
 
@@ -183,11 +192,13 @@ function TagIllustFeed(props: { tag: string }) {
           ? formatPixivDate(advancedParams.endTimestamp)
           : undefined
 
+      const settings = loadSettings()
       return searchIllustrations(
         {
           word: advancedParams.word || tag,
           target: effectiveTarget,
           sort: advancedParams.sort,
+          aiFilter: (!settings.showAI || advancedParams.includeAI === false) ? 0 : undefined,
           bookmarkThreshold:
             advancedParams.bookmarkThreshold > 0
               ? advancedParams.bookmarkThreshold
@@ -201,7 +212,25 @@ function TagIllustFeed(props: { tag: string }) {
     more: (nextURL, token) => nextIllustrations(nextURL, token),
     filter: (items) => {
       const settings = loadSettings()
-      let filtered = items.filter((item) => isIllustContentVisible(item, settings))
+      const blocklist = loadBlocklist()
+      let filtered = items.filter((item) => {
+        if (!isIllustContentVisible(item, settings, blocklist)) return false
+        if (advancedParams.includeR18 === false) {
+          const isR18 =
+            (item.x_restrict ?? 0) > 0 ||
+            item.tags?.some((t) => /r-?18/i.test(t.name))
+          if (isR18) return false
+        } else if (advancedParams.includeR18G === false) {
+          const isR18G =
+            item.x_restrict === 2 ||
+            item.tags?.some((t) => /r-?18g/i.test(t.name))
+          if (isR18G) return false
+        }
+        if (advancedParams.includeAI === false) {
+          if (item.illust_ai_type === 2) return false
+        }
+        return true
+      })
       if (advancedParams.mediaFilter === "illust") {
         filtered = filtered.filter((item) => item.type === "illust")
       } else if (advancedParams.mediaFilter === "manga") {
@@ -403,11 +432,13 @@ function TagNovelFeed(props: { tag: string }) {
           ? formatPixivDate(advancedParams.endTimestamp)
           : undefined
 
+      const settings = loadSettings()
       return searchNovels(
         {
           word: advancedParams.word || tag,
           target: effectiveTarget,
           sort: advancedParams.sort,
+          aiFilter: (!settings.showAI || advancedParams.includeAI === false) ? 0 : undefined,
           bookmarkThreshold:
             advancedParams.bookmarkThreshold > 0
               ? advancedParams.bookmarkThreshold
@@ -419,7 +450,30 @@ function TagNovelFeed(props: { tag: string }) {
       )
     },
     more: (nextURL, token) => nextNovels(nextURL, token),
-    filter: filterTagNovelItems,
+    filter: (items) => {
+      const settings = loadSettings()
+      const blocklist = loadBlocklist()
+      return dedupeByID(
+        items.filter((novel) => {
+          if (!isNovelContentVisible(novel, settings, blocklist)) return false
+          if (advancedParams.includeR18 === false) {
+            const isR18 =
+              (novel.x_restrict ?? 0) > 0 ||
+              novel.tags?.some((t) => /r-?18/i.test(t.name))
+            if (isR18) return false
+          } else if (advancedParams.includeR18G === false) {
+            const isR18G =
+              novel.x_restrict === 2 ||
+              novel.tags?.some((t) => /r-?18g/i.test(t.name))
+            if (isR18G) return false
+          }
+          if (advancedParams.includeAI === false) {
+            if (novel.novel_ai_type === 2) return false
+          }
+          return true
+        })
+      )
+    },
     deps: [tag, advancedParams],
     onBatchPublished: (_, pendingItems) =>
       prefetch(pendingItems.slice(0, currentBatchSize()).map(novelThumbUrlOf)).cancel,

@@ -19,6 +19,11 @@ export const COLOR_SCHEME_MODE_VALUES: ReadonlyArray<ColorSchemeMode> = [
   "light",
   "dark",
 ]
+export type NavigationTransitionStyle = "push" | "zoom"
+export const NAVIGATION_TRANSITION_VALUES: ReadonlyArray<NavigationTransitionStyle> = [
+  "push",
+  "zoom",
+]
 
 /** 顶栏过渡：导航栏与滚动内容交界处的处理方式，详见 ui/components/pageChrome.ts
  *  与设置项「玻璃效果」**共用同一套强度轴命名**：system=系统 / clear=透明 / soft=柔和 / tinted=色调
@@ -148,6 +153,7 @@ export interface AppSettings {
   hideNovels: boolean
   pageLayout: PageLayout
   colorScheme: ColorSchemeMode
+  navigationTransition: NavigationTransitionStyle
   topBarEffect: TopBarEffect
   glassCustomTintEnabled: boolean
   glassTintColor: string
@@ -261,6 +267,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   hideNovels: false,
   pageLayout: "appleMusic",
   colorScheme: "system",
+  navigationTransition: "push",
   topBarEffect: "soft",
   glassCustomTintEnabled: false,
   glassTintColor: "#007aff",
@@ -534,6 +541,11 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
     hideNovels: boolOr(stored?.hideNovels, DEFAULT_SETTINGS.hideNovels),
     pageLayout: enumOr(stored?.pageLayout, PAGE_LAYOUT_VALUES, DEFAULT_SETTINGS.pageLayout),
     colorScheme: enumOr(stored?.colorScheme, COLOR_SCHEME_MODE_VALUES, DEFAULT_SETTINGS.colorScheme),
+    navigationTransition: enumOr(
+      stored?.navigationTransition,
+      NAVIGATION_TRANSITION_VALUES,
+      DEFAULT_SETTINGS.navigationTransition
+    ),
     topBarEffect: enumOr(stored?.topBarEffect, TOP_BAR_EFFECT_VALUES, DEFAULT_SETTINGS.topBarEffect),
     glassCustomTintEnabled: boolOr(
       stored?.glassCustomTintEnabled,

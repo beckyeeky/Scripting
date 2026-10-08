@@ -14,6 +14,7 @@ import {
 } from "scripting"
 import { appGlass, appInteractiveGlass } from "./glass"
 import { AppNavigationLink, useDualRoute } from "../DualRouteContext"
+import { useNavigationZoom } from "../NavigationZoomContext"
 import { AvatarImage, CachedImage } from "./CachedImage"
 import { formatNumber } from "./formatUtils"
 import {
@@ -55,6 +56,7 @@ export function WatchlistSeriesCard(props: {
   const { item, kind = "manga", priority, isSprint, onAppear } = props
   const isNovel = kind === "novel"
   const { isItemActive } = useDualRoute()
+  const { getSource } = useNavigationZoom()
   const isSelected = isItemActive(isNovel ? "novelSeries" : "mangaSeries", item.id)
   if (item.latest_content_id) {
     recordWorkSeriesAssociation(
@@ -174,6 +176,7 @@ export function WatchlistSeriesCard(props: {
           <ZStack
             frame={{ width: 68, height: 96 }}
             clipShape={{ type: "rect", cornerRadius: 8 }}
+            matchedTransitionSource={getSource(seriesRoute)}
           >
             <CachedImage
               url={item.url ?? null}
@@ -232,6 +235,7 @@ export function WatchlistSeriesCard(props: {
           glassEffect={appInteractiveGlass("circle")}
           contentShape="circle"
           offset={{ x: -6, y: -6 }}
+          shadow={{ color: "#00000028", radius: 6, y: 2 }}
           zIndex={2}
         >
           <Image

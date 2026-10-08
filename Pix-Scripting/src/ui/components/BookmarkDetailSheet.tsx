@@ -387,7 +387,11 @@ export function BookmarkButton(props: {
   const [longPressLocked, setLongPressLocked] = useState(false)
   const size = props.size ?? (props.hero ? 34 : 30)
   const offset = props.offset ?? { x: -6, y: -6 }
-  const shadow = props.shadow
+  const shadow =
+    props.shadow ??
+    (props.hero
+      ? { color: "#00000028", radius: 8, y: 2 }
+      : { color: "#00000028", radius: 6, y: 2 })
   const iconFont = props.hero ? "title3" : "body"
 
   return (

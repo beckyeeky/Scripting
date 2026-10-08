@@ -60,6 +60,7 @@ import {
   type HapticFeedbackPreference,
   type TopBarEffect,
   type ColorSchemeMode,
+  type NavigationTransitionStyle,
   type WidgetDefaultSource,
 } from "../store/settings"
 import { loadBlocklist, onBlocklistChanged } from "../store/blocklist"
@@ -897,6 +898,26 @@ export function SettingsView() {
             <Text tag="system">系统</Text>
             <Text tag="light">浅色</Text>
             <Text tag="dark">深色</Text>
+          </Picker>
+          <Picker
+            label={
+              <VStack alignment="leading" spacing={2}>
+                <Text>页面转场</Text>
+                {settings.navigationTransition === "zoom" ? (
+                  <Text font="caption2" foregroundStyle="secondaryLabel">
+                    「缩放展开」为实验性功能
+                  </Text>
+                ) : null}
+              </VStack>
+            }
+            value={settings.navigationTransition}
+            onChanged={(value: string) => {
+              triggerHaptic("selection")
+              update({ navigationTransition: value as NavigationTransitionStyle })
+            }}
+          >
+            <Text tag="push">经典推入</Text>
+            <Text tag="zoom">缩放展开</Text>
           </Picker>
           <Toggle
             value={settings.heroFirstFeedCard}

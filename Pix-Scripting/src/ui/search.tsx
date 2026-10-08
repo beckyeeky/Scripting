@@ -545,12 +545,14 @@ export function SearchView(props: {
   const illustPaged = usePagedList<PixivIllustration>({
     first: (token) => {
       const settings = loadSettings()
+      const aiFilterParam =
+        !settings.showAI || advancedParams.includeAI === false ? 0 : undefined
       return searchIllustrations(
         {
           word: submitted,
           target: advancedParams.target || "partial_match_for_tags",
           sort,
-          aiFilter: settings.showAI ? undefined : 0,
+          aiFilter: aiFilterParam,
           startDate: advancedParams.useDateRange ? advancedParams.startDate : undefined,
           endDate: advancedParams.useDateRange ? advancedParams.endDate : undefined,
           bookmarkThreshold:
@@ -564,7 +566,28 @@ export function SearchView(props: {
     more: (nextURL, token) => nextIllustrations(nextURL, token),
     filter: (items) => {
       const settings = loadSettings()
-      let filtered = items.filter((item) => isIllustContentVisible(item, settings))
+      const blocklist = loadBlocklist()
+      let filtered = items.filter((item) => {
+        if (!isIllustContentVisible(item, settings, blocklist)) return false
+
+        if (advancedParams.includeR18 === false) {
+          const isR18 =
+            (item.x_restrict ?? 0) > 0 ||
+            item.tags?.some((t) => /r-?18/i.test(t.name))
+          if (isR18) return false
+        } else if (advancedParams.includeR18G === false) {
+          const isR18G =
+            item.x_restrict === 2 ||
+            item.tags?.some((t) => /r-?18g/i.test(t.name))
+          if (isR18G) return false
+        }
+
+        if (advancedParams.includeAI === false) {
+          if (item.illust_ai_type === 2) return false
+        }
+
+        return true
+      })
       if (advancedParams.mediaFilter === "illust") {
         filtered = filtered.filter((item) => item.type === "illust")
       } else if (advancedParams.mediaFilter === "manga") {
@@ -584,12 +607,14 @@ export function SearchView(props: {
   const novelPaged = usePagedList<PixivNovel>({
     first: (token) => {
       const settings = loadSettings()
+      const aiFilterParam =
+        !settings.showAI || advancedParams.includeAI === false ? 0 : undefined
       return searchNovels(
         {
           word: submitted,
           target: advancedParams.target || "partial_match_for_tags",
           sort,
-          aiFilter: settings.showAI ? undefined : 0,
+          aiFilter: aiFilterParam,
           startDate: advancedParams.useDateRange ? advancedParams.startDate : undefined,
           endDate: advancedParams.useDateRange ? advancedParams.endDate : undefined,
           bookmarkThreshold:
@@ -603,8 +628,29 @@ export function SearchView(props: {
     more: (nextURL, token) => nextNovels(nextURL, token),
     filter: (items) => {
       const settings = loadSettings()
+      const blocklist = loadBlocklist()
       return dedupeByID(
-        items.filter((novel) => isNovelContentVisible(novel, settings))
+        items.filter((novel) => {
+          if (!isNovelContentVisible(novel, settings, blocklist)) return false
+
+          if (advancedParams.includeR18 === false) {
+            const isR18 =
+              (novel.x_restrict ?? 0) > 0 ||
+              novel.tags?.some((t) => /r-?18/i.test(t.name))
+            if (isR18) return false
+          } else if (advancedParams.includeR18G === false) {
+            const isR18G =
+              novel.x_restrict === 2 ||
+              novel.tags?.some((t) => /r-?18g/i.test(t.name))
+            if (isR18G) return false
+          }
+
+          if (advancedParams.includeAI === false) {
+            if (novel.novel_ai_type === 2) return false
+          }
+
+          return true
+        })
       )
     },
     deps: [submitted, sort, advancedParams],
@@ -1082,6 +1128,50 @@ export function SearchView(props: {
           })),
       })
     }
+    const currentSettings = loadSettings()
+    if (currentSettings.showR18 && advancedParams.includeR18 === false) {
+      badges.push({
+        key: "r18",
+        icon: "nosign",
+        iconColor: "systemRed",
+        label: "仅全年龄",
+        onClear: () =>
+          setAdvancedParams((prev) => ({
+            ...prev,
+            includeR18: true,
+            includeR18G: currentSettings.showR18G,
+          })),
+      })
+    } else if (
+      currentSettings.showR18 &&
+      currentSettings.showR18G &&
+      advancedParams.includeR18G === false
+    ) {
+      badges.push({
+        key: "r18g",
+        icon: "nosign",
+        iconColor: "systemOrange",
+        label: "排除 R-18G",
+        onClear: () =>
+          setAdvancedParams((prev) => ({
+            ...prev,
+            includeR18G: true,
+          })),
+      })
+    }
+    if (currentSettings.showAI && advancedParams.includeAI === false) {
+      badges.push({
+        key: "ai",
+        icon: "nosign",
+        iconColor: "systemIndigo",
+        label: "排除 AI",
+        onClear: () =>
+          setAdvancedParams((prev) => ({
+            ...prev,
+            includeAI: true,
+          })),
+      })
+    }
     return badges
   }, [advancedParams, scope])
 
@@ -1473,18 +1563,35 @@ export function SearchView(props: {
           onChanged: (presented: boolean) => setIsAdvancedSheetOpen(presented),
           content: (
             <SearchAdvancedSheet
-              currentParams={advancedParams}
+              currentParams={{
+                ...advancedParams,
+                word: submitted.trim() ? submitted : advancedParams.word,
+                scope,
+                sort,
+              }}
               settings={loadSettings()}
               onApply={(params: any) => {
                 setIsAdvancedSheetOpen(false)
                 setSearchPresented(false)
-                if (isResultsPage) {
+                const trimmedWord =
+                  (params.word && params.word.trim()) || submitted.trim()
+                if (!trimmedWord) return
+
+                const isWordChanged = trimmedWord !== submitted.trim()
+                const isScopeChanged = params.scope !== scope
+
+                if (isResultsPage && !isWordChanged && !isScopeChanged) {
+                  // 关键词与分类未变，仅微调排序或高级参数：在当前结果页就地刷新
+                  setSort(params.sort)
                   setAdvancedParams(params)
                 } else {
-                  const trimmedWord = params.word.trim()
-                  if (trimmedWord) {
-                    pushSearchResults(trimmedWord, params.scope, params.sort, params)
-                  }
+                  // 关键词变更、分类变更，或处于根搜索页：发起新的搜索页面压栈
+                  pushSearchResults(
+                    trimmedWord,
+                    params.scope,
+                    params.sort,
+                    params
+                  )
                 }
               }}
               onCancel={() => setIsAdvancedSheetOpen(false)}
@@ -1516,7 +1623,14 @@ export function SearchView(props: {
             (scope === "novel"
               ? advancedParams.target === "keyword" ||
                 advancedParams.target === "text"
-              : advancedParams.target === "title_and_caption"),
+              : advancedParams.target === "title_and_caption") ||
+            Boolean(loadSettings().showR18 && advancedParams.includeR18 === false) ||
+            Boolean(
+              loadSettings().showR18 &&
+                loadSettings().showR18G &&
+                advancedParams.includeR18G === false
+            ) ||
+            Boolean(loadSettings().showAI && advancedParams.includeAI === false),
           onAdvanced: () => {
             setIsAdvancedSheetOpen(true)
           },

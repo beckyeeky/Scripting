@@ -15,6 +15,7 @@ import {
 } from "scripting"
 import { appGlass } from "./glass"
 import { AppNavigationLink, useDualRoute } from "../DualRouteContext"
+import { useNavigationZoom } from "../NavigationZoomContext"
 import { CachedImage } from "./CachedImage"
 import { TagChip } from "./TagChip"
 import { useLayoutMetrics } from "../Hooks"
@@ -37,6 +38,7 @@ export function PixivisionCard(props: {
   const { width: screenWidth } = useLayoutMetrics()
   const [isAppeared, setIsAppeared] = useState(false)
   const { isItemActive } = useDualRoute()
+  const { getSource } = useNavigationZoom()
   const isSelected = isItemActive("pixivision", article.id)
   const targetCardWidth = customCardWidth ?? Math.floor(screenWidth - FLOW_HORIZONTAL_PADDING * 2)
 
@@ -106,6 +108,7 @@ export function PixivisionCard(props: {
                 frame={imageFrame}
                 clipShape={{ type: "rect", cornerRadius: 12 }}
                 clipped={true}
+                matchedTransitionSource={getSource(`pixivision:${article.id}`)}
               >
                 <CachedImage
                   url={article.imageURL}

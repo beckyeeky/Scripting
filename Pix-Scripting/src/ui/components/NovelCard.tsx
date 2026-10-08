@@ -20,6 +20,7 @@ import {
 } from "scripting"
 import { appGlass } from "./glass"
 import { AppNavigationLink, useDualRoute } from "../DualRouteContext"
+import { useNavigationZoom } from "../NavigationZoomContext"
 import { CachedImage } from "./CachedImage"
 import { BookmarkButton, BookmarkDetailSheet } from "./BookmarkDetailSheet"
 import { BlockWorkSheet } from "./BlockWorkSheet"
@@ -124,6 +125,7 @@ export function NovelCard(props: {
   const [bookmarkBusy, setBookmarkBusy] = useState(false)
   const [showBookmarkDetail, setShowBookmarkDetail] = useState(false)
   const { isItemActive } = useDualRoute()
+  const { getSource } = useNavigationZoom()
   const isSelected = isItemActive("novel", novel.id)
   const [isAppeared, setIsAppeared] = useState(false)
 
@@ -433,6 +435,7 @@ export function NovelCard(props: {
             <ZStack
               frame={{ width: 68, height: 96 }}
               clipShape={{ type: "rect", cornerRadius: 8 }}
+              matchedTransitionSource={getSource(`novel:${novel.id}`)}
             >
               <CachedImage
                 url={coverURL}
@@ -543,6 +546,7 @@ export function NovelCard(props: {
           contentShape="circle"
           zIndex={1}
           offset={{ x: -4, y: 4 }}
+          shadow={{ color: "#00000028", radius: 6, y: 2 }}
         >
           <Image
             systemName={topTrailingAction.systemImage}

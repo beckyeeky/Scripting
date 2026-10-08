@@ -15,6 +15,7 @@ import {
   useState,
 } from "scripting"
 import { AppNavigationLink, useDualRoute } from "../DualRouteContext"
+import { useNavigationZoom } from "../NavigationZoomContext"
 import { CachedImage, PageCountBadge } from "./CachedImage"
 import { BookmarkButton, BookmarkDetailSheet } from "./BookmarkDetailSheet"
 import { BlockWorkSheet } from "./BlockWorkSheet"
@@ -117,6 +118,7 @@ export function IllustCard(props: {
   const [showBookmarkDetail, setShowBookmarkDetail] = useState(false)
   const [showBlockSheet, setShowBlockSheet] = useState(false)
   const { isItemActive } = useDualRoute()
+  const { getSource } = useNavigationZoom()
   const isSelected = isItemActive("illust", illust.id)
   const [downloading, setDownloading] = useState(false)
   const [compactSetting, setCompactSetting] = useState(() => loadSettings().compactIllustCard)
@@ -347,6 +349,7 @@ export function IllustCard(props: {
                 frame={imageFrame ?? { maxWidth: "infinity" }}
                 clipShape={{ type: "rect", cornerRadius: hero ? 12 : 10 }}
                 clipped={true}
+                matchedTransitionSource={getSource(`illust:${illust.id}`)}
               >
                 <CachedImage
                   url={
@@ -468,6 +471,7 @@ export function IllustCard(props: {
           contentShape="circle"
           zIndex={1}
           offset={hero ? { x: -5, y: 5 } : { x: -4, y: 4 }}
+          shadow={{ color: "#00000028", radius: hero ? 8 : 6, y: 2 }}
         >
           <Image
             systemName={topTrailingAction.systemImage}

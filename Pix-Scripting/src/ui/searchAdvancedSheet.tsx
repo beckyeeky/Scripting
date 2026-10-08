@@ -28,7 +28,7 @@ import type {
   SearchScope,
   SearchSort,
 } from "../types"
-import type { AppSettings } from "../store/settings"
+import { loadSettings, type AppSettings } from "../store/settings"
 import { triggerHaptic } from "../platform/haptics"
 
 declare const Dialog: any
@@ -49,30 +49,6 @@ export interface SearchQueryInspection {
   warnings: string[]
   errors: string[]
   hasError: boolean
-}
-
-function findUnspacedHyphenWarnings(normalized: string): string[] {
-  const warnings: string[] = []
-  const chunks = normalized.split(/\s+/).filter(Boolean)
-  for (const chunk of chunks) {
-    const body = chunk.replace(/^-+/, "")
-    if (!body.includes("-")) continue
-    if (/^(?:R-18G?|R-15)$/i.test(body)) continue
-
-    const hasCjk = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/.test(body)
-    const hasR18Suffix = /-R-18G?/i.test(body)
-    const hasCommonExclude = /-(?:AI|R18G?|NTR|BL|GL|3D)$/i.test(body)
-    const isSingleCharChain = /^[A-Za-z0-9](?:-[A-Za-z0-9])+$/.test(body)
-
-    if (hasR18Suffix) {
-      warnings.push("「-R-18」前未留空格，将被当作整体词；若需排除请在 - 前加空格")
-    } else if (hasCjk || hasCommonExclude || isSingleCharChain) {
-      const firstHyphenIdx = body.indexOf("-")
-      const rightPart = body.slice(firstHyphenIdx)
-      warnings.push(`「${rightPart}」前未留空格，将被当作整体词；若需排除请在 - 前加空格`)
-    }
-  }
-  return warnings
 }
 
 function buildHumanSummary(compiled: string): string {
@@ -161,7 +137,6 @@ export function inspectSearchQuery(rawQuery: string): SearchQueryInspection {
     .replace(/[—－]/g, "-")
 
   const warnings: string[] = []
-  warnings.push(...findUnspacedHyphenWarnings(normalized))
 
   const errors: string[] = []
   // 仅在真实末尾运算符悬挂时拦截报错（排除 -、未闭合的独立 or/not 等）
@@ -182,6 +157,16 @@ export function inspectSearchQuery(rawQuery: string): SearchQueryInspection {
     }
   }
 
+  // 检测是否存在词内连字符（如 A-B），给予明确的单词语义说明与空格排除引导
+  const chunks = normalized.split(/\s+/).filter(Boolean)
+  const hasEmbeddedHyphen = chunks.some((chunk) => {
+    const body = chunk.replace(/^-+/, "")
+    return body.includes("-") && !body.endsWith("-")
+  })
+  if (hasEmbeddedHyphen) {
+    hints.push("提示：连字符无空格将被视为单个词汇；若需排除请在减号前留空格（如 A -B）")
+  }
+
   if (compiled && !errors.some((w) => w.includes("末尾运算符"))) {
     const tokens = compiled.split(/\s+/).filter(Boolean)
     if (tokens.length > 0 && tokens.every((t) => t.startsWith("-"))) {
@@ -189,11 +174,16 @@ export function inspectSearchQuery(rawQuery: string): SearchQueryInspection {
     }
   }
 
-  // 仅在存在多个关键词或布尔语法（空格、排除词、OR 运算）时展开语义详情卡片，保持单标签检索清爽简洁
+  // 存在布尔语法（空格、排除词、OR 运算）、提示、警告或错误时展开语义详情卡片，保持单标签检索清爽简洁
   const hasOperators =
     /\s+|^[-—－]|(^|\s)[-—－]\S|(?:\b(?:OR|or|not)\b)/i.test(normalized) ||
     (normalized.includes("(") && /\b(?:OR|or)\b/i.test(normalized))
-  const shouldShow = hasOperators || warnings.length > 0 || errors.length > 0 || hints.length > 0
+  const shouldShow =
+    hasOperators ||
+    hasEmbeddedHyphen ||
+    warnings.length > 0 ||
+    errors.length > 0 ||
+    hints.length > 0
 
   return {
     shouldShow,
@@ -239,8 +229,10 @@ export function scopeAndMediaFilterFromCategory(category: SearchCategory): {
 export function getDefaultAdvancedSearchParams(
   scope: SearchScope = "illust",
   initialWord = "",
-  mediaFilter: SearchMediaFilter = "all"
+  mediaFilter: SearchMediaFilter = "all",
+  settings?: AppSettings
 ): AdvancedSearchParams {
+  const resolvedSettings = settings ?? loadSettings()
   const now = Date.now()
   const category = categoryFromParams(scope, mediaFilter)
   const todayStr = formatDateToPixivDate(now)
@@ -258,6 +250,9 @@ export function getDefaultAdvancedSearchParams(
     startTimestamp: now,
     endTimestamp: now,
     datePresetLabel: undefined,
+    includeR18: resolvedSettings.showR18,
+    includeR18G: resolvedSettings.showR18 && resolvedSettings.showR18G,
+    includeAI: resolvedSettings.showAI,
   }
 }
 
@@ -319,6 +314,15 @@ export function SearchAdvancedSheet(props: {
   const [datePresetLabel, setDatePresetLabel] = useState<string | undefined>(
     currentParams.datePresetLabel
   )
+  const [includeR18, setIncludeR18] = useState<boolean>(() =>
+    currentParams.includeR18 ?? settings.showR18
+  )
+  const [includeR18G, setIncludeR18G] = useState<boolean>(() =>
+    currentParams.includeR18G ?? (settings.showR18 && settings.showR18G)
+  )
+  const [includeAI, setIncludeAI] = useState<boolean>(() =>
+    currentParams.includeAI ?? settings.showAI
+  )
   // 智能一次性自动聚焦：若初始词条为空（从热门/未搜索进入），首次打开自动聚焦唤起键盘；
   // 挂载后或输入发生变化时立即关闭自动聚焦，防止后续滚动到底部时被虚拟列表反复唤起键盘。
   const [shouldAutoFocus, setShouldAutoFocus] = useState<boolean>(
@@ -339,6 +343,9 @@ export function SearchAdvancedSheet(props: {
     setStartTimestamp(currentParams.startTimestamp)
     setEndTimestamp(currentParams.endTimestamp)
     setDatePresetLabel(currentParams.datePresetLabel)
+    setIncludeR18(currentParams.includeR18 ?? settings.showR18)
+    setIncludeR18G(currentParams.includeR18G ?? (settings.showR18 && settings.showR18G))
+    setIncludeAI(currentParams.includeAI ?? settings.showAI)
     if (!currentParams.word?.trim()) {
       setShouldAutoFocus(true)
     }
@@ -395,6 +402,9 @@ export function SearchAdvancedSheet(props: {
     setStartTimestamp(defaults.startTimestamp)
     setEndTimestamp(defaults.endTimestamp)
     setDatePresetLabel(defaults.datePresetLabel)
+    setIncludeR18(settings.showR18)
+    setIncludeR18G(settings.showR18 && settings.showR18G)
+    setIncludeAI(settings.showAI)
   }
 
   function handleApply() {
@@ -428,6 +438,9 @@ export function SearchAdvancedSheet(props: {
       startTimestamp: clampedStart,
       endTimestamp: clampedEnd,
       datePresetLabel: useDateRange ? datePresetLabel : undefined,
+      includeR18,
+      includeR18G,
+      includeAI,
     })
   }
 
@@ -472,7 +485,7 @@ export function SearchAdvancedSheet(props: {
           header={<Text>搜索关键词</Text>}
           footer={
             <Text>
-              {"提示：空格或 and 表示且；or 表示或；- 或 not 表示排除；支持用 () 组合优先级。\n示例：(初音 or 巡音) 桜 not AI"}
+              {"提示：空格或 and 表示且；or 表示或；- 或 not 表示排除；支持用 () 组合优先级。\n示例：(初音 or 巡音) 桜 not 3D"}
             </Text>
           }
         >
@@ -559,35 +572,67 @@ export function SearchAdvancedSheet(props: {
           ) : null}
         </Section>
 
-        {lockScope === "novel" ? null : (
-          <Section header={<Text>搜索范围</Text>}>
-            <Picker
-              title="范围"
-              value={category}
-              onChanged={(val: string) =>
-                handleCategoryChange(val as SearchCategory)
-              }
-            >
-              <Label
-                tag="all_illust"
-                title="插画·漫画·动图"
-                systemImage="photo.stack"
+        {lockScope === "novel" && !settings.showR18 && !settings.showAI ? null : (
+          <Section header={<Text>搜索范围与内容</Text>}>
+            {lockScope === "novel" ? null : (
+              <Picker
+                title="范围"
+                value={category}
+                onChanged={(val: string) =>
+                  handleCategoryChange(val as SearchCategory)
+                }
+              >
+                <Label
+                  tag="all_illust"
+                  title="插画·漫画·动图"
+                  systemImage="photo.stack"
+                />
+                <Label tag="illust" title="插画" systemImage="photo" />
+                <Label
+                  tag="manga"
+                  title="漫画"
+                  systemImage="photo.on.rectangle"
+                />
+                <Label
+                  tag="ugoira"
+                  title="动图"
+                  systemImage="play.circle"
+                />
+                {settings.hideNovels || lockScope === "illust" ? null : (
+                  <Label tag="novel" title="小说" systemImage="book" />
+                )}
+              </Picker>
+            )}
+
+            {settings.showR18 ? (
+              <Toggle
+                title="包含 R-18 作品"
+                value={includeR18}
+                onChanged={(val: boolean) => {
+                  setIncludeR18(val)
+                  if (!val) {
+                    setIncludeR18G(false)
+                  }
+                }}
               />
-              <Label tag="illust" title="插画" systemImage="photo" />
-              <Label
-                tag="manga"
-                title="漫画"
-                systemImage="photo.on.rectangle"
+            ) : null}
+
+            {settings.showR18 && settings.showR18G ? (
+              <Toggle
+                title="包含 R-18G 作品"
+                value={includeR18 && includeR18G}
+                disabled={!includeR18}
+                onChanged={(val: boolean) => setIncludeR18G(val)}
               />
-              <Label
-                tag="ugoira"
-                title="动图"
-                systemImage="play.circle"
+            ) : null}
+
+            {settings.showAI ? (
+              <Toggle
+                title="包含 AI 生成作品"
+                value={includeAI}
+                onChanged={(val: boolean) => setIncludeAI(val)}
               />
-              {settings.hideNovels || lockScope === "illust" ? null : (
-                <Label tag="novel" title="小说" systemImage="book" />
-              )}
-            </Picker>
+            ) : null}
           </Section>
         )}
 
