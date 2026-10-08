@@ -1,5 +1,6 @@
 import {
   Button,
+  Circle,
   FlowLayout,
   Group,
   HStack,
@@ -22,7 +23,7 @@ import {
   useRef,
   useState,
 } from "scripting"
-import { appGlass, appInteractiveGlass } from "./glass"
+import { appGlass, appInteractiveGlass, appThemeColor } from "./glass"
 import { sheetDetents, sheetTopBar } from "./pageChrome"
 import {
   addBookmark,
@@ -36,7 +37,7 @@ import {
 import { session } from "../../api/session"
 import { loadSettings } from "../../store/settings"
 import { useIllustBookmark, useLatest, useNovelBookmark } from "../Hooks"
-import { TagChip } from "./TagChip"
+import { SelectableTagChip, TagChip } from "./TagChip"
 import { CachedImage } from "./CachedImage"
 import { LoadingView } from "./StatusViews"
 import { CORNER_ICON_SIZE } from "./formatUtils"
@@ -47,18 +48,28 @@ import type {
   PixivIllustration,
   PixivNovel,
   PixivPage,
+  PixivTag,
 } from "../../types"
 
+interface BookmarkChipTag {
+  name: string
+  translated_name?: string
+  count?: number
+}
+
 export function BookmarkDetailSheet(props: {
-  item: { id: number; title: string }
+  item: { id: number; title: string; tags?: PixivTag[] }
   bookmarked: boolean
   loadDetail: (token: string) => Promise<PixivBookmarkDetail>
   loadTags: (restrict: "public" | "private", token: string) => Promise<PixivPage<PixivBookmarkTag>>
   save: (restrict: "public" | "private", tags: string[], token: string) => Promise<void>
   onSaved: () => void
   onClose: () => void
+  customTagColor?: Color
 }) {
-  const [availableTags, setAvailableTags] = useState<PixivBookmarkTag[]>([])
+  const customTagColor: Color =
+    props.customTagColor ?? (appThemeColor("systemBlue") as Color)
+  const [availableTags, setAvailableTags] = useState<BookmarkChipTag[]>([])
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [customTag, setCustomTag] = useState("")
   const [showCustomTagInput, setShowCustomTagInput] = useState(false)
@@ -101,12 +112,43 @@ export function BookmarkDetailSheet(props: {
             : []
         )
         setRestrict(detail.restrict === "private" ? "private" : "public")
-        const merged = new Map<string, PixivBookmarkTag>()
-        for (const tag of detail.tags ?? []) {
-          merged.set(tag.name, { name: tag.name, count: 0 })
+        const merged = new Map<string, BookmarkChipTag>()
+
+        // 1. 优先注入当前作品自带的标签（含中文译名）
+        if (Array.isArray(props.item.tags)) {
+          for (const t of props.item.tags) {
+            const trimmed = t?.name?.trim()
+            if (trimmed) {
+              merged.set(trimmed, {
+                name: trimmed,
+                translated_name: t.translated_name ?? undefined,
+              })
+            }
+          }
         }
+
+        // 2. 注入作品已有收藏标签
+        for (const tag of detail.tags ?? []) {
+          const trimmed = tag.name?.trim()
+          if (!trimmed) continue
+          const existing = merged.get(trimmed)
+          if (!existing) {
+            merged.set(trimmed, { name: trimmed, count: 0 })
+          }
+        }
+
+        // 3. 注入用户常用收藏标签
         for (const tag of [...publicTags.items, ...privateTags.items]) {
-          if (!merged.has(tag.name)) merged.set(tag.name, tag)
+          const trimmed = tag.name?.trim()
+          if (!trimmed) continue
+          const existing = merged.get(trimmed)
+          if (existing) {
+            if (existing.count === undefined && tag.count !== undefined) {
+              existing.count = tag.count
+            }
+          } else {
+            merged.set(trimmed, tag)
+          }
         }
         setAvailableTags(Array.from(merged.values()).slice(0, 40))
       } catch {
@@ -123,6 +165,7 @@ export function BookmarkDetailSheet(props: {
 
   function toggleTag(name: string) {
     if (!interactive) return
+    triggerHaptic("selection")
     setSelectedTags((current) =>
       current.includes(name)
         ? current.filter((tag) => tag !== name)
@@ -143,6 +186,7 @@ export function BookmarkDetailSheet(props: {
   function addCustomTag() {
     const name = customTag.trim()
     if (!name || selectedTags.includes(name) || selectedTags.length >= 10) return
+    triggerHaptic("selection")
     setAvailableTags((current) =>
       current.some((tag) => tag.name === name)
         ? current
@@ -199,11 +243,6 @@ export function BookmarkDetailSheet(props: {
               <Image systemName="xmark" />
             </Button>
           ),
-          principal: (
-            <Text font="headline" fontWeight="semibold">
-              收藏
-            </Text>
-          ),
           topBarTrailing: (
             <Button
               disabled={saving || loading}
@@ -240,42 +279,83 @@ export function BookmarkDetailSheet(props: {
                     bottom: {
                       content: (
                         <VStack
-                          padding={{ horizontal: 16, top: 6, bottom: 8 }}
+                          padding={{ horizontal: 8, top: 6, bottom: 8 }}
                           frame={{ maxWidth: "infinity" }}
                         >
                           <HStack
                             spacing={8}
                             alignment="center"
-                            padding={{ horizontal: 14, vertical: 6 }}
-                            glassEffect={appGlass("capsule")}
-                            glassEffectTransition="materialize"
                             frame={{ maxWidth: "infinity" }}
                           >
-                            <Image
-                              systemName="tag.fill"
-                              font="footnote"
-                              foregroundStyle="systemBlue"
-                            />
-                            <TextField
-                              key={`custom-tag-${inputSeq}`}
-                              title="自定义标签"
-                              prompt="输入自定义标签名称…"
-                              value={customTag}
-                              onChanged={setCustomTag}
-                              onSubmit={addCustomTag}
-                              submitLabel="done"
-                              textFieldStyle="plain"
-                              autofocus={true}
-                              frame={{ maxWidth: "infinity" }}
-                            />
+                            {/* 左侧：独立圆形标签毛玻璃徽标（支持点击收起） */}
                             <Button
-                              buttonStyle="glassProminent"
-                              tint="systemBlue"
-                              controlSize="small"
+                              buttonStyle="plain"
+                              frame={{ width: 36, height: 36 }}
+                              glassEffect={appGlass("circle")}
+                              contentShape="circle"
+                              action={() => {
+                                withAnimation(() => {
+                                  setShowCustomTagInput(false)
+                                  setCustomTag("")
+                                })
+                              }}
+                            >
+                              <Image
+                                systemName="tag.fill"
+                                font="body"
+                                foregroundStyle={customTagColor}
+                              />
+                            </Button>
+
+                            {/* 中间：胶囊毛玻璃输入框 */}
+                            <HStack
+                              alignment="center"
+                              padding={{ horizontal: 12, vertical: 6 }}
+                              glassEffect={appGlass("capsule")}
+                              frame={{ maxWidth: "infinity" }}
+                            >
+                              <TextField
+                                key={`custom-tag-${inputSeq}`}
+                                title="自定义标签"
+                                prompt="输入自定义标签名称…"
+                                value={customTag}
+                                onChanged={setCustomTag}
+                                onSubmit={addCustomTag}
+                                submitLabel="done"
+                                textFieldStyle="plain"
+                                autofocus={true}
+                                frame={{ maxWidth: "infinity" }}
+                              />
+                            </HStack>
+
+                            {/* 右侧：独立圆形加号提交按钮 */}
+                            <Button
+                              buttonStyle="plain"
+                              frame={{ width: 36, height: 36 }}
+                              glassEffect={
+                                customTag.trim() && selectedTags.length < 10
+                                  ? undefined
+                                  : appGlass("circle")
+                              }
+                              contentShape="circle"
                               disabled={!customTag.trim() || selectedTags.length >= 10}
                               action={addCustomTag}
                             >
-                              <Image systemName="plus" font="body" />
+                              <ZStack frame={{ width: 36, height: 36 }} alignment="center">
+                                {customTag.trim() && selectedTags.length < 10 ? (
+                                  <Circle fill={customTagColor} frame={{ width: 36, height: 36 }} />
+                                ) : null}
+                                <Image
+                                  systemName="plus"
+                                  font="body"
+                                  fontWeight="semibold"
+                                  foregroundStyle={
+                                    customTag.trim() && selectedTags.length < 10
+                                      ? "white"
+                                      : "tertiaryLabel"
+                                  }
+                                />
+                              </ZStack>
                             </Button>
                           </HStack>
                         </VStack>
@@ -342,13 +422,14 @@ export function BookmarkDetailSheet(props: {
                   {availableTags.map((tag) => {
                     const selected = selectedTags.includes(tag.name)
                     return (
-                      <Button
+                      <SelectableTagChip
                         key={tag.name}
-                        title={`${selected ? "✓ " : ""}#${tag.name}`}
-                        buttonStyle={selected ? "glassProminent" : "glass"}
-                        tint={selected ? "systemBlue" : undefined}
-                        controlSize="small"
-                        action={() => toggleTag(tag.name)}
+                        name={tag.name}
+                        translatedName={tag.translated_name}
+                        selected={selected}
+                        accentColor={customTagColor}
+                        disabled={!selected && selectedTags.length >= 10}
+                        onToggle={() => toggleTag(tag.name)}
                       />
                     )
                   })}
@@ -356,7 +437,7 @@ export function BookmarkDetailSheet(props: {
                     title="自定义标签"
                     systemImage="plus"
                     buttonStyle="glass"
-                    tint="systemBlue"
+                    tint={customTagColor}
                     controlSize="small"
                     disabled={selectedTags.length >= 10}
                     action={openCustomTagInput}

@@ -29,7 +29,7 @@ import {
   type BlockedUser,
 } from "../store/blocklist"
 import { loadSettings, onSettingsChanged } from "../store/settings"
-import { AvatarImage, EmptyView } from "./components"
+import { AvatarImage, EmptyView, appCustomTintBackground } from "./components"
 import { AppNavigationLink, useDualRoute } from "./DualRouteContext"
 import { useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import {
@@ -290,11 +290,13 @@ function BlockedTagRow(props: { tag: string; onRemove: () => void }) {
 
 function BlockedUserRow(props: { user: BlockedUser; onRemove: () => void }) {
   const { user, onRemove } = props
+  const rowTint = appCustomTintBackground()
   return (
     <HStack
       alignment="center"
       spacing={8}
       padding={{ vertical: 1 }}
+      listRowBackground={rowTint ? <Rectangle fill={rowTint} /> : undefined}
       trailingSwipeActions={{
         allowsFullSwipe: true,
         actions: [

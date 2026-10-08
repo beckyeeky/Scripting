@@ -34,6 +34,7 @@ import {
   novelCommentReplies,
 } from "../api/pixiv"
 import { session } from "../api/session"
+import { triggerHaptic } from "../platform/haptics"
 import { loadSettings } from "../store/settings"
 import { requestPixivRoute } from "../store/routeNavigation"
 import { dedupeByID, mergeUniqueByID } from "./Hooks"
@@ -529,6 +530,7 @@ function CommentInputBar(props: {
   const handleSendText = async () => {
     const content = text.trim()
     if (!content || posting) return
+    triggerHaptic("selection")
     const success = await onSendText(content)
     if (success) {
       setText("")
@@ -540,6 +542,7 @@ function CommentInputBar(props: {
 
   const handleSendStamp = async (stampID: number) => {
     if (posting) return
+    triggerHaptic("selection")
     const success = await onSendStamp(stampID)
     if (success) {
       withAnimation(() => {
@@ -597,6 +600,7 @@ function CommentInputBar(props: {
           glassEffect={appGlass("circle")}
           contentShape="circle"
           action={() => {
+            triggerHaptic("selection")
             withAnimation(() => {
               setShowEmotePanel((prev) => !prev)
             })

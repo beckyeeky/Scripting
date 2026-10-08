@@ -141,6 +141,20 @@ export function appCustomTint(): Color | undefined {
   return undefined
 }
 
+/**
+ * 获取带微透明度的自定义行/卡片背景色。
+ * 若开启了「自定义玻璃色调」，返回根据当前色调和浓度合成的微透明色；
+ * 否则返回 undefined（供 List 行等保持系统原生默认背景色）。
+ */
+export function appCustomTintBackground(alphaPercent?: number): Color | undefined {
+  const settings = loadSettings()
+  if (settings.glassCustomTintEnabled && settings.glassTintColor) {
+    const strength = alphaPercent ?? Math.min(settings.glassTintStrength, 22)
+    return tintRGBA(settings.glassTintColor, strength)
+  }
+  return undefined
+}
+
 /** 「颜色 + 浓度(%)」合成带 alpha 的 rgba 字符串（注意不能带空格，Color 模板字面量类型不允许） */
 function tintRGBA(color: string, strength: number): Color {
   const [r, g, b] =
