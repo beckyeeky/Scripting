@@ -1501,14 +1501,6 @@ export function NovelDetailView(props: { novelID: number }) {
                       action={() => setShowComments(true)}
                     />
                   ) : null}
-                  {immersiveReaderEnabled ? (
-                    <Button
-                      title="沉浸阅读"
-                      systemImage="arrow.up.left.and.arrow.down.right"
-                      disabled={!text}
-                      action={() => setShowImmersiveReader(true)}
-                    />
-                  ) : null}
                   <Button
                     title="版式"
                     systemImage="a.square"
