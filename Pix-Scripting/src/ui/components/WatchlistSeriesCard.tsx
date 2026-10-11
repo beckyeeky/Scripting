@@ -14,6 +14,7 @@ import {
 } from "scripting"
 import { appGlass, appInteractiveGlass } from "./glass"
 import { AppNavigationLink, useDualRoute } from "../DualRouteContext"
+import { useNavigationZoom } from "../NavigationZoomContext"
 import { AvatarImage, CachedImage } from "./CachedImage"
 import { formatNumber } from "./formatUtils"
 import {
@@ -55,6 +56,7 @@ export function WatchlistSeriesCard(props: {
   const { item, kind = "manga", priority, isSprint, onAppear } = props
   const isNovel = kind === "novel"
   const { isItemActive } = useDualRoute()
+  const { getSource } = useNavigationZoom()
   const isSelected = isItemActive(isNovel ? "novelSeries" : "mangaSeries", item.id)
   if (item.latest_content_id) {
     recordWorkSeriesAssociation(
@@ -127,7 +129,7 @@ export function WatchlistSeriesCard(props: {
           menuItems: (
             <Group>
               <Button
-                title={isNovel ? "下载整本小说 (EPUB)" : "下载整套漫画 (CBZ/EPUB)"}
+                title={isNovel ? "下载整本小说" : "下载整套漫画"}
                 systemImage="square.and.arrow.down"
                 action={() => void handleExportSeries()}
               />
@@ -147,8 +149,8 @@ export function WatchlistSeriesCard(props: {
         }}
       >
         <HStack
-          spacing={10}
-          padding={10}
+          spacing={6}
+          padding={6}
           onAppear={onAppear}
           alignment="top"
           glassEffect={appGlass({ type: "rect", cornerRadius: 14 })}
@@ -174,6 +176,7 @@ export function WatchlistSeriesCard(props: {
           <ZStack
             frame={{ width: 68, height: 96 }}
             clipShape={{ type: "rect", cornerRadius: 8 }}
+            matchedTransitionSource={getSource(seriesRoute)}
           >
             <CachedImage
               url={item.url ?? null}
@@ -228,16 +231,16 @@ export function WatchlistSeriesCard(props: {
       <AppNavigationLink value={targetRoute} buttonStyle="plain">
         <ZStack
           alignment="center"
-          frame={{ width: 34, height: 34 }}
+          frame={{ width: 30, height: 30 }}
           glassEffect={appInteractiveGlass("circle")}
           contentShape="circle"
-          offset={{ x: -8, y: -8 }}
+          offset={{ x: -6, y: -6 }}
+          shadow={{ color: "#00000028", radius: 6, y: 2 }}
           zIndex={2}
-          shadow={{ color: "#0000000F", radius: 6, y: 2 }}
         >
           <Image
             systemName={isNovel ? "book" : "photo.on.rectangle"}
-            font="subheadline"
+            font="body"
             foregroundStyle="label"
           />
         </ZStack>

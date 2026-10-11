@@ -378,7 +378,7 @@ function IllustAIPageRow(props: {
               <ZStack
                 alignment="center"
                 frame={{ width: 60, height: 60 }}
-                background="rgba(255, 69, 58, 0.85)"
+                background="systemRed"
                 clipShape={{ type: "capsule", style: "continuous" }}
               >
                 <Image

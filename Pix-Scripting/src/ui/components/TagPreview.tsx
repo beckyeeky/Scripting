@@ -25,7 +25,7 @@ export function TagPreview(props: {
       {/* 头部标题与翻译 */}
       <VStack alignment="leading" spacing={3}>
         <HStack spacing={6} alignment="center">
-          <Text font="headline" foregroundStyle="#0096FA" fontWeight="bold">
+          <Text font="headline" foregroundStyle="systemBlue" fontWeight="bold">
             #
           </Text>
           <Text font="headline" fontWeight="bold" lineLimit={1}>

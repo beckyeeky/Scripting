@@ -21,6 +21,7 @@ import {
   PAGE_TOOLBAR_BACKGROUND,
   PAGE_TOOLBAR_BACKGROUND_VISIBILITY,
 } from "./components/pageChrome"
+import { appInteractiveGlass, appThemeColor } from "./components/glass"
 
 import { useIsCurrentTab } from "../store/routeNavigation"
 import { triggerHaptic } from "../platform/haptics"
@@ -457,7 +458,7 @@ function AdvancedRankingBar(props: {
           alignment="center"
           spacing={6}
           padding={{ horizontal: 12, vertical: 8 }}
-          background="#8E8E9318"
+          background="secondarySystemFill"
           clipShape={{ type: "rect", cornerRadius: 10 }}
         >
           <Image
@@ -491,14 +492,26 @@ function AdvancedRankingBar(props: {
       <Button
         buttonStyle="plain"
         action={onBack}
+        contentShape="capsule"
       >
-        <HStack alignment="center" spacing={4}>
+        <HStack
+          alignment="center"
+          spacing={4}
+          padding={{ horizontal: 10, vertical: 6 }}
+          glassEffect={appInteractiveGlass("capsule")}
+          contentShape="capsule"
+          clipShape="capsule"
+        >
           <Image
             systemName="arrow.uturn.backward"
             font="caption"
-            foregroundStyle="systemBlue"
+            foregroundStyle={appThemeColor("systemBlue")}
           />
-          <Text font="subheadline" foregroundStyle="systemBlue">
+          <Text
+            font="subheadline"
+            fontWeight="medium"
+            foregroundStyle={appThemeColor("systemBlue")}
+          >
             返回
           </Text>
         </HStack>

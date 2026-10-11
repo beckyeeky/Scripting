@@ -264,7 +264,7 @@ export function ReverseImageSearchSheet(props: {
                     spacing={6}
                     padding={{ vertical: 6, horizontal: 10 }}
                     glassEffect={appGlass({ type: "rect", cornerRadius: 8 })}
-                    border={{ style: "#007AFF40", width: 1 }}
+                    border={{ style: "separator", width: 1 }}
                     clipShape={{ type: "rect", cornerRadius: 8 }}
                   >
                     <Image systemName="photo.badge.plus" font="subheadline" foregroundStyle="systemBlue" />
@@ -309,7 +309,7 @@ export function ReverseImageSearchSheet(props: {
                 <ZStack
                   frame={{ width: 56, height: 56 }}
                   clipShape={{ type: "rect", cornerRadius: 10 }}
-                  background="#FF95001A"
+                  background="secondarySystemFill"
                   alignment="center"
                 >
                   <Image systemName="key.fill" font="title2" foregroundStyle="systemOrange" />
@@ -341,7 +341,7 @@ export function ReverseImageSearchSheet(props: {
                       spacing={4}
                       padding={{ vertical: 5, horizontal: 8 }}
                       glassEffect={appGlass({ type: "rect", cornerRadius: 8 })}
-                      border={{ style: "#007AFF40", width: 1 }}
+                      border={{ style: "separator", width: 1 }}
                       clipShape={{ type: "rect", cornerRadius: 8 }}
                       frame={{ width: 84, height: 28, alignment: "center" }}
                     >
@@ -369,7 +369,7 @@ export function ReverseImageSearchSheet(props: {
                       spacing={4}
                       padding={{ vertical: 5, horizontal: 8 }}
                       glassEffect={appGlass({ type: "rect", cornerRadius: 8 })}
-                      border={{ style: "#007AFF40", width: 1 }}
+                      border={{ style: "separator", width: 1 }}
                       clipShape={{ type: "rect", cornerRadius: 8 }}
                       frame={{ width: 84, height: 28, alignment: "center" }}
                     >
@@ -777,10 +777,10 @@ function SauceNAOMatchCard(props: {
               alignment="center"
               spacing={3}
               padding={{ horizontal: 6, vertical: 2 }}
-              background="#0096FA1F"
+              background="secondarySystemFill"
               clipShape="capsule"
             >
-              <Text font="caption2" fontWeight="semibold" foregroundStyle="#0096FA">
+              <Text font="caption2" fontWeight="semibold" foregroundStyle="systemBlue">
                 Pixiv
               </Text>
             </HStack>
@@ -833,7 +833,7 @@ function SauceNAOMatchCard(props: {
               spacing={4}
               padding={{ vertical: 5, horizontal: 8 }}
               glassEffect={appGlass({ type: "rect", cornerRadius: 8 })}
-              border={{ style: "#007AFF40", width: 1 }}
+              border={{ style: "separator", width: 1 }}
               clipShape={{ type: "rect", cornerRadius: 8 }}
               frame={{ width: 84, height: 28, alignment: "center" }}
             >
@@ -861,7 +861,7 @@ function SauceNAOMatchCard(props: {
               spacing={4}
               padding={{ vertical: 5, horizontal: 8 }}
               glassEffect={appGlass({ type: "rect", cornerRadius: 8 })}
-              border={{ style: "#007AFF40", width: 1 }}
+              border={{ style: "separator", width: 1 }}
               clipShape={{ type: "rect", cornerRadius: 8 }}
               frame={{ width: 84, height: 28, alignment: "center" }}
             >
@@ -891,7 +891,7 @@ function SauceNAOMatchCard(props: {
               spacing={4}
               padding={{ vertical: 5, horizontal: 8 }}
               glassEffect={appGlass({ type: "rect", cornerRadius: 8 })}
-              border={{ style: "#007AFF40", width: 1 }}
+              border={{ style: "separator", width: 1 }}
               clipShape={{ type: "rect", cornerRadius: 8 }}
               frame={{ width: 84, height: 28, alignment: "center" }}
             >
@@ -919,7 +919,7 @@ function SauceNAOMatchCard(props: {
               spacing={4}
               padding={{ vertical: 5, horizontal: 8 }}
               glassEffect={appGlass({ type: "rect", cornerRadius: 8 })}
-              border={{ style: "#007AFF40", width: 1 }}
+              border={{ style: "separator", width: 1 }}
               clipShape={{ type: "rect", cornerRadius: 8 }}
               frame={{ width: 84, height: 28, alignment: "center" }}
             >
@@ -949,7 +949,7 @@ function SauceNAOMatchCard(props: {
               spacing={4}
               padding={{ vertical: 5, horizontal: 8 }}
               glassEffect={appGlass({ type: "rect", cornerRadius: 8 })}
-              border={{ style: "#007AFF40", width: 1 }}
+              border={{ style: "separator", width: 1 }}
               clipShape={{ type: "rect", cornerRadius: 8 }}
               frame={{ width: 84, height: 28, alignment: "center" }}
             >

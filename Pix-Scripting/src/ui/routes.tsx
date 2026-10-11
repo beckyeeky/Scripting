@@ -1,6 +1,7 @@
 // 全局路由表：各 Tab 根视图的 navigationDestination 共用
 // 注意：navigationDestination 必须挂在根视图属性上（不能作为 NavigationStack 子元素）
-import { NavigationDestination } from "scripting"
+import { NavigationDestination, ZStack } from "scripting"
+import { getActiveZoomNamespace } from "./NavigationZoomContext"
 import { session } from "../api/session"
 import { NotFoundRouteView } from "./components/StatusViews"
 import { IllustDetailView } from "./illustDetail"
@@ -10,6 +11,7 @@ import { NovelDetailView } from "./NovelDetail"
 import { NovelLibraryView } from "./NovelLibrary"
 import { TagFeedView } from "./TagFeedPage"
 import { RelatedIllustFeedView } from "./relatedIllustFeed"
+import { RelatedNovelFeedView } from "./relatedNovelFeed"
 import { LibraryView } from "./LibraryView"
 import { HistoryView } from "./history"
 import { notifyDetailDestinationRendered } from "../store/history"
@@ -83,6 +85,22 @@ function decodeTag(value: string): string {
   }
 }
 
+function withZoomTransition(route: string, node: any) {
+  const ns = getActiveZoomNamespace()
+  if (!ns || !node) return node
+  return (
+    <ZStack
+      navigationTransition={{
+        type: "zoom",
+        sourceID: route,
+        namespace: ns,
+      }}
+    >
+      {node}
+    </ZStack>
+  )
+}
+
 export function renderDestination(rawPage: string) {
   const page = normalizeRoute(rawPage)
   if (page.startsWith("illust:")) {
@@ -91,39 +109,44 @@ export function renderDestination(rawPage: string) {
     if (id != null) {
       seedIllustFromWidgetPool(id)
       seedIllustFromPixivCache(id)
-      return <IllustDetailView key={`illust-${id}`} illustID={id} />
+      return withZoomTransition(`illust:${id}`, <IllustDetailView key={`illust-${id}`} illustID={id} />)
     }
   }
   if (page.startsWith("pixivision:")) {
     const id = parseID(page, "pixivision:")
     if (id != null) {
       seedPixivisionFromWidgetPool(id)
-      return <PixivisionDetailView articleID={id} />
+      return withZoomTransition(`pixivision:${id}`, <PixivisionDetailView articleID={id} />)
     }
   }
   if (page.startsWith("user:")) {
     const id = parseID(page, "user:")
-    if (id != null) return <UserDetailView userID={id} />
+    if (id != null) return withZoomTransition(`user:${id}`, <UserDetailView userID={id} />)
   }
   if (page.startsWith("novel:")) {
     const id = parseID(page, "novel:")
     notifyDetailDestinationRendered("novel", id ?? undefined)
-    if (id != null) return <NovelDetailView key={`novel-${id}`} novelID={id} />
+    if (id != null) return withZoomTransition(`novel:${id}`, <NovelDetailView key={`novel-${id}`} novelID={id} />)
   }
   if (page.startsWith("mangaSeries:")) {
     const id = parseID(page, "mangaSeries:")
     notifyDetailDestinationRendered()
-    if (id != null) return <SeriesView kind="manga" seriesID={id} />
+    if (id != null) return withZoomTransition(`mangaSeries:${id}`, <SeriesView kind="manga" seriesID={id} />)
   }
   if (page.startsWith("novelSeries:")) {
     const id = parseID(page, "novelSeries:")
     notifyDetailDestinationRendered()
-    if (id != null) return <SeriesView kind="novel" seriesID={id} />
+    if (id != null) return withZoomTransition(`novelSeries:${id}`, <SeriesView kind="novel" seriesID={id} />)
   }
   if (page.startsWith("relatedIllust:")) {
     const id = parseID(page, "relatedIllust:")
     notifyDetailDestinationRendered()
     if (id != null) return <RelatedIllustFeedView illustID={id} />
+  }
+  if (page.startsWith("relatedNovel:")) {
+    const id = parseID(page, "relatedNovel:")
+    notifyDetailDestinationRendered()
+    if (id != null) return <RelatedNovelFeedView novelID={id} />
   }
   if (page.startsWith("tag:")) {
     return <TagFeedView tag={decodeTag(page.slice("tag:".length))} kind="illust" />

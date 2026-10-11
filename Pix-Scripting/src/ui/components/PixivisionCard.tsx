@@ -11,9 +11,11 @@ import {
   ZStack,
   useMemo,
   useState,
+  type CommonViewProps,
 } from "scripting"
 import { appGlass } from "./glass"
 import { AppNavigationLink, useDualRoute } from "../DualRouteContext"
+import { useNavigationZoom } from "../NavigationZoomContext"
 import { CachedImage } from "./CachedImage"
 import { TagChip } from "./TagChip"
 import { useLayoutMetrics } from "../Hooks"
@@ -30,11 +32,13 @@ export function PixivisionCard(props: {
   onAppear?: () => void
   priority?: number
   isSprint?: boolean
+  contextMenu?: CommonViewProps["contextMenu"]
 }) {
-  const { article, cardWidth: customCardWidth, onAppear, priority, isSprint } = props
+  const { article, cardWidth: customCardWidth, onAppear, priority, isSprint, contextMenu } = props
   const { width: screenWidth } = useLayoutMetrics()
   const [isAppeared, setIsAppeared] = useState(false)
   const { isItemActive } = useDualRoute()
+  const { getSource } = useNavigationZoom()
   const isSelected = isItemActive("pixivision", article.id)
   const targetCardWidth = customCardWidth ?? Math.floor(screenWidth - FLOW_HORIZONTAL_PADDING * 2)
 
@@ -73,6 +77,7 @@ export function PixivisionCard(props: {
         onAppear={handleAppear}
         padding={4}
         glassEffect={appGlass({ type: "rect", cornerRadius: 16 })}
+        contextMenu={contextMenu}
         shadow={
           isSelected
             ? { color: "accentColor", radius: 10, y: 0 }
@@ -103,6 +108,7 @@ export function PixivisionCard(props: {
                 frame={imageFrame}
                 clipShape={{ type: "rect", cornerRadius: 12 }}
                 clipped={true}
+                matchedTransitionSource={getSource(`pixivision:${article.id}`)}
               >
                 <CachedImage
                   url={article.imageURL}
@@ -129,7 +135,7 @@ export function PixivisionCard(props: {
           <Text
             font="caption"
             fontWeight="semibold"
-            foregroundStyle="#0096FA"
+            foregroundStyle="systemBlue"
           >
             {article.category || "特辑"}
           </Text>

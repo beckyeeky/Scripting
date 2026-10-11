@@ -685,18 +685,17 @@ function historyKindTitle(kind: HistoryKind): string {
 
 
 
-function HistoryFeed(props: {
-  kind: HistoryKind
+function IllustHistoryFeed(props: {
+  kind: "illustration" | "manga"
   searchQuery?: string
   onFirstImageUrlChange?: (url: string | null) => void
   onRegisterRefresh?: (fn: () => Promise<void>) => void
 }) {
   const { kind, searchQuery = "", onFirstImageUrlChange, onRegisterRefresh } = props
 
-  // 1. 插画历史流
-  const illustPaged = usePagedList<HistoryIllustItem>({
+  const paged = usePagedList<HistoryIllustItem>({
     first: async () => {
-      const items = loadHistoryIllusts("illustration")
+      const items = loadHistoryIllusts(kind)
       const filtered = searchQuery.trim()
         ? items.filter((item) => matchesHistoryQuery(item, searchQuery))
         : items
@@ -706,33 +705,99 @@ function HistoryFeed(props: {
       }
     },
     filter: filterHistoryIllusts,
-    deps: ["history", "illustration", searchQuery],
-    enabled: kind === "illustration",
+    deps: ["history", kind, searchQuery],
     onBatchPublished: (_, pendingItems) =>
       prefetch(pendingItems.slice(0, currentBatchSize()).map(cardThumbUrlOf)).cancel,
   })
 
-  // 2. 漫画历史流
-  const mangaPaged = usePagedList<HistoryIllustItem>({
-    first: async () => {
-      const items = loadHistoryIllusts("manga")
-      const filtered = searchQuery.trim()
-        ? items.filter((item) => matchesHistoryQuery(item, searchQuery))
-        : items
-      return {
-        items: filtered,
-        nextURL: null,
+  const pagedRef = useLatest(paged)
+  const searchQueryRef = useLatest(searchQuery)
+  const displayedIdsRef = useRef<Set<number>>(new Set())
+
+  useEffect(() => {
+    displayedIdsRef.current = new Set(paged.items.map((i) => Number(i.id)))
+  }, [paged.items])
+
+  useEffect(() => {
+    return onHistoryEntryRecorded((entry) => {
+      if (entry.kind !== "illust") return
+
+      const isManga = entry.illustration.type === "manga"
+      // 分类精准对齐：漫画容器只收漫画，插画容器只收插画
+      if (kind === "manga" ? !isManga : isManga) return
+
+      const illust = entry.illustration
+      cacheIllust(illust)
+      const currentQuery = searchQueryRef.current.trim()
+
+      if (displayedIdsRef.current.has(illust.id)) {
+        // 老作品安静回看：数据层已落盘并更新 viewedAt，视图保持不动，标记待重排
+        markHistoryRevisitDirty()
+      } else {
+        // 新探索作品：实时增量置顶追加到列表最上方
+        const item: HistoryIllustItem = {
+          ...illust,
+          viewedAt: entry.viewedAt,
+        }
+        if (!currentQuery || matchesHistoryQuery(item, currentQuery)) {
+          displayedIdsRef.current.add(illust.id)
+          pagedRef.current.prependItems([item])
+        }
       }
-    },
-    filter: filterHistoryIllusts,
-    deps: ["history", "manga", searchQuery],
-    enabled: kind === "manga",
-    onBatchPublished: (_, pendingItems) =>
-      prefetch(pendingItems.slice(0, currentBatchSize()).map(cardThumbUrlOf)).cancel,
-  })
+    })
+  }, [kind])
 
-  // 3. 小说历史流
-  const novelPaged = usePagedList<HistoryNovelItem>({
+  useEffect(() => {
+    const handleSettingsChange = () => {
+      pagedRef.current.reapplyFilter()
+    }
+    const unsubscribeSettings = onSettingsChanged(handleSettingsChange)
+    return () => {
+      unsubscribeSettings()
+    }
+  }, [])
+
+  useEffect(() => {
+    let url: string | null = null
+    if (paged.items[0]) url = cardThumbUrlOf(paged.items[0])
+    if (url) {
+      onFirstImageUrlChange?.(url)
+    } else if (!paged.initialLoading && paged.items.length === 0) {
+      onFirstImageUrlChange?.(null)
+    }
+  }, [
+    paged.items[0]?.id,
+    paged.initialLoading,
+    paged.items.length,
+    onFirstImageUrlChange,
+  ])
+
+  useEffect(() => {
+    onRegisterRefresh?.(async () => {
+      await refreshHistoryFromCloud()
+      await paged.refresh()
+    })
+  }, [paged.refresh, onRegisterRefresh])
+
+  return (
+    <VStack alignment="leading" spacing={10}>
+      <IllustHistoryContent
+        paged={paged}
+        kind={kind}
+        searchQuery={searchQuery}
+      />
+    </VStack>
+  )
+}
+
+function NovelHistoryFeed(props: {
+  searchQuery?: string
+  onFirstImageUrlChange?: (url: string | null) => void
+  onRegisterRefresh?: (fn: () => Promise<void>) => void
+}) {
+  const { searchQuery = "", onFirstImageUrlChange, onRegisterRefresh } = props
+
+  const paged = usePagedList<HistoryNovelItem>({
     first: async () => {
       const items = loadHistoryNovels()
       const filtered = searchQuery.trim()
@@ -745,72 +810,38 @@ function HistoryFeed(props: {
     },
     filter: filterHistoryNovels,
     deps: ["history", "novel", searchQuery],
-    enabled: kind === "novel",
     onBatchPublished: (_, pendingItems) =>
       prefetch(pendingItems.slice(0, currentBatchSize()).map(novelThumbUrlOf)).cancel,
   })
 
-  const illustPagedRef = useLatest(illustPaged)
-  const mangaPagedRef = useLatest(mangaPaged)
-  const novelPagedRef = useLatest(novelPaged)
+  const pagedRef = useLatest(paged)
   const searchQueryRef = useLatest(searchQuery)
-
-  const illustDisplayedIdsRef = useRef<Set<number>>(new Set())
-  const mangaDisplayedIdsRef = useRef<Set<number>>(new Set())
-  const novelDisplayedIdsRef = useRef<Set<number>>(new Set())
+  const displayedIdsRef = useRef<Set<number>>(new Set())
 
   useEffect(() => {
-    illustDisplayedIdsRef.current = new Set(illustPaged.items.map((i) => Number(i.id)))
-  }, [illustPaged.items])
-
-  useEffect(() => {
-    mangaDisplayedIdsRef.current = new Set(mangaPaged.items.map((i) => Number(i.id)))
-  }, [mangaPaged.items])
-
-  useEffect(() => {
-    novelDisplayedIdsRef.current = new Set(novelPaged.items.map((i) => Number(i.id)))
-  }, [novelPaged.items])
+    displayedIdsRef.current = new Set(paged.items.map((i) => Number(i.id)))
+  }, [paged.items])
 
   useEffect(() => {
     return onHistoryEntryRecorded((entry) => {
+      if (entry.kind !== "novel") return
+
+      const novel = entry.novel
+      cacheNovel(novel)
       const currentQuery = searchQueryRef.current.trim()
 
-      if (entry.kind === "illust") {
-        const isManga = entry.illustration.type === "manga"
-        const paged = isManga ? mangaPagedRef.current : illustPagedRef.current
-        const displayedSet = isManga ? mangaDisplayedIdsRef.current : illustDisplayedIdsRef.current
-        const illust = entry.illustration
-        cacheIllust(illust)
-
-        if (displayedSet.has(illust.id)) {
-          markHistoryRevisitDirty()
-        } else {
-          const item: HistoryIllustItem = {
-            ...illust,
-            viewedAt: entry.viewedAt,
-          }
-          if (!currentQuery || matchesHistoryQuery(item, currentQuery)) {
-            displayedSet.add(illust.id)
-            paged.prependItems([item])
-          }
+      if (displayedIdsRef.current.has(novel.id)) {
+        // 老小说安静回看：数据层已落盘并更新 viewedAt，视图保持不动，标记待重排
+        markHistoryRevisitDirty()
+      } else {
+        // 新探索小说（包括沉浸阅读器连读新章节）：实时增量置顶追加到列表最上方
+        const item: HistoryNovelItem = {
+          ...novel,
+          viewedAt: entry.viewedAt,
         }
-      } else if (entry.kind === "novel") {
-        const paged = novelPagedRef.current
-        const displayedSet = novelDisplayedIdsRef.current
-        const novel = entry.novel
-        cacheNovel(novel)
-
-        if (displayedSet.has(novel.id)) {
-          markHistoryRevisitDirty()
-        } else {
-          const item: HistoryNovelItem = {
-            ...novel,
-            viewedAt: entry.viewedAt,
-          }
-          if (!currentQuery || matchesHistoryQuery(item, currentQuery)) {
-            displayedSet.add(novel.id)
-            paged.prependItems([item])
-          }
+        if (!currentQuery || matchesHistoryQuery(item, currentQuery)) {
+          displayedIdsRef.current.add(novel.id)
+          pagedRef.current.prependItems([item])
         }
       }
     })
@@ -818,9 +849,7 @@ function HistoryFeed(props: {
 
   useEffect(() => {
     const handleSettingsChange = () => {
-      illustPagedRef.current.reapplyFilter()
-      mangaPagedRef.current.reapplyFilter()
-      novelPagedRef.current.reapplyFilter()
+      pagedRef.current.reapplyFilter()
     }
     const unsubscribeSettings = onSettingsChanged(handleSettingsChange)
     return () => {
@@ -828,77 +857,61 @@ function HistoryFeed(props: {
     }
   }, [])
 
-  const activeRefresh =
-    kind === "illustration"
-      ? illustPaged.refresh
-      : kind === "manga"
-        ? mangaPaged.refresh
-        : novelPaged.refresh
-
   useEffect(() => {
     let url: string | null = null
-    let hasLoaded = false
-    let isEmpty = false
-    if (kind === "illustration") {
-      if (illustPaged.items[0]) url = cardThumbUrlOf(illustPaged.items[0])
-      hasLoaded = !illustPaged.initialLoading
-      isEmpty = illustPaged.items.length === 0
-    } else if (kind === "manga") {
-      if (mangaPaged.items[0]) url = cardThumbUrlOf(mangaPaged.items[0])
-      hasLoaded = !mangaPaged.initialLoading
-      isEmpty = mangaPaged.items.length === 0
-    } else if (kind === "novel") {
-      if (novelPaged.items[0]) url = novelThumbUrlOf(novelPaged.items[0])
-      hasLoaded = !novelPaged.initialLoading
-      isEmpty = novelPaged.items.length === 0
-    }
+    if (paged.items[0]) url = novelThumbUrlOf(paged.items[0])
     if (url) {
       onFirstImageUrlChange?.(url)
-    } else if (hasLoaded && isEmpty) {
+    } else if (!paged.initialLoading && paged.items.length === 0) {
       onFirstImageUrlChange?.(null)
     }
   }, [
-    kind,
-    illustPaged.items[0]?.id,
-    illustPaged.initialLoading,
-    illustPaged.items.length,
-    mangaPaged.items[0]?.id,
-    mangaPaged.initialLoading,
-    mangaPaged.items.length,
-    novelPaged.items[0]?.id,
-    novelPaged.initialLoading,
-    novelPaged.items.length,
+    paged.items[0]?.id,
+    paged.initialLoading,
+    paged.items.length,
     onFirstImageUrlChange,
   ])
 
   useEffect(() => {
     onRegisterRefresh?.(async () => {
       await refreshHistoryFromCloud()
-      await activeRefresh()
+      await paged.refresh()
     })
-  }, [activeRefresh, onRegisterRefresh])
+  }, [paged.refresh, onRegisterRefresh])
 
   return (
     <VStack alignment="leading" spacing={10}>
-      {kind === "illustration" ? (
-        <IllustHistoryContent
-          paged={illustPaged}
-          kind="illustration"
-          searchQuery={searchQuery}
-        />
-      ) : kind === "manga" ? (
-        <IllustHistoryContent
-          paged={mangaPaged}
-          kind="manga"
-          searchQuery={searchQuery}
-        />
-      ) : (
-        <NovelHistoryContent
-          paged={novelPaged}
-          searchQuery={searchQuery}
-        />
-      )}
+      <NovelHistoryContent
+        paged={paged}
+        searchQuery={searchQuery}
+      />
     </VStack>
+  )
+}
+
+function HistoryFeed(props: {
+  kind: HistoryKind
+  searchQuery?: string
+  onFirstImageUrlChange?: (url: string | null) => void
+  onRegisterRefresh?: (fn: () => Promise<void>) => void
+}) {
+  if (props.kind === "novel") {
+    return (
+      <NovelHistoryFeed
+        searchQuery={props.searchQuery}
+        onFirstImageUrlChange={props.onFirstImageUrlChange}
+        onRegisterRefresh={props.onRegisterRefresh}
+      />
+    )
+  }
+
+  return (
+    <IllustHistoryFeed
+      kind={props.kind}
+      searchQuery={props.searchQuery}
+      onFirstImageUrlChange={props.onFirstImageUrlChange}
+      onRegisterRefresh={props.onRegisterRefresh}
+    />
   )
 }
 

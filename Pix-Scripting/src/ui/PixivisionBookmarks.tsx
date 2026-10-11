@@ -1,40 +1,39 @@
 import {
   Button,
-  Device,
   Group,
-  HStack,
-  Image,
   LazyVStack,
-  NavigationLink,
-  Spacer,
-  Text,
   useCallback,
   useEffect,
   useMemo,
   useState,
   VStack,
-  ZStack,
 } from "scripting"
-import { appGlass } from "./components/glass"
 import {
-  isPixivisionBookmarked,
   loadPixivisionBookmarks,
   onPixivisionBookmarksChanged,
   preparePixivisionBookmarksStorage,
   removePixivisionBookmark,
   type PixivisionBookmarkItem,
 } from "../store/pixivisionBookmarks"
-import { CachedImage } from "./components/CachedImage"
-import { EmptyView, RefreshableScrollView } from "./components"
-import { useLayoutMetrics } from "./Hooks"
-import { useExperimentalAmbientPalette } from "./ambient"
-import { recordPixivisionCoverUrl } from "../image/imageLoader"
-import { loadSettings, onSettingsChanged } from "../store/settings"
+import { EmptyView, PixivisionCard, RefreshableScrollView } from "./components"
+import { loadSettings } from "../store/settings"
 import { LibraryView } from "./LibraryView"
 import { triggerHaptic } from "../platform/haptics"
+import type { PixivisionArticle } from "../types"
 
 const FLOW_HORIZONTAL_PADDING = 12
-const DEFAULT_ARTICLE_RATIO = 1200 / 630
+
+function bookmarkToArticle(item: PixivisionBookmarkItem): PixivisionArticle {
+  return {
+    id: item.id,
+    title: item.title,
+    imageURL: item.thumbnailURL || "",
+    thumbURL: item.thumbnailURL,
+    date: item.publishedAt || "",
+    category: item.categoryLabel || item.category || "特辑",
+    tags: item.tags?.map((name) => ({ id: 0, name })) ?? [],
+  }
+}
 
 export function PixivisionBookmarksView() {
   return <LibraryView initialKind="pixivision" />
@@ -95,15 +94,26 @@ export function PixivisionBookmarksContent(props: {
         ) : (
           <LazyVStack alignment="leading" spacing={8} frame={{ maxWidth: "infinity" }}>
             {sortedItems.map((item, index) => (
-              <PixivisionBookmarkCard
+              <PixivisionCard
                 key={item.id}
-                item={item}
+                article={bookmarkToArticle(item)}
                 priority={index}
-                onRemove={() => {
-                  try {
-                    triggerHaptic("medium")
-                  } catch {}
-                  removePixivisionBookmark(item.id)
+                contextMenu={{
+                  menuItems: (
+                    <Group>
+                      <Button
+                        title="取消收藏"
+                        systemImage="heart.slash"
+                        role="destructive"
+                        action={() => {
+                          try {
+                            triggerHaptic("medium")
+                          } catch {}
+                          removePixivisionBookmark(item.id)
+                        }}
+                      />
+                    </Group>
+                  ),
                 }}
               />
             ))}
@@ -111,119 +121,5 @@ export function PixivisionBookmarksContent(props: {
         )}
       </VStack>
     </RefreshableScrollView>
-  )
-}
-
-function PixivisionBookmarkCard(props: {
-  item: PixivisionBookmarkItem
-  priority?: number
-  onRemove: () => void
-}) {
-  const { item, priority, onRemove } = props
-  const { width: screenWidth } = useLayoutMetrics()
-  const heroCardWidth = Math.floor(screenWidth - FLOW_HORIZONTAL_PADDING * 2)
-
-  if (item.id && item.thumbnailURL) {
-    recordPixivisionCoverUrl(item.id, item.thumbnailURL)
-  }
-
-  const imageRatio = DEFAULT_ARTICLE_RATIO
-  const cardFrame = { width: heroCardWidth }
-  const imageFrame = {
-    width: heroCardWidth,
-    height: Math.round(heroCardWidth / imageRatio),
-  }
-
-  return (
-    <ZStack alignment="topTrailing" frame={cardFrame}>
-      <VStack
-        alignment="leading"
-        spacing={6}
-        frame={cardFrame}
-        padding={4}
-        glassEffect={appGlass({ type: "rect", cornerRadius: 16 })}
-        shadow={{ color: "#0000000F", radius: 20, y: 10 }}
-        contextMenu={{
-          menuItems: (
-            <Group>
-              <Button
-                title="取消收藏"
-                systemImage="heart.slash"
-                role="destructive"
-                action={onRemove}
-              />
-            </Group>
-          ),
-        }}
-      >
-        {/* 封面图片 */}
-        <NavigationLink value={`pixivision:${item.id}`} frame={cardFrame}>
-          <ZStack
-            alignment="topLeading"
-            frame={imageFrame}
-            clipShape={{ type: "rect", cornerRadius: 12 }}
-            clipped={true}
-          >
-            <CachedImage
-              url={item.thumbnailURL ?? null}
-              aspectRatioValue={imageRatio}
-              centerCropAspect={imageRatio}
-              cropAnchor="top"
-              contentMode="fill"
-              cornerRadius={12}
-              frame={imageFrame}
-              priority={priority}
-            />
-          </ZStack>
-        </NavigationLink>
-
-        {/* 标题与类别信息 */}
-        <VStack
-          alignment="leading"
-          spacing={6}
-          padding={{ horizontal: 8, top: 4, bottom: 6 }}
-          frame={{ width: heroCardWidth - 12 }}
-        >
-          <HStack alignment="center" spacing={8} frame={{ maxWidth: "infinity" }}>
-            {item.categoryLabel || item.category ? (
-              <HStack
-                spacing={4}
-                padding={{ horizontal: 8, vertical: 3 }}
-                glassEffect={appGlass("capsule")}
-                contentShape="capsule"
-              >
-                <Text font="caption2" fontWeight="semibold" foregroundStyle="#0096FA">
-                  {item.categoryLabel || item.category || ""}
-                </Text>
-              </HStack>
-            ) : null}
-            {item.publishedAt ? (
-              <Text font="caption" foregroundStyle="secondaryLabel">
-                {item.publishedAt}
-              </Text>
-            ) : null}
-            <Spacer />
-            <Button buttonStyle="plain" action={onRemove}>
-              <Image
-                systemName="heart.fill"
-                font="subheadline"
-                foregroundStyle="systemPink"
-              />
-            </Button>
-          </HStack>
-
-          <NavigationLink value={`pixivision:${item.id}`} frame={{ maxWidth: "infinity", alignment: "leading" }}>
-            <Text
-              font="headline"
-              fontWeight="bold"
-              foregroundStyle="label"
-              lineLimit={2}
-            >
-              {item.title}
-            </Text>
-          </NavigationLink>
-        </VStack>
-      </VStack>
-    </ZStack>
   )
 }

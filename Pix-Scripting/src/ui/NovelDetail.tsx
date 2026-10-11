@@ -141,6 +141,7 @@ import {
 import { cleanHtmlCaption } from "../api/aiService"
 import { renderDestination, requestPixivRoute } from "../store/routeNavigation"
 import { AppNavigationLink, useDualRoute } from "./DualRouteContext"
+import { getActiveZoomNamespace } from "./NavigationZoomContext"
 
 const BLOCKED_BY_BLOCKLIST_MESSAGE = "该小说已被屏蔽（标签或作者在黑名单中）"
 const BLOCKED_BY_RESTRICTION_MESSAGE = "该小说被内容显示设置过滤，暂时无法显示"
@@ -1475,6 +1476,7 @@ export function NovelDetailView(props: { novelID: number }) {
 
                             {/* 中间区域（独立页码毛玻璃胶囊选择器，始终严格居中） */}
                             <Menu
+                              menuStyle="borderlessButton"
                               label={
                                 <HStack
                                   spacing={6}
@@ -1482,7 +1484,6 @@ export function NovelDetailView(props: { novelID: number }) {
                                   padding={{ horizontal: 14, vertical: 8 }}
                                   glassEffect={appGlass("capsule")}
                                   contentShape="capsule"
-                                  background="#80808020"
                                 >
                                   <Text font="body" foregroundStyle="label">
                                     {currentPage} / {totalPages}
@@ -1661,14 +1662,6 @@ export function NovelDetailView(props: { novelID: number }) {
                       action={() => setShowComments(true)}
                     />
                   ) : null}
-                  {immersiveReaderEnabled ? (
-                    <Button
-                      title="沉浸阅读"
-                      systemImage="arrow.up.left.and.arrow.down.right"
-                      disabled={!text}
-                      action={() => setShowImmersiveReader(true)}
-                    />
-                  ) : null}
                   <Button
                     title="版式"
                     systemImage="a.square"
@@ -1815,10 +1808,18 @@ export function NovelDetailView(props: { novelID: number }) {
             ? []
             : [
                 <AppNavigationLink value={`user:${current.user.id}`}>
-                  <AvatarImage
-                    url={current.user.profile_image_urls?.medium ?? null}
-                    size={28}
-                  />
+                  <ZStack
+                    matchedTransitionSource={
+                      current.user?.id && getActiveZoomNamespace()
+                        ? { id: `user:${current.user.id}`, namespace: getActiveZoomNamespace()! }
+                        : undefined
+                    }
+                  >
+                    <AvatarImage
+                      url={current.user.profile_image_urls?.medium ?? null}
+                      size={28}
+                    />
+                  </ZStack>
                 </AppNavigationLink>,
               ]),
         ],
@@ -1860,7 +1861,7 @@ export function NovelDetailView(props: { novelID: number }) {
                 }}
               >
                 <HStack spacing={3}>
-                  <Image systemName="bubble.left" font="footnote" foregroundStyle={appThemeColor("#0096FA")} />
+                  <Image systemName="bubble.left" font="footnote" foregroundStyle={appThemeColor("systemBlue")} />
                   <Text font="footnote">
                     {formatNumber(current.total_comments)}
                   </Text>

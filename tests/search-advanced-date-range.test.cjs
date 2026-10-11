@@ -5,7 +5,7 @@ const path = require("node:path")
 const vm = require("node:vm")
 const ts = require("typescript")
 
-function loadSearchAdvancedSheet() {
+function loadSearchAdvancedSheet(settings = { showR18: true, showR18G: false, showAI: true }) {
   const file = path.join(__dirname, "..", "Pix-Scripting/src/ui/searchAdvancedSheet.tsx")
   const source = fs.readFileSync(file, "utf8")
   const js = ts.transpileModule(source, {
@@ -66,6 +66,7 @@ function loadSearchAdvancedSheet() {
           stripBookmarkFilterFromWord: (value) => value,
         },
         "../api/session": { session: { user: null } },
+        "../store/settings": { loadSettings: () => settings },
         "./components/pageChrome": { sheetTopBar: () => ({}) },
         "../platform/haptics": { triggerHaptic() {} },
       }
@@ -77,6 +78,7 @@ function loadSearchAdvancedSheet() {
   return {
     SearchAdvancedSheet: module.exports.SearchAdvancedSheet,
     normalizeSearchDateRange: module.exports.normalizeSearchDateRange,
+    getDefaultAdvancedSearchParams: module.exports.getDefaultAdvancedSearchParams,
     render(props) {
       cursor = 0
       return module.exports.SearchAdvancedSheet(props)
@@ -136,6 +138,50 @@ test("小说标签高级搜索启用时间范围时 DatePicker 参数始终有�
     assert.ok(picker.props.value <= picker.props.endDate,
       `${picker.props.title}: value must not exceed endDate`)
   }
+})
+
+test("标签搜索默认值同时保留有效日期和全局内容筛选", () => {
+  const file = path.join(__dirname, "..", "Pix-Scripting/src/ui/TagFeedPage.tsx")
+  const source = fs.readFileSync(file, "utf8")
+  const helpers = source.slice(source.indexOf("function formatPixivDate("), source.indexOf("export function TagFeedView("))
+  const js = ts.transpileModule(`${helpers}\nmodule.exports = { defaultTagIllustAdvancedParams, defaultTagNovelAdvancedParams }`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText
+  for (const settings of [
+    { showR18: true, showR18G: true, showAI: true },
+    { showR18: false, showR18G: true, showAI: false },
+  ]) {
+    const module = { exports: {} }
+    vm.runInNewContext(js, { module, Date, loadSettings: () => settings })
+    for (const makeParams of Object.values(module.exports)) {
+      const params = makeParams("测试标签")
+      assert.equal(params.word, "测试标签")
+      assert.equal(params.useDateRange, false)
+      assert.ok(Number.isFinite(params.startTimestamp) && params.startTimestamp > 0)
+      assert.equal(params.endTimestamp, params.startTimestamp)
+      assert.match(params.startDate, /^\d{4}-\d{2}-\d{2}$/)
+      assert.equal(params.endDate, params.startDate)
+      assert.equal(params.includeR18, settings.showR18)
+      assert.equal(params.includeR18G, settings.showR18 && settings.showR18G)
+      assert.equal(params.includeAI, settings.showAI)
+    }
+  }
+})
+
+test("搜索面板默认筛选读取全局设置，并接受显式设置", () => {
+  const globalSettings = { showR18: false, showR18G: true, showAI: false }
+  const { getDefaultAdvancedSearchParams } = loadSearchAdvancedSheet(globalSettings)
+  const globalParams = getDefaultAdvancedSearchParams("novel", "测试标签")
+  assert.equal(globalParams.includeR18, false)
+  assert.equal(globalParams.includeR18G, false)
+  assert.equal(globalParams.includeAI, false)
+  assert.ok(globalParams.startTimestamp > 0)
+  const explicit = getDefaultAdvancedSearchParams("illust", "测试标签", "all", {
+    showR18: true, showR18G: true, showAI: true,
+  })
+  assert.equal(explicit.includeR18, true)
+  assert.equal(explicit.includeR18G, true)
+  assert.equal(explicit.includeAI, true)
 })
 
 test("时间范围归一化兼容缺失、越界和逆序时间戳", () => {

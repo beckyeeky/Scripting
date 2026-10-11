@@ -1,8 +1,10 @@
 import {
   Button,
+  FlowLayout,
   HStack,
   Image,
   NavigationStack,
+  RoundedRectangle,
   ScrollView,
   Text,
   VStack,
@@ -11,9 +13,10 @@ import {
 } from "scripting"
 import { appGlass } from "./glass"
 import { sheetDetents, sheetTopBar } from "./pageChrome"
+import { AvatarImage } from "./CachedImage"
+import { SelectableTagChip } from "./TagChip"
 import {
   blockUser,
-  isTagBlocked,
   isUserBlocked,
   loadBlocklist,
   updateBlocklist,
@@ -43,15 +46,14 @@ export function BlockWorkSheet(props: {
     : false
   const [blockUserSelected, setBlockUserSelected] = useState(initialUserBlocked)
 
-  const [selectedTags, setSelectedTags] = useState<Set<string>>(() => {
-    const set = new Set<string>()
-    for (const t of tags) {
-      if (t.name && isTagBlocked(t.name.trim(), blocklist.blockedTags)) {
-        set.add(t.name.trim())
-      }
-    }
-    return set
-  })
+  const [selectedTags, setSelectedTags] = useState<Set<string>>(() => new Set<string>())
+
+  const avatarURL =
+    user && "profile_image_urls" in user && user.profile_image_urls?.medium
+      ? user.profile_image_urls.medium
+      : user && "avatarURL" in user && (user as any).avatarURL
+        ? (user as any).avatarURL
+        : null
 
   const toggleTag = useCallback((rawName: string) => {
     const name = rawName.trim()
@@ -163,30 +165,35 @@ export function BlockWorkSheet(props: {
                   action={toggleUser}
                   buttonStyle="plain"
                   frame={{ maxWidth: "infinity" }}
-                  contentShape="rect"
+                  contentShape={{ type: "rect", cornerRadius: 12 }}
                 >
                   <HStack
                     alignment="center"
                     spacing={12}
                     padding={{ horizontal: 14, vertical: 12 }}
                     frame={{ maxWidth: "infinity", alignment: "leading" }}
-                    contentShape="rect"
-                    glassEffect={appGlass({ type: "rect", cornerRadius: 12 })}
-                    border={
+                    contentShape={{ type: "rect", cornerRadius: 12 }}
+                    clipShape={{ type: "rect", cornerRadius: 12 }}
+                    background={
+                      blockUserSelected ? (
+                        <RoundedRectangle cornerRadius={12} fill="systemRed" />
+                      ) : undefined
+                    }
+                    glassEffect={
                       blockUserSelected
-                        ? { style: "systemRed", width: 1.5 }
-                        : undefined
+                        ? undefined
+                        : appGlass({ type: "rect", cornerRadius: 12 })
                     }
                   >
-                    <Image
-                      systemName={
-                        blockUserSelected ? "checkmark.circle.fill" : "circle"
-                      }
-                      foregroundStyle={
-                        blockUserSelected ? "systemRed" : "secondaryLabel"
-                      }
-                      font="title3"
-                    />
+                    {blockUserSelected ? (
+                      <Image
+                        systemName="checkmark"
+                        font="subheadline"
+                        fontWeight="bold"
+                        foregroundStyle="white"
+                      />
+                    ) : null}
+                    <AvatarImage url={avatarURL} size={36} />
                     <VStack
                       alignment="leading"
                       spacing={2}
@@ -195,11 +202,18 @@ export function BlockWorkSheet(props: {
                       <Text
                         font="body"
                         fontWeight={blockUserSelected ? "semibold" : "regular"}
-                        foregroundStyle="label"
+                        foregroundStyle={blockUserSelected ? "white" : "label"}
                       >
                         {user.name}
                       </Text>
-                      <Text font="caption" foregroundStyle="secondaryLabel">
+                      <Text
+                        font="caption"
+                        foregroundStyle={
+                          blockUserSelected
+                            ? "rgba(255,255,255,0.78)"
+                            : "secondaryLabel"
+                        }
+                      >
                         {`UID: ${user.id}${user.account ? ` · @${user.account}` : ""}`}
                       </Text>
                     </VStack>
@@ -221,79 +235,24 @@ export function BlockWorkSheet(props: {
                   foregroundStyle="secondaryLabel"
                   padding={{ horizontal: 4 }}
                 >
-                  屏蔽标签（支持多选）
+                  屏蔽标签
                 </Text>
-                <VStack
-                  alignment="leading"
-                  spacing={8}
-                  frame={{ maxWidth: "infinity" }}
-                >
+                <FlowLayout spacing={4}>
                   {validTags.map((tag) => {
                     const tagName = tag.name.trim()
                     const isSelected = selectedTags.has(tagName)
                     return (
-                      <Button
+                      <SelectableTagChip
                         key={tagName}
-                        action={() => toggleTag(tagName)}
-                        buttonStyle="plain"
-                        frame={{ maxWidth: "infinity" }}
-                        contentShape="rect"
-                      >
-                        <HStack
-                          alignment="center"
-                          spacing={12}
-                          padding={{ horizontal: 14, vertical: 10 }}
-                          frame={{ maxWidth: "infinity", alignment: "leading" }}
-                          contentShape="rect"
-                          glassEffect={appGlass({ type: "rect", cornerRadius: 12 })}
-                          border={
-                            isSelected
-                              ? { style: "systemRed", width: 1.5 }
-                              : undefined
-                          }
-                        >
-                          <Image
-                            systemName={
-                              isSelected
-                                ? "checkmark.circle.fill"
-                                : "circle"
-                            }
-                            foregroundStyle={
-                              isSelected ? "systemRed" : "secondaryLabel"
-                            }
-                            font="title3"
-                          />
-                          <VStack
-                            alignment="leading"
-                            spacing={2}
-                            frame={{
-                              maxWidth: "infinity",
-                              alignment: "leading",
-                            }}
-                          >
-                            <Text
-                              font="body"
-                              fontWeight={
-                                isSelected ? "semibold" : "regular"
-                              }
-                              foregroundStyle="label"
-                            >
-                              {tagName}
-                            </Text>
-                            {tag.translated_name ? (
-                              <Text
-                                font="caption"
-                                foregroundStyle="secondaryLabel"
-                              >
-                                {tag.translated_name}
-                              </Text>
-                            ) : null}
-                          </VStack>
-                        </HStack>
-                      </Button>
+                        name={tagName}
+                        translatedName={tag.translated_name ?? undefined}
+                        selected={isSelected}
+                        accentColor="systemRed"
+                        onToggle={() => toggleTag(tagName)}
+                      />
                     )
                   })}
-                </VStack>
+                </FlowLayout>
               </VStack>
             ) : null}
           </VStack>

@@ -26,6 +26,7 @@ import { loadSettings, onSettingsChanged, updateSettings, type AppSettings } fro
 import { ResponsiveContainer, useLayoutMetrics } from "./Hooks"
 import { SPLIT_SHELL_MIN_WIDTH, SplitShell } from "./SplitShell"
 import { SplitViewContainer } from "./DualRouteContext"
+import { NavigationZoomProvider } from "./NavigationZoomContext"
 import { FeatureHighlightsSheet } from "./components/FeatureHighlightsSheet"
 import { IpadSplitViewNoticeSheet } from "./components/IpadSplitViewNoticeSheet"
 import { topBarScrollEdge } from "./components/pageChrome"
@@ -63,7 +64,7 @@ function LaunchExperienceView() {
       alignment="center"
       frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
       ignoresSafeArea={true}
-      background="#070D1E"
+      background="systemBackground"
     >
       {/* 1. 背景层：若有缓存插画则展示柔和高斯模糊图，若无则无缝展示梦幻流体光晕 */}
       {bgImage ? (
@@ -278,6 +279,8 @@ export function RootView() {
 
   // 顶栏过渡：由设置驱动，随设置变更即时生效（上方已订阅 onSettingsChanged）
   const topBarEdge = topBarScrollEdge(settings.topBarEffect)
+  const preferredColorScheme =
+    settings.colorScheme === "system" ? undefined : settings.colorScheme
 
   const dismiss = Navigation.useDismiss()
 
@@ -289,6 +292,7 @@ export function RootView() {
         ignoresSafeArea={true}
         scrollEdgeEffectStyle={topBarEdge.scrollEdgeEffectStyle}
         scrollEdgeEffectHidden={topBarEdge.scrollEdgeEffectHidden}
+        preferredColorScheme={preferredColorScheme}
       >
         <ResponsiveContainer>
           <NavigationStack>
@@ -320,6 +324,7 @@ export function RootView() {
       ignoresSafeArea={true}
       scrollEdgeEffectStyle={topBarEdge.scrollEdgeEffectStyle}
       scrollEdgeEffectHidden={topBarEdge.scrollEdgeEffectHidden}
+      preferredColorScheme={preferredColorScheme}
       sheet={{
         isPresented: activeStartupSheet !== "none",
         onChanged: (val: boolean) => {
@@ -402,7 +407,9 @@ function ShellSwitcher(props: { onClose: () => void; settings: AppSettings }) {
 function TabViewShell(props: { onClose: () => void; width: number; height: number }) {
   return (
     <SplitViewContainer splitViewEnabled={false}>
-      <MainTabView onClose={props.onClose} />
+      <NavigationZoomProvider>
+        <MainTabView onClose={props.onClose} />
+      </NavigationZoomProvider>
     </SplitViewContainer>
   )
 }

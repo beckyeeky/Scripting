@@ -2,8 +2,10 @@ import {
   Button,
   Group,
   HStack,
+  Image,
   NavigationLink,
   Text,
+  type Color,
 } from "scripting"
 import { AppNavigationLink } from "../DualRouteContext"
 import { blockTag } from "../../store/blocklist"
@@ -59,7 +61,7 @@ export function TagChip(props: {
       <HStack spacing={3} alignment="center">
         <Text
           font={compact ? "caption2" : "caption"}
-          foregroundStyle="#0096FA"
+          foregroundStyle="systemBlue"
           fontWeight="semibold"
         >
           #
@@ -78,5 +80,66 @@ export function TagChip(props: {
         ) : null}
       </HStack>
     </AppNavigationLink>
+  )
+}
+
+export function SelectableTagChip(props: {
+  name: string
+  translatedName?: string
+  selected: boolean
+  accentColor?: Color
+  compact?: boolean
+  disabled?: boolean
+  onToggle: () => void
+}) {
+  const {
+    name,
+    translatedName,
+    selected,
+    accentColor = "systemBlue",
+    compact = false,
+    disabled = false,
+    onToggle,
+  } = props
+
+  return (
+    <Button
+      buttonStyle={selected ? "glassProminent" : "glass"}
+      tint={selected ? accentColor : undefined}
+      controlSize={compact ? "mini" : "small"}
+      fixedSize={{ horizontal: true, vertical: false }}
+      disabled={disabled}
+      action={onToggle}
+    >
+      <HStack spacing={3} alignment="center">
+        {selected ? (
+          <Image
+            systemName="checkmark"
+            font={compact ? "caption2" : "footnote"}
+            fontWeight="bold"
+          />
+        ) : (
+          <Text
+            font={compact ? "caption2" : "footnote"}
+            foregroundStyle="systemBlue"
+            fontWeight="semibold"
+          >
+            #
+          </Text>
+        )}
+        <Text font={compact ? "caption" : "subheadline"} lineLimit={1}>
+          {name}
+        </Text>
+        {translatedName ? (
+          <Text
+            font={compact ? "caption2" : "footnote"}
+            foregroundStyle={selected ? undefined : "secondaryLabel"}
+            lineLimit={1}
+          >
+            {translatedName}
+          </Text>
+        ) : null}
+      </HStack>
+    </Button>
   )
 }

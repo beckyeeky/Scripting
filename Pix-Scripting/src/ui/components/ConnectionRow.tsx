@@ -16,6 +16,7 @@ import {
 } from "scripting"
 import { appGlass, appGlassFlag, appInteractiveGlass, appThemeColor } from "./glass"
 import { AppNavigationLink } from "../DualRouteContext"
+import { useNavigationZoom } from "../NavigationZoomContext"
 import { session } from "../../api/session"
 import { followUser, unfollowUser } from "../../api/pixiv"
 import { loadSettings, onSettingsChanged } from "../../store/settings"
@@ -136,6 +137,8 @@ export function ConnectionRow(props: {
     return getVisiblePreviewItems(preview, hideNovels, followed)
   }, [preview, hideNovels, followed, filterVersion])
 
+  const { getSource } = useNavigationZoom()
+
   async function followWithVisibility(restrict: "public" | "private") {
     if (followBusy) return
     triggerHaptic("medium")
@@ -178,7 +181,10 @@ export function ConnectionRow(props: {
       frame={{ maxWidth: "infinity", alignment: "leading" }}
       contentShape="rect"
     >
-      <ZStack frame={{ width: 38, height: 38 }}>
+      <ZStack
+        frame={{ width: 38, height: 38 }}
+        matchedTransitionSource={getSource(`user:${preview.user.id}`)}
+      >
         <Circle
           fill="rgba(255, 255, 255, 0.16)"
           glassEffect={appGlassFlag()}
@@ -332,16 +338,23 @@ export function ConnectionIllustThumbnail(props: {
   priority?: number
   isSprint?: boolean
 }) {
+  const { getSource } = useNavigationZoom()
   const imageElement = (
-    <CachedImage
-      url={thumbUrlOf(props.illustration)}
-      aspectRatioValue={1}
-      useIntrinsicAspectRatio={false}
-      cornerRadius={6}
-      priority={props.priority}
-      isSprint={props.isSprint}
+    <ZStack
       frame={{ width: props.side, height: props.side }}
-    />
+      clipShape={{ type: "rect", cornerRadius: 6 }}
+      matchedTransitionSource={getSource(`illust:${props.illustration.id}`)}
+    >
+      <CachedImage
+        url={thumbUrlOf(props.illustration)}
+        aspectRatioValue={1}
+        useIntrinsicAspectRatio={false}
+        cornerRadius={6}
+        priority={props.priority}
+        isSprint={props.isSprint}
+        frame={{ width: props.side, height: props.side }}
+      />
+    </ZStack>
   )
 
   if (props.onNavigate) {
@@ -373,6 +386,7 @@ export function ConnectionNovelThumbnail(props: {
   priority?: number
   isSprint?: boolean
 }) {
+  const { getSource } = useNavigationZoom()
   const coverWidth = props.side * NOVEL_PREVIEW_COVER_RATIO
 
   const novelElement = (
@@ -380,6 +394,7 @@ export function ConnectionNovelThumbnail(props: {
       alignment="bottom"
       clipShape={{ type: "rect", cornerRadius: 6 }}
       frame={{ width: props.side, height: props.side }}
+      matchedTransitionSource={getSource(`novel:${props.novel.id}`)}
     >
       <CachedImage
         url={novelThumbUrlOf(props.novel)}

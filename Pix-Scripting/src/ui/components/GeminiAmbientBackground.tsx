@@ -152,10 +152,10 @@ function buildLuminousCoreColor(c1: Color, c2: Color, isDark: boolean, boostRati
   const [h, s, l] = rgbToHsl(midR, midG, midB)
   const targetL = isDark
     ? Math.min(0.78, l * (1 + boostRatio * 1.4) + boostRatio * 0.4)
-    : Math.max(0.44, Math.min(0.82, l * 0.95 + boostRatio * 0.2))
+    : Math.max(0.40, Math.min(0.74, l * 0.88 + boostRatio * 0.15))
   const targetS = isDark
     ? Math.min(0.95, s * (1 + boostRatio * 0.5) + 0.05)
-    : Math.min(0.95, Math.max(0.60, s * 1.25))
+    : Math.min(0.95, Math.max(0.68, s * 1.30))
   const [nr, ng, nb] = hslToRgb(h, targetS, targetL)
   return `rgb(${nr}, ${ng}, ${nb})` as Color
 }
@@ -232,7 +232,7 @@ export function GeminiAmbientBackground(props: GeminiAmbientBackgroundProps) {
   const swingDist = custom ? settings.geminiSwingDistance : speed === "calm" ? 35 : 40
   const blurRadius = custom ? settings.geminiBlurRadius : speed === "calm" ? 110 : 95
   const luminousBoost = (custom ? settings.geminiLuminousBoostRatio : 25) / 100
-  const lightAlphaRatio = (custom ? settings.geminiLightModeAlphaRatio : 52) / 100
+  const lightAlphaRatio = (custom ? settings.geminiLightModeAlphaRatio : 68) / 100
 
   // 浅色模式专属对比度增强
   const intensityAlpha =

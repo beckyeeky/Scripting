@@ -8,6 +8,7 @@ import {
   Menu,
   NavigationLink,
   type VirtualNode,
+  ZStack,
 } from "scripting"
 import type { PixivIllustration } from "../../types"
 import type { FollowRestrict } from "../../store/userFollow"
@@ -15,6 +16,7 @@ import { cleanHtmlCaption } from "../../api/aiService"
 import { AvatarImage } from "../components/CachedImage"
 import { requestPixivRoute } from "../../store/routeNavigation"
 import { AppNavigationLink } from "../DualRouteContext"
+import { getActiveZoomNamespace } from "../NavigationZoomContext"
 import type { IllustAIMode } from "../aiSheet"
 
 declare const Pasteboard: any
@@ -339,10 +341,18 @@ export function renderIllustToolbarActions(props: IllustToolbarActionsProps): Vi
       ? []
       : [
           <AppNavigationLink value={`user:${illust.user?.id ?? 0}`}>
-            <AvatarImage
-              url={illust.user?.profile_image_urls?.medium ?? null}
-              size={28}
-            />
+            <ZStack
+              matchedTransitionSource={
+                illust.user?.id && getActiveZoomNamespace()
+                  ? { id: `user:${illust.user.id}`, namespace: getActiveZoomNamespace()! }
+                  : undefined
+              }
+            >
+              <AvatarImage
+                url={illust.user?.profile_image_urls?.medium ?? null}
+                size={28}
+              />
+            </ZStack>
           </AppNavigationLink>,
         ]),
   ]

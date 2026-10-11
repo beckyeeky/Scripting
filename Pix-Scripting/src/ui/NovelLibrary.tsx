@@ -174,23 +174,19 @@ export function NovelLibraryView() {
       ]
     }
 
-    if (!isAppleMusic) {
-      return [
-        <Button
-          key="sort-btn"
-          action={() => {
-            try {
-              triggerHaptic("selection")
-            } catch {}
-            setIsAscending((v) => !v)
-          }}
-        >
-          <Image systemName={isAscending ? "arrow.up" : "arrow.down"} />
-        </Button>,
-      ]
-    }
-
-    return undefined
+    return [
+      <Button
+        key="sort-btn"
+        action={() => {
+          try {
+            triggerHaptic("selection")
+          } catch {}
+          setIsAscending((v) => !v)
+        }}
+      >
+        <Image systemName={isAscending ? "arrow.up" : "arrow.down"} />
+      </Button>,
+    ]
   })()
 
   return (

@@ -337,17 +337,17 @@ function adaptPerceptualColor(
       targetL = Math.min(0.36, Math.max(0.14, l * 0.78))
     }
   } else {
-    // 浅色模式：粉彩化提升明度防脏底，收敛过激饱和度
+    // 浅色模式：粉彩化提升明度防脏底，保持鲜润辨识度
     if (intensity === "low") {
-      targetS = Math.min(0.45, Math.max(0.10, s * 0.85))
-      targetL = Math.min(0.92, Math.max(0.78, 0.65 + l * 0.30))
+      targetS = Math.min(0.55, Math.max(0.14, s * 0.92))
+      targetL = Math.min(0.86, Math.max(0.66, 0.52 + l * 0.30))
     } else if (intensity === "high") {
-      targetS = Math.min(0.75, Math.max(0.25, s * 1.10))
-      targetL = Math.min(0.84, Math.max(0.62, 0.45 + l * 0.40))
+      targetS = Math.min(0.85, Math.max(0.28, s * 1.20))
+      targetL = Math.min(0.76, Math.max(0.50, 0.38 + l * 0.35))
     } else {
       // medium (标准)
-      targetS = Math.min(0.60, Math.max(0.18, s * 0.95))
-      targetL = Math.min(0.88, Math.max(0.70, 0.55 + l * 0.35))
+      targetS = Math.min(0.75, Math.max(0.22, s * 1.08))
+      targetL = Math.min(0.80, Math.max(0.56, 0.44 + l * 0.32))
     }
   }
 
@@ -442,19 +442,19 @@ function adaptUltimatePerceptualColor(
       targetL = Math.min(maxL, Math.max(minL, l * 0.82))
     }
   } else {
-    // 浅色模式 (Frost Crystal)：提升通透清澈感与明度，去除灰雾感
+    // 浅色模式 (Frost Crystal)：提升通透清澈感与饱和润泽度，消除过曝惨白
     if (role === "bg") {
-      targetS = Math.min(0.25, Math.max(0.04, s * 0.50))
-      targetL = 0.96
+      targetS = Math.min(0.35, Math.max(0.06, s * 0.65))
+      targetL = intensity === "high" ? 0.92 : intensity === "low" ? 0.96 : 0.94
     } else if (role === "mid") {
-      targetS = Math.min(0.55, Math.max(0.12, s * 0.85))
-      targetL = intensity === "high" ? 0.82 : intensity === "low" ? 0.90 : 0.86
+      targetS = Math.min(0.70, Math.max(0.18, s * 1.05))
+      targetL = intensity === "high" ? 0.70 : intensity === "low" ? 0.82 : 0.76
     } else {
       // leading / prism / trailing
-      const sMultiplier = intensity === "high" ? 1.15 : intensity === "low" ? 0.88 : 1.00
-      const minL = intensity === "high" ? 0.60 : intensity === "low" ? 0.78 : 0.70
-      targetS = Math.min(0.75, Math.max(0.20, s * sMultiplier))
-      targetL = Math.min(0.92, Math.max(minL, 0.55 + l * 0.35))
+      const sMultiplier = intensity === "high" ? 1.25 : intensity === "low" ? 0.95 : 1.10
+      const minL = intensity === "high" ? 0.50 : intensity === "low" ? 0.68 : 0.58
+      targetS = Math.min(0.85, Math.max(0.24, s * sMultiplier))
+      targetL = Math.min(0.82, Math.max(minL, 0.46 + l * 0.32))
     }
   }
 
@@ -477,9 +477,9 @@ function adaptUltimateCoreColor(
     const coreL = Math.min(0.92, Math.max(0.76, 0.58 + l * 0.38))
     return hslToRgb(h, coreS, coreL)
   } else {
-    // 浅色模式：晶莹白光透射，极轻柔淡彩
-    const coreS = Math.min(0.25, Math.max(0.06, s * 0.35))
-    const coreL = 0.98
+    // 浅色模式：晶莹白光透射，带适度润彩
+    const coreS = Math.min(0.38, Math.max(0.10, s * 0.55))
+    const coreL = 0.95
     return hslToRgb(h, coreS, coreL)
   }
 }
@@ -516,19 +516,19 @@ function buildIllustPalette(
   const [expDR, expDG, expDB] = adaptPerceptualColor(dRaw[0], dRaw[1], dRaw[2], isDark, intensity)
   const [expAR, expAG, expAB] = adaptPerceptualColor(aRaw[0], aRaw[1], aRaw[2], isDark, intensity)
 
-  let expAccentAlpha = isDark ? 0.52 : 0.64
-  let expTopAlpha = isDark ? 0.58 : 0.70
-  let expMidAlpha = isDark ? 0.24 : 0.32
+  let expAccentAlpha = isDark ? 0.52 : 0.72
+  let expTopAlpha = isDark ? 0.58 : 0.78
+  let expMidAlpha = isDark ? 0.24 : 0.38
   let expBgAlpha = 0.00
   if (intensity === "low") {
-    expAccentAlpha = isDark ? 0.32 : 0.44
-    expTopAlpha = isDark ? 0.38 : 0.50
-    expMidAlpha = isDark ? 0.14 : 0.20
+    expAccentAlpha = isDark ? 0.32 : 0.52
+    expTopAlpha = isDark ? 0.38 : 0.58
+    expMidAlpha = isDark ? 0.14 : 0.26
     expBgAlpha = 0.00
   } else if (intensity === "high") {
-    expAccentAlpha = isDark ? 0.70 : 0.82
-    expTopAlpha = isDark ? 0.76 : 0.88
-    expMidAlpha = isDark ? 0.38 : 0.46
+    expAccentAlpha = isDark ? 0.70 : 0.88
+    expTopAlpha = isDark ? 0.76 : 0.92
+    expMidAlpha = isDark ? 0.38 : 0.52
     expBgAlpha = isDark ? 0.04 : 0.04
   }
 
@@ -543,24 +543,24 @@ function buildIllustPalette(
   const [ultPrismCoreR, ultPrismCoreG, ultPrismCoreB] = adaptUltimateCoreColor(prismRaw[0], prismRaw[1], prismRaw[2], isDark)
   const [ultTrailCoreR, ultTrailCoreG, ultTrailCoreB] = adaptUltimateCoreColor(trRaw[0], trRaw[1], trRaw[2], isDark)
 
-  let ultLeadAlpha = isDark ? 0.62 : 0.76
-  let ultPrismAlpha = isDark ? 0.52 : 0.66
-  let ultTrailAlpha = isDark ? 0.46 : 0.58
-  let ultMidAlpha = isDark ? 0.20 : 0.26
+  let ultLeadAlpha = isDark ? 0.62 : 0.82
+  let ultPrismAlpha = isDark ? 0.52 : 0.72
+  let ultTrailAlpha = isDark ? 0.46 : 0.64
+  let ultMidAlpha = isDark ? 0.20 : 0.32
   let ultBgAlpha = 0.00
-  let ultCoreAlpha = isDark ? 0.68 : 0.75
+  let ultCoreAlpha = isDark ? 0.68 : 0.82
   if (intensity === "low") {
-    ultLeadAlpha = isDark ? 0.42 : 0.52
-    ultPrismAlpha = isDark ? 0.34 : 0.42
-    ultTrailAlpha = isDark ? 0.28 : 0.36
-    ultMidAlpha = isDark ? 0.12 : 0.16
+    ultLeadAlpha = isDark ? 0.42 : 0.60
+    ultPrismAlpha = isDark ? 0.34 : 0.50
+    ultTrailAlpha = isDark ? 0.28 : 0.42
+    ultMidAlpha = isDark ? 0.12 : 0.20
     ultBgAlpha = 0.00
-    ultCoreAlpha = isDark ? 0.44 : 0.50
+    ultCoreAlpha = isDark ? 0.44 : 0.60
   } else if (intensity === "high") {
-    ultLeadAlpha = isDark ? 0.80 : 0.90
-    ultPrismAlpha = isDark ? 0.70 : 0.80
-    ultTrailAlpha = isDark ? 0.62 : 0.72
-    ultMidAlpha = isDark ? 0.34 : 0.40
+    ultLeadAlpha = isDark ? 0.80 : 0.94
+    ultPrismAlpha = isDark ? 0.70 : 0.86
+    ultTrailAlpha = isDark ? 0.62 : 0.78
+    ultMidAlpha = isDark ? 0.34 : 0.46
     ultBgAlpha = isDark ? 0.03 : 0.03
     ultCoreAlpha = isDark ? 0.88 : 0.92
   }

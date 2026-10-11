@@ -28,7 +28,7 @@ import {
   prefetch,
 } from "../image/imageLoader"
 import { sharpenFadeDurationSec } from "./components/CachedImage"
-import { appCustomTint } from "./components/glass"
+import { appCustomTint, appInteractiveGlass } from "./components/glass"
 import {
   downloadIllustToAlbum,
   fetchImageBinaryWithRetry,
@@ -39,6 +39,7 @@ import { triggerHaptic } from "../platform/haptics"
 import {
   getDetailImageQuality,
   getDownloadImageQuality,
+  getPreferredColorScheme,
 } from "../store/settings"
 import type { PixivIllustration } from "../types"
 
@@ -48,9 +49,8 @@ interface IllustGalleryPageProps {
   isActive: boolean
   isSinglePage: boolean
   onToggleControls: () => void
-  onDismiss: () => void
   onZoomChange?: (isZoomed: boolean) => void
-  onDismissDrag?: (offsetY: number, scale: number, opacity: number) => void
+  onDismissDrag?: (offsetY: number, scale: number) => void
   onDismissDragEnd?: (shouldDismiss: boolean) => void
 }
 
@@ -67,9 +67,7 @@ function IllustGalleryPage(props: IllustGalleryPageProps) {
   } = props
 
   const detailQuality = useMemo(() => getDetailImageQuality(), [])
-  const isDefaultOriginal = useMemo(() => {
-    return detailQuality === "original"
-  }, [detailQuality])
+  const isDefaultOriginal = detailQuality === "original"
 
   const previewQuality: "medium" | "large" =
     detailQuality === "large" || detailQuality === "original" ? "large" : "medium"
@@ -156,61 +154,57 @@ function IllustGalleryPage(props: IllustGalleryPageProps) {
     }
   }, [requestedOriginal, originalUrl, originalPath])
 
-  // 当切换到其他页面时，仅在当前页处于缩放状态时复位缩放与位移
-  useEffect(() => {
-    if (!isActive) {
-      if (scaleRef.current !== 1.0 || offsetRef.current.x !== 0 || offsetRef.current.y !== 0 || isZoomedRef.current) {
-        setScale(1.0)
-        setBaseScale(1.0)
-        setOffset({ x: 0, y: 0 })
-        setBaseOffset({ x: 0, y: 0 })
-        scaleRef.current = 1.0
-        baseScaleRef.current = 1.0
-        offsetRef.current = { x: 0, y: 0 }
-        baseOffsetRef.current = { x: 0, y: 0 }
-        isZoomedRef.current = false
-        setIsZoomed(false)
-        onZoomChangeRef.current?.(false)
+  const applyZoomState = useCallback((targetScale: number, zoomed: boolean, anim?: any) => {
+    const zero = { x: 0, y: 0 }
+    const update = () => {
+      setScale(targetScale)
+      setBaseScale(targetScale)
+      if (!zoomed || targetScale === 2.5) {
+        setOffset(zero)
+        setBaseOffset(zero)
       }
     }
-  }, [isActive])
-
-  // 双击手势：1.0x 与 2.5x 互切
-  const handleDoubleTap = useCallback(() => {
-    if (scaleRef.current > 1.05 || isZoomedRef.current) {
-      withAnimation(Animation.spring({ duration: 0.3, bounce: 0.15 }), () => {
-        setScale(1.0)
-        setBaseScale(1.0)
-        setOffset({ x: 0, y: 0 })
-        setBaseOffset({ x: 0, y: 0 })
-      })
-      scaleRef.current = 1.0
-      baseScaleRef.current = 1.0
-      offsetRef.current = { x: 0, y: 0 }
-      baseOffsetRef.current = { x: 0, y: 0 }
-      isZoomedRef.current = false
-      setIsZoomed(false)
-      onZoomChangeRef.current?.(false)
+    if (anim) {
+      withAnimation(anim, update)
     } else {
-      withAnimation(Animation.spring({ duration: 0.3, bounce: 0.15 }), () => {
-        setScale(2.5)
-        setBaseScale(2.5)
-        setOffset({ x: 0, y: 0 })
-        setBaseOffset({ x: 0, y: 0 })
-      })
-      scaleRef.current = 2.5
-      baseScaleRef.current = 2.5
-      offsetRef.current = { x: 0, y: 0 }
-      baseOffsetRef.current = { x: 0, y: 0 }
-      isZoomedRef.current = true
-      setIsZoomed(true)
-      onZoomChangeRef.current?.(true)
+      update()
+    }
+    scaleRef.current = targetScale
+    baseScaleRef.current = targetScale
+    if (!zoomed || targetScale === 2.5) {
+      offsetRef.current = zero
+      baseOffsetRef.current = zero
+    }
+    if (isZoomedRef.current !== zoomed) {
+      isZoomedRef.current = zoomed
+      setIsZoomed(zoomed)
+      onZoomChangeRef.current?.(zoomed)
+    }
+    if (zoomed) {
       setRequestedOriginal(true)
     }
   }, [])
 
+  // 当切换到其他页面时，仅在当前页处于缩放状态时复位缩放与位移
+  useEffect(() => {
+    if (!isActive && (scaleRef.current !== 1.0 || offsetRef.current.x !== 0 || offsetRef.current.y !== 0 || isZoomedRef.current)) {
+      applyZoomState(1.0, false)
+    }
+  }, [isActive, applyZoomState])
+
+  // 双击手势：1.0x 与 2.5x 互切
+  const handleDoubleTap = useCallback(() => {
+    const spring = Animation.spring({ duration: 0.3, bounce: 0.15 })
+    if (scaleRef.current > 1.05 || isZoomedRef.current) {
+      applyZoomState(1.0, false, spring)
+    } else {
+      applyZoomState(2.5, true, spring)
+    }
+  }, [applyZoomState])
+
   // 双指捏合缩放：在捏合过程中仅做纯粹视觉变换，状态提交延后至松手结束，避免中途重建手势引发卡顿
   const magnifyGesture = useMemo(() => {
+    const spring = Animation.spring({ duration: 0.25, bounce: 0.1 })
     return MagnifyGesture(0.01)
       .onChanged((v) => {
         const nextScale = Math.max(0.75, Math.min(6.0, baseScaleRef.current * v.magnification))
@@ -220,99 +214,42 @@ function IllustGalleryPage(props: IllustGalleryPageProps) {
       .onEnded(() => {
         const current = scaleRef.current
         if (current <= 1.05) {
-          withAnimation(Animation.spring({ duration: 0.25, bounce: 0.1 }), () => {
-            setScale(1.0)
-            setBaseScale(1.0)
-            setOffset({ x: 0, y: 0 })
-            setBaseOffset({ x: 0, y: 0 })
-          })
-          scaleRef.current = 1.0
-          baseScaleRef.current = 1.0
-          offsetRef.current = { x: 0, y: 0 }
-          baseOffsetRef.current = { x: 0, y: 0 }
-          if (isZoomedRef.current) {
-            isZoomedRef.current = false
-            setIsZoomed(false)
-            onZoomChangeRef.current?.(false)
-          }
+          applyZoomState(1.0, false, spring)
         } else if (current > 5.0) {
-          withAnimation(Animation.spring({ duration: 0.25, bounce: 0.1 }), () => {
-            setScale(5.0)
-            setBaseScale(5.0)
-          })
-          scaleRef.current = 5.0
-          baseScaleRef.current = 5.0
-          if (!isZoomedRef.current) {
-            isZoomedRef.current = true
-            setIsZoomed(true)
-            onZoomChangeRef.current?.(true)
-          }
-          setRequestedOriginal(true)
+          applyZoomState(5.0, true, spring)
         } else {
-          setBaseScale(current)
-          baseScaleRef.current = current
-          if (!isZoomedRef.current) {
-            isZoomedRef.current = true
-            setIsZoomed(true)
-            onZoomChangeRef.current?.(true)
-          }
-          setRequestedOriginal(true)
+          applyZoomState(current, true)
         }
       })
-  }, [])
+  }, [applyZoomState])
 
-  // 单页拖拽手势：统一由单一手势处理放大时的漫游平移与未放大时的下拉收起，手势挂载恒定不变
-  const singlePageDragGesture = useMemo(() => {
+  // 统一拖拽手势：处理放大时的漫游平移，以及单页未放大时的下拉收起
+  const dragGesture = useMemo(() => {
     return DragGesture({ minDistance: 4 })
       .onChanged((d) => {
         if (scaleRef.current > 1.05) {
-          const nx = baseOffsetRef.current.x + d.translation.width
-          const ny = baseOffsetRef.current.y + d.translation.height
-          const newPos = { x: nx, y: ny }
+          const newPos = {
+            x: baseOffsetRef.current.x + d.translation.width,
+            y: baseOffsetRef.current.y + d.translation.height,
+          }
           offsetRef.current = newPos
           setOffset(newPos)
-        } else if (d.translation.height > 0 && onDismissDragRef.current) {
+        } else if (isSinglePage && d.translation.height > 0 && onDismissDragRef.current) {
           const dy = d.translation.height
-          const sc = Math.max(0.75, 1 - dy / 1200)
-          const op = Math.max(0.15, 1 - dy / 350)
-          onDismissDragRef.current(dy, sc, op)
+          onDismissDragRef.current(dy, Math.max(0.75, 1 - dy / 1200))
         }
       })
       .onEnded((d) => {
         if (scaleRef.current > 1.05) {
           baseOffsetRef.current = offsetRef.current
           setBaseOffset(offsetRef.current)
-        } else if (onDismissDragEndRef.current) {
-          if (d.translation.height > 100 || d.velocity.height > 300) {
-            onDismissDragEndRef.current(true)
-          } else {
-            onDismissDragEndRef.current(false)
-          }
+        } else if (isSinglePage && onDismissDragEndRef.current) {
+          onDismissDragEndRef.current(d.translation.height > 100 || d.velocity.height > 300)
         }
       })
-  }, [])
+  }, [isSinglePage])
 
-  // 多页放大平移漫游手势
-  const multiPagePanGesture = useMemo(() => {
-    return DragGesture({ minDistance: 4 })
-      .onChanged((d) => {
-        if (scaleRef.current > 1.05) {
-          const nx = baseOffsetRef.current.x + d.translation.width
-          const ny = baseOffsetRef.current.y + d.translation.height
-          const newPos = { x: nx, y: ny }
-          offsetRef.current = newPos
-          setOffset(newPos)
-        }
-      })
-      .onEnded(() => {
-        if (scaleRef.current > 1.05) {
-          baseOffsetRef.current = offsetRef.current
-          setBaseOffset(offsetRef.current)
-        }
-      })
-  }, [])
-
-  const activeGesture = isSinglePage ? singlePageDragGesture : isZoomed ? multiPagePanGesture : undefined
+  const activeGesture = isSinglePage || isZoomed ? dragGesture : undefined
 
   // 物理纵横比（优先使用插画元数据或小图检测，避免读取十几兆的原图大文件）
   const detectedAspect = useMemo(() => {
@@ -383,7 +320,7 @@ function IllustGalleryPage(props: IllustGalleryPageProps) {
         frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
         background="clear"
         contentShape="rect"
-        ignoresSafeArea={isZoomed ? { edges: "all" } : undefined}
+        ignoresSafeArea={true}
         gesture={activeGesture}
         simultaneousGesture={magnifyGesture}
         highPriorityGesture={
@@ -412,7 +349,6 @@ export function IllustGalleryView(props: {
   const [currentPageIndex, setCurrentPageIndex] = useState(initialPageIndex)
   const [showControls, setShowControls] = useState(true)
   const [isZoomed, setIsZoomed] = useState(false)
-  const [backgroundOpacity, setBackgroundOpacity] = useState(1.0)
   const [dismissOffsetY, setDismissOffsetY] = useState(0)
   const [dismissScale, setDismissScale] = useState(1.0)
   const [downloading, setDownloading] = useState(false)
@@ -420,9 +356,7 @@ export function IllustGalleryView(props: {
   const isNavVisible = showControls
 
   const toggleControls = useCallback(() => {
-    withAnimation(Animation.spring({ duration: 0.25, bounce: 0.1 }), () => {
-      setShowControls((prev) => !prev)
-    })
+    setShowControls((prev) => !prev)
   }, [])
 
   const handleZoomChange = useCallback((zoomed: boolean) => {
@@ -436,10 +370,9 @@ export function IllustGalleryView(props: {
     dismiss()
   }, [dismiss])
 
-  const handleDismissDrag = useCallback((offsetY: number, scale: number, opacity: number) => {
+  const handleDismissDrag = useCallback((offsetY: number, scale: number) => {
     setDismissOffsetY(offsetY)
     setDismissScale(scale)
-    setBackgroundOpacity(opacity)
   }, [])
 
   const handleDismissDragEnd = useCallback(
@@ -450,7 +383,6 @@ export function IllustGalleryView(props: {
         withAnimation(Animation.spring({ duration: 0.35, bounce: 0.2 }), () => {
           setDismissOffsetY(0)
           setDismissScale(1.0)
-          setBackgroundOpacity(1.0)
         })
       }
     },
@@ -532,58 +464,27 @@ export function IllustGalleryView(props: {
     await ShareSheet.present([`https://www.pixiv.net/artworks/${illust.id}`])
   }
 
+  const customTint = appCustomTint() ?? "label"
+  const downloadIconName = downloading ? "square.and.arrow.down.fill" : "square.and.arrow.down"
+  const renderCapsuleIcon = (name: string) => (
+    <ZStack frame={{ width: 48, height: 44 }} contentShape="rect">
+      <Image systemName={name} font="body" fontWeight="medium" foregroundStyle={customTint} />
+    </ZStack>
+  )
+
   return (
     <NavigationStack tint={appCustomTint()}>
       <ZStack
         frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
-        navigationTitle={!isSingle ? `${currentPageIndex + 1} / ${pageCount}` : ""}
-        navigationBarTitleDisplayMode="inline"
+        background="systemBackground"
+        preferredColorScheme={getPreferredColorScheme()}
+        navigationBarVisibility="hidden"
         statusBarHidden={!isNavVisible}
         toolbarVisibility={{
           visibility: isNavVisible ? "visible" : "hidden",
-          bars: ["navigationBar", "statusBar"],
+          bars: ["statusBar"],
         }}
         ignoresSafeArea={true}
-        toolbar={{
-          topBarLeading: [
-            <Button action={handleDismiss}>
-              <Image systemName="xmark" />
-            </Button>,
-          ],
-          principal: !isSingle ? (
-            <Text font="headline" fontWeight="semibold">
-              {`${currentPageIndex + 1} / ${pageCount}`}
-            </Text>
-          ) : undefined,
-          topBarTrailing: [
-            !isSingle ? (
-              <Menu label={<Image systemName={downloading ? "square.and.arrow.down.fill" : "square.and.arrow.down"} />}>
-                <Button
-                  title={`保存当前页（第 ${currentPageIndex + 1} 页）`}
-                  systemImage="photo"
-                  disabled={downloading}
-                  action={() => void handleDownloadSingle(currentPageIndex)}
-                />
-                <Button
-                  title={`保存全部（共 ${pageCount} 页）`}
-                  systemImage="photo.on.rectangle.angled"
-                  disabled={downloading}
-                  action={() => void handleDownloadAll()}
-                />
-              </Menu>
-            ) : (
-              <Button
-                disabled={downloading}
-                action={() => void handleDownloadSingle(0)}
-              >
-                <Image systemName={downloading ? "square.and.arrow.down.fill" : "square.and.arrow.down"} />
-              </Button>
-            ),
-            <Button action={handleShare}>
-              <Image systemName="square.and.arrow.up" />
-            </Button>,
-          ],
-        }}
       >
         {/* 中间大图展示区：使用 iOS 原生 TabView page 模式实现可预测物理交互翻页动画 */}
         <ZStack
@@ -619,7 +520,6 @@ export function IllustGalleryView(props: {
                     isActive={currentPageIndex === idx}
                     isSinglePage={false}
                     onToggleControls={toggleControls}
-                    onDismiss={handleDismiss}
                     onZoomChange={handleZoomChange}
                   />
                 </VStack>
@@ -632,13 +532,109 @@ export function IllustGalleryView(props: {
               isActive={true}
               isSinglePage={true}
               onToggleControls={toggleControls}
-              onDismiss={handleDismiss}
               onDismissDrag={handleDismissDrag}
               onDismissDragEnd={handleDismissDragEnd}
               onZoomChange={handleZoomChange}
             />
           )}
         </ZStack>
+
+        {/* 顶部液态玻璃控制栏：独立浮层恒定脱离 NavigationBar 安全区，彻底根除分割横线与多页 28pt 跳动 */}
+        <VStack
+          frame={{ maxWidth: "infinity", maxHeight: "infinity", alignment: "top" }}
+          ignoresSafeArea={true}
+          opacity={isNavVisible ? 1 : 0}
+          allowsHitTesting={isNavVisible}
+          animation={{ animation: Animation.smooth({ duration: 0.2 }), value: isNavVisible }}
+        >
+          <ZStack
+            alignment="center"
+            frame={{ maxWidth: "infinity" }}
+            padding={{ top: Device.isiPad ? 24 : 62, horizontal: 16 }}
+          >
+            {!isSingle ? (
+              <HStack
+                alignment="center"
+                frame={{ height: 44 }}
+                padding={{ horizontal: 16 }}
+                glassEffect={appInteractiveGlass("capsule")}
+                contentShape="capsule"
+              >
+                <Text
+                  font="body"
+                  fontWeight="semibold"
+                  foregroundStyle={customTint}
+                >
+                  {`${currentPageIndex + 1} / ${pageCount}`}
+                </Text>
+              </HStack>
+            ) : null}
+
+            <HStack
+              alignment="center"
+              frame={{ maxWidth: "infinity" }}
+            >
+              <Button
+                buttonStyle="plain"
+                action={handleDismiss}
+              >
+                <ZStack
+                  frame={{ width: 44, height: 44 }}
+                  glassEffect={appInteractiveGlass("circle")}
+                  contentShape="circle"
+                >
+                  <Image
+                    systemName="xmark"
+                    font="body"
+                    fontWeight="medium"
+                    foregroundStyle={customTint}
+                  />
+                </ZStack>
+              </Button>
+
+              <Spacer />
+
+              <HStack
+                spacing={0}
+                alignment="center"
+                glassEffect={appInteractiveGlass("capsule")}
+                contentShape="capsule"
+              >
+                {!isSingle ? (
+                  <Menu label={renderCapsuleIcon(downloadIconName)}>
+                    <Button
+                      title={`保存当前页（第 ${currentPageIndex + 1} 页）`}
+                      systemImage="photo"
+                      disabled={downloading}
+                      action={() => void handleDownloadSingle(currentPageIndex)}
+                    />
+                    <Button
+                      title={`保存全部（共 ${pageCount} 页）`}
+                      systemImage="photo.on.rectangle.angled"
+                      disabled={downloading}
+                      action={() => void handleDownloadAll()}
+                    />
+                  </Menu>
+                ) : (
+                  <Button
+                    buttonStyle="plain"
+                    disabled={downloading}
+                    action={() => void handleDownloadSingle(0)}
+                  >
+                    {renderCapsuleIcon(downloadIconName)}
+                  </Button>
+                )}
+
+                <Button
+                  buttonStyle="plain"
+                  action={handleShare}
+                >
+                  {renderCapsuleIcon("square.and.arrow.up")}
+                </Button>
+              </HStack>
+            </HStack>
+          </ZStack>
+        </VStack>
       </ZStack>
     </NavigationStack>
   )

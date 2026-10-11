@@ -34,6 +34,7 @@ import {
   novelCommentReplies,
 } from "../api/pixiv"
 import { session } from "../api/session"
+import { triggerHaptic } from "../platform/haptics"
 import { loadSettings } from "../store/settings"
 import { requestPixivRoute } from "../store/routeNavigation"
 import { dedupeByID, mergeUniqueByID } from "./Hooks"
@@ -403,7 +404,7 @@ export function CommentsSheet(props: {
     settings.glassCustomTintEnabled && settings.glassTintColor
       ? (settings.glassTintColor as Color)
       : undefined
-  const themeColor = appThemeColor("#0096FA") as Color
+  const themeColor = appThemeColor("systemBlue") as Color
 
   return (
     <NavigationStack
@@ -517,7 +518,7 @@ function CommentInputBar(props: {
   const [showEmotePanel, setShowEmotePanel] = useState(false)
   const [emoteTab, setEmoteTab] = useState<string>("emoji")
   const [stampCategoryKey, setStampCategoryKey] = useState<string>("all")
-  const themeColor = appThemeColor("#0096FA")
+  const themeColor = appThemeColor("systemBlue")
 
   // 当外部回复目标切换时，收起表情面板
   useEffect(() => {
@@ -529,6 +530,7 @@ function CommentInputBar(props: {
   const handleSendText = async () => {
     const content = text.trim()
     if (!content || posting) return
+    triggerHaptic("selection")
     const success = await onSendText(content)
     if (success) {
       setText("")
@@ -540,6 +542,7 @@ function CommentInputBar(props: {
 
   const handleSendStamp = async (stampID: number) => {
     if (posting) return
+    triggerHaptic("selection")
     const success = await onSendStamp(stampID)
     if (success) {
       withAnimation(() => {
@@ -597,6 +600,7 @@ function CommentInputBar(props: {
           glassEffect={appGlass("circle")}
           contentShape="circle"
           action={() => {
+            triggerHaptic("selection")
             withAnimation(() => {
               setShowEmotePanel((prev) => !prev)
             })
@@ -685,7 +689,7 @@ function CommentCard(props: {
   } = props
   const avatarUrl = comment.user.profile_image_urls?.medium ?? null
   const hasReplies = comment.has_replies || (comment.reply_count ?? 0) > 0
-  const themeColor = appThemeColor("#0096FA") as Color
+  const themeColor = appThemeColor("systemBlue") as Color
 
   return (
     <VStack
@@ -824,7 +828,7 @@ function SubCommentRow(props: {
 }) {
   const { comment, onReply, onOpenUser } = props
   const avatarUrl = comment.user.profile_image_urls?.medium ?? null
-  const themeColor = appThemeColor("#0096FA") as Color
+  const themeColor = appThemeColor("systemBlue") as Color
 
   return (
     <VStack
@@ -1083,7 +1087,7 @@ function EmotePickerPanel(props: {
     categoryKey === "all"
       ? "全部"
       : PIXIV_STAMP_CATEGORIES.find((c) => c.key === categoryKey)?.title ?? "分类"
-  const themeColor = appThemeColor("#0096FA") as Color
+  const themeColor = appThemeColor("systemBlue") as Color
 
   return (
     <VStack

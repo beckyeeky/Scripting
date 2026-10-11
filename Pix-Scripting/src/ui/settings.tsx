@@ -45,6 +45,7 @@ import { IpadSplitViewNoticeSheet } from "./components/IpadSplitViewNoticeSheet"
 import { DEFAULT_GLASS_TINT_COLOR, DEFAULT_GLASS_TINT_STRENGTH } from "./components/glass"
 import {
   formatCustomRankingSummary,
+  getPreferredColorScheme,
   loadSettings,
   onSettingsChanged,
   resetSettings,
@@ -59,6 +60,8 @@ import {
   type QuickActionButtonPosition,
   type HapticFeedbackPreference,
   type TopBarEffect,
+  type ColorSchemeMode,
+  type NavigationTransitionStyle,
   type WidgetDefaultSource,
 } from "../store/settings"
 import { loadBlocklist, onBlocklistChanged } from "../store/blocklist"
@@ -120,6 +123,20 @@ const DEFAULT_EXPANDED_STATE: SectionExpandedState = {
   cache: false,
   debug: false,
 }
+
+const WIDGET_OPTIONS = [
+  ["ranking_day", "日榜"],
+  ["ranking_week", "周榜"],
+  ["ranking_month", "月榜"],
+  ["follow", "关注"],
+  ["recommend", "推荐"],
+  ["pixivision", "特辑"],
+].map(([t, l]) => <Text key={t} tag={t}>{l}</Text>)
+
+const HIGH_RES_OPTIONS = [
+  <Text key="large" tag="large">大图</Text>,
+  <Text key="original" tag="original">原图</Text>,
+]
 
 export function SettingsView() {
   const [settings, setSettings] = useState(loadSettings())
@@ -394,10 +411,12 @@ export function SettingsView() {
     settings.glassCustomTintEnabled && settings.glassTintColor
       ? (settings.glassTintColor as Color)
       : undefined
+  const preferredColorScheme = getPreferredColorScheme(settings)
 
   return (
     <ZStack
       frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
+      preferredColorScheme={preferredColorScheme}
       navigationTitle={isFullScreenPad ? "" : "应用设置"}
       navigationBarTitleDisplayMode="inline"
       toolbarBackground={PAGE_TOOLBAR_BACKGROUND}
@@ -883,6 +902,38 @@ export function SettingsView() {
           >
             <Text tag="appleMusic">苹果音乐</Text>
             <Text tag="classic">经典样式</Text>
+          </Picker>
+          <Picker
+            title="颜色模式"
+            value={settings.colorScheme}
+            onChanged={(value: string) => {
+              triggerHaptic("selection")
+              update({ colorScheme: value as ColorSchemeMode })
+            }}
+          >
+            <Text tag="system">系统</Text>
+            <Text tag="light">浅色</Text>
+            <Text tag="dark">深色</Text>
+          </Picker>
+          <Picker
+            label={
+              <VStack alignment="leading" spacing={2}>
+                <Text>页面转场</Text>
+                {settings.navigationTransition === "zoom" ? (
+                  <Text font="caption2" foregroundStyle="secondaryLabel">
+                    「缩放展开」为实验性功能
+                  </Text>
+                ) : null}
+              </VStack>
+            }
+            value={settings.navigationTransition}
+            onChanged={(value: string) => {
+              triggerHaptic("selection")
+              update({ navigationTransition: value as NavigationTransitionStyle })
+            }}
+          >
+            <Text tag="push">经典推入</Text>
+            <Text tag="zoom">缩放展开</Text>
           </Picker>
           <Toggle
             value={settings.heroFirstFeedCard}
@@ -1501,12 +1552,7 @@ export function SettingsView() {
               } catch {}
             }}
           >
-            <Text tag="ranking_day">日榜</Text>
-            <Text tag="ranking_week">周榜</Text>
-            <Text tag="ranking_month">月榜</Text>
-            <Text tag="follow">关注</Text>
-            <Text tag="recommend">推荐</Text>
-            <Text tag="pixivision">特辑</Text>
+            {WIDGET_OPTIONS}
           </Picker>
 
           <Picker
@@ -1524,12 +1570,7 @@ export function SettingsView() {
               } catch {}
             }}
           >
-            <Text tag="ranking_day">日榜</Text>
-            <Text tag="ranking_week">周榜</Text>
-            <Text tag="ranking_month">月榜</Text>
-            <Text tag="follow">关注</Text>
-            <Text tag="recommend">推荐</Text>
-            <Text tag="pixivision">特辑</Text>
+            {WIDGET_OPTIONS}
           </Picker>
 
           <Picker
@@ -1547,12 +1588,7 @@ export function SettingsView() {
               } catch {}
             }}
           >
-            <Text tag="ranking_day">日榜</Text>
-            <Text tag="ranking_week">周榜</Text>
-            <Text tag="ranking_month">月榜</Text>
-            <Text tag="follow">关注</Text>
-            <Text tag="recommend">推荐</Text>
-            <Text tag="pixivision">特辑</Text>
+            {WIDGET_OPTIONS}
           </Picker>
 
           {Device.isiPad && (
@@ -1567,12 +1603,7 @@ export function SettingsView() {
                 } catch {}
               }}
             >
-              <Text tag="ranking_day">日榜</Text>
-              <Text tag="ranking_week">周榜</Text>
-              <Text tag="ranking_month">月榜</Text>
-              <Text tag="follow">关注</Text>
-              <Text tag="recommend">推荐</Text>
-              <Text tag="pixivision">特辑</Text>
+              {WIDGET_OPTIONS}
             </Picker>
           )}
 
@@ -1591,12 +1622,7 @@ export function SettingsView() {
               } catch {}
             }}
           >
-            <Text tag="ranking_day">日榜</Text>
-            <Text tag="ranking_week">周榜</Text>
-            <Text tag="ranking_month">月榜</Text>
-            <Text tag="follow">关注</Text>
-            <Text tag="recommend">推荐</Text>
-            <Text tag="pixivision">特辑</Text>
+            {WIDGET_OPTIONS}
           </Picker>
 
           <HStack spacing={8} alignment="center">
@@ -1680,8 +1706,7 @@ export function SettingsView() {
               )
             }
           >
-            <Text tag="large">大图</Text>
-            <Text tag="original">原图</Text>
+            {HIGH_RES_OPTIONS}
           </Picker>
           <Picker
             title="下载图片"
@@ -1694,8 +1719,7 @@ export function SettingsView() {
               )
             }
           >
-            <Text tag="large">大图</Text>
-            <Text tag="original">原图</Text>
+            {HIGH_RES_OPTIONS}
           </Picker>
         </DisclosureGroup>
       </Section>

@@ -15,6 +15,7 @@ import {
   useState,
 } from "scripting"
 import { AppNavigationLink, useDualRoute } from "../DualRouteContext"
+import { useNavigationZoom } from "../NavigationZoomContext"
 import { CachedImage, PageCountBadge } from "./CachedImage"
 import { BookmarkButton, BookmarkDetailSheet } from "./BookmarkDetailSheet"
 import { BlockWorkSheet } from "./BlockWorkSheet"
@@ -24,6 +25,7 @@ import { useIllustBookmark, useUserFollow } from "../Hooks"
 import { isUserFollowed, notifyUserFollowChanged } from "../../store/userFollow"
 import { cacheIllust } from "../../store/illustCache"
 import { loadSettings, getDownloadImageQuality, onSettingsChanged } from "../../store/settings"
+import { getSeriesByWorkID } from "../../store/seriesCache"
 import { downloadIllustToAlbum, exportUgoiraToAlbum } from "../../downloader"
 import { addBookmark, bookmarkDetail, bookmarkTags, followUser, removeBookmark } from "../../api/pixiv"
 import { session } from "../../api/session"
@@ -116,6 +118,7 @@ export function IllustCard(props: {
   const [showBookmarkDetail, setShowBookmarkDetail] = useState(false)
   const [showBlockSheet, setShowBlockSheet] = useState(false)
   const { isItemActive } = useDualRoute()
+  const { getSource } = useNavigationZoom()
   const isSelected = isItemActive("illust", illust.id)
   const [downloading, setDownloading] = useState(false)
   const [compactSetting, setCompactSetting] = useState(() => loadSettings().compactIllustCard)
@@ -346,6 +349,7 @@ export function IllustCard(props: {
                 frame={imageFrame ?? { maxWidth: "infinity" }}
                 clipShape={{ type: "rect", cornerRadius: hero ? 12 : 10 }}
                 clipped={true}
+                matchedTransitionSource={getSource(`illust:${illust.id}`)}
               >
                 <CachedImage
                   url={
@@ -467,6 +471,7 @@ export function IllustCard(props: {
           contentShape="circle"
           zIndex={1}
           offset={hero ? { x: -5, y: 5 } : { x: -4, y: 4 }}
+          shadow={{ color: "#00000028", radius: hero ? 8 : 6, y: 2 }}
         >
           <Image
             systemName={topTrailingAction.systemImage}
@@ -516,6 +521,11 @@ function renderIllustContextMenu(
         ? "square.and.arrow.down.fill"
         : "square.and.arrow.down"
 
+  const rawSeries = illust.series ?? (illust as any)?.illust_series
+  const rawSeriesObj = Array.isArray(rawSeries) ? rawSeries[0] : rawSeries
+  const associatedRef = getSeriesByWorkID(illust.id, "manga")
+  const seriesID = rawSeriesObj?.id ?? associatedRef?.seriesID ?? null
+
   const defaultMenuItems = (
     <Group>
       <Button
@@ -532,6 +542,15 @@ function renderIllustContextMenu(
           action={onFollowUser}
         />
       ) : null}
+      {seriesID ? (
+        <NavigationLink value={`mangaSeries:${seriesID}`}>
+          <Button
+            title="查看系列"
+            systemImage="books.vertical"
+            action={() => {}}
+          />
+        </NavigationLink>
+      ) : null}
       <NavigationLink value={`relatedIllust:${illust.id}`}>
         <Button
           title="相关作品"
@@ -539,6 +558,15 @@ function renderIllustContextMenu(
           action={() => {}}
         />
       </NavigationLink>
+      <Button
+        title="分享图片"
+        systemImage="square.and.arrow.up"
+        action={() => {
+          triggerHaptic("selection")
+          const shareUrl = `https://www.pixiv.net/artworks/${illust.id}`
+          void ShareSheet.present([shareUrl])
+        }}
+      />
       <Button
         title="屏蔽设置"
         systemImage="nosign"

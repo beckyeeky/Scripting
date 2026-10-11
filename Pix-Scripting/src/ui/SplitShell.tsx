@@ -20,6 +20,7 @@ import {
   DualRouteContext,
   useDualRouteState,
 } from "./DualRouteContext"
+import { NavigationZoomProvider } from "./NavigationZoomContext"
 import { loadSettings, onSettingsChanged } from "../store/settings"
 
 /**
@@ -81,11 +82,12 @@ export function SplitShell(props: { onClose: () => void }) {
 
   return (
     <DualRouteContext.Provider value={dual.value}>
-      <HStack
-        spacing={0}
-        frame={{ width: metrics.width, height: metrics.height }}
-        clipped={true}
-      >
+      <NavigationZoomProvider>
+        <HStack
+          spacing={0}
+          frame={{ width: metrics.width, height: metrics.height }}
+          clipped={true}
+        >
         {/* 左栏：完全对齐 iPhone 的主浏览流 */}
         <VStack
           key="split-master-pane"
@@ -136,6 +138,7 @@ export function SplitShell(props: { onClose: () => void }) {
           </ResponsiveContainer>
         </ContainerLayoutContext.Provider>
       </HStack>
+      </NavigationZoomProvider>
     </DualRouteContext.Provider>
   )
 }

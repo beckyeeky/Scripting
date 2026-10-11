@@ -119,14 +119,14 @@ export function appInteractiveGlass(shape: Shape): GlassEffectValue {
 /**
  * 获取当前激活的自定义主题色。
  * 若开启了「自定义玻璃色调」且配置了颜色，则返回该主题色；
- * 否则返回回退色（默认 #0096FA，即 Pixiv 经典蓝）。
+ * 否则返回回退色（默认 systemBlue，即 iOS 原生系统蓝）。
  */
-export function appThemeColor(fallback: string = "#0096FA"): Color {
+export function appThemeColor(fallback: Color = "systemBlue"): Color {
   const settings = loadSettings()
   if (settings.glassCustomTintEnabled && settings.glassTintColor) {
     return settings.glassTintColor as Color
   }
-  return fallback as Color
+  return fallback
 }
 
 /**
@@ -137,6 +137,20 @@ export function appCustomTint(): Color | undefined {
   const settings = loadSettings()
   if (settings.glassCustomTintEnabled && settings.glassTintColor) {
     return settings.glassTintColor as Color
+  }
+  return undefined
+}
+
+/**
+ * 获取带微透明度的自定义行/卡片背景色。
+ * 若开启了「自定义玻璃色调」，返回根据当前色调和浓度合成的微透明色；
+ * 否则返回 undefined（供 List 行等保持系统原生默认背景色）。
+ */
+export function appCustomTintBackground(alphaPercent?: number): Color | undefined {
+  const settings = loadSettings()
+  if (settings.glassCustomTintEnabled && settings.glassTintColor) {
+    const strength = alphaPercent ?? Math.min(settings.glassTintStrength, 22)
+    return tintRGBA(settings.glassTintColor, strength)
   }
   return undefined
 }

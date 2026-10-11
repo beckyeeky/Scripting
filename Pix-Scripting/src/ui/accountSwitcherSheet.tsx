@@ -165,7 +165,7 @@ export function AccountSwitcherSheet(props: {
               alignment="center"
               spacing={8}
               padding={10}
-              background="rgba(255, 59, 48, 0.15)"
+              background="secondarySystemFill"
               clipShape={{ type: "rect", cornerRadius: 10 }}
               frame={{ maxWidth: "infinity" }}
             >

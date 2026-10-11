@@ -691,6 +691,9 @@ export interface AdvancedSearchParams {
   startTimestamp: number
   endTimestamp: number
   datePresetLabel?: string
+  includeR18?: boolean
+  includeR18G?: boolean
+  includeAI?: boolean
 }
 
 export interface PixivTagInfoResponse {

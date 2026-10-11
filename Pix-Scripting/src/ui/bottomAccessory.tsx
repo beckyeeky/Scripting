@@ -234,6 +234,11 @@ export function getActiveAccessoryKey(
   if (top === "customAISettings") return "customAISettings"
   if (top.startsWith("searchResults:")) return top
   if (
+    top.startsWith("relatedIllust:") ||
+    top.startsWith("relatedNovel:")
+  )
+    return top
+  if (
     top.startsWith("tag:") ||
     top.startsWith("novelTag:") ||
     top.startsWith("pixivisionTag:") ||
@@ -577,106 +582,53 @@ export function IllustDetailDockBar(props: { illustID: number }) {
     }
   }
 
-  async function handleDownloadUgoiraZip() {
+  async function runExport(fn: () => Promise<string | null | undefined>) {
     const current = illust ?? cached
     if (downloading || !current) return
-    try {
-      triggerHaptic("selection")
-    } catch {}
+    try { triggerHaptic("selection") } catch {}
     setDownloading(true)
     try {
-      const res = await exportUgoiraZip(current)
-      if (res.success && res.savedPath) {
+      const path = await fn()
+      if (path) {
         triggerHaptic("success")
-        await ShareSheet.present([res.savedPath])
+        await ShareSheet.present([path])
       }
     } finally {
       setDownloading(false)
     }
   }
 
-  async function handleDownloadIllustToZip() {
-    const current = illust ?? cached
-    if (downloading || !current) return
-    try {
-      triggerHaptic("selection")
-    } catch {}
-    setDownloading(true)
-    const downloadQuality = getDownloadImageQuality()
-    try {
-      const pageCount = current.page_count ?? 1
-      const urls: string[] = []
-      for (let i = 0; i < pageCount; i++) {
-        const url = imageUrlOf(current, i, downloadQuality)
-        if (url) urls.push(url)
-      }
-      const res = await exportIllustToZip({
-        illust: current,
-        imageUrls: urls,
-      })
-      if (res.success && res.path) {
-        triggerHaptic("success")
-        await ShareSheet.present([res.path])
-      }
-    } finally {
-      setDownloading(false)
-    }
-  }
+  const handleDownloadUgoiraZip = () =>
+    runExport(async () => (await exportUgoiraZip(illust ?? cached!))?.savedPath)
 
-  async function handleDownloadManga(format: "cbz" | "epub") {
-    const current = illust ?? cached
-    if (downloading || !current) return
-    try {
-      triggerHaptic("selection")
-    } catch {}
-    setDownloading(true)
-    const downloadQuality = getDownloadImageQuality()
-    try {
-      const pageCount = current.page_count ?? 1
-      const pages: { pageIndex: number; url: string }[] = []
-      for (let i = 0; i < pageCount; i++) {
-        const url = imageUrlOf(current, i, downloadQuality)
-        if (url) pages.push({ pageIndex: i + 1, url })
+  const handleDownloadIllustToZip = () =>
+    runExport(async () => {
+      const current = (illust ?? cached)!
+      const q = getDownloadImageQuality()
+      const urls = Array.from({ length: current.page_count ?? 1 }, (_, i) => imageUrlOf(current, i, q)).filter(Boolean) as string[]
+      return (await exportIllustToZip({ illust: current, imageUrls: urls }))?.path
+    })
+
+  const handleDownloadManga = (format: "cbz" | "epub") =>
+    runExport(async () => {
+      const current = (illust ?? cached)!
+      const q = getDownloadImageQuality()
+      const pages = Array.from({ length: current.page_count ?? 1 }, (_, i) => ({ pageIndex: i + 1, url: imageUrlOf(current, i, q) })).filter((p) => Boolean(p.url)) as any
+      const isR18 = (current.x_restrict ?? 0) > 0 || current.tags?.some((t) => /r-?18/i.test(t.name))
+      const payload = {
+        id: current.id,
+        title: current.title,
+        author: current.user?.name || "Unknown",
+        authorId: current.user?.id,
+        description: current.caption,
+        tags: current.tags?.map((t) => t.name),
+        createdDate: current.create_date,
+        isR18,
+        pages,
       }
-      const isR18 =
-        (current.x_restrict ?? 0) > 0 ||
-        current.tags?.some((t) => /r-?18/i.test(t.name))
-      let filePath: string | null = null
-      if (format === "cbz") {
-        const res = await exportMangaToCbz({
-          id: current.id,
-          title: current.title,
-          author: current.user?.name || "Unknown",
-          authorId: current.user?.id,
-          description: current.caption,
-          tags: current.tags?.map((t) => t.name),
-          createdDate: current.create_date,
-          isR18,
-          pages,
-        })
-        filePath = res.success ? (res.path ?? null) : null
-      } else {
-        const res = await exportMangaToEpub({
-          id: current.id,
-          title: current.title,
-          author: current.user?.name || "Unknown",
-          authorId: current.user?.id,
-          description: current.caption,
-          tags: current.tags?.map((t) => t.name),
-          createdDate: current.create_date,
-          isR18,
-          pages,
-        })
-        filePath = res.success ? (res.path ?? null) : null
-      }
-      if (filePath) {
-        triggerHaptic("success")
-        await ShareSheet.present([filePath])
-      }
-    } finally {
-      setDownloading(false)
-    }
-  }
+      const res = format === "cbz" ? await exportMangaToCbz(payload) : await exportMangaToEpub(payload)
+      return res.success ? (res.path ?? null) : null
+    })
 
   const followContextMenu = useMemo(() => {
     if (!userID) return undefined
@@ -1408,6 +1360,10 @@ export function TagFeedDockBar(props: {
   return <DockActionBar items={items} />
 }
 
+const S_BTN = (k: string, l: string, i: string, c = "systemBlue", a?: () => void) => ({
+  key: k, label: l, icon: i, color: c as any, action: a ?? (() => {})
+})
+
 export function renderRouteInfoBar(top: string) {
   if (!top) return null
 
@@ -1444,7 +1400,7 @@ export function renderRouteInfoBar(top: string) {
   }
 
   // 2. 相关作品
-  if (top.startsWith("relatedIllust:")) {
+  if (top.startsWith("relatedIllust:") || top.startsWith("relatedNovel:")) {
     return <DockInfoBar icon="sparkles" title="相关作品推荐" />
   }
 
@@ -1488,8 +1444,21 @@ export function renderRouteInfoBar(top: string) {
     return <DockInfoBar icon="bell" title="通知详情" />
 
   // 6. 下载与文件管理
-  if (top === "downloadManager")
-    return <DockInfoBar icon="square.and.arrow.down.fill" title="下载与文件管理" />
+  if (top === "downloadManager") {
+    return (
+      <DockActionBar
+        items={[
+          S_BTN("tasks", "任务列表", "list.clipboard", "systemBlue", () => {
+            try { triggerHaptic("selection") } catch {}
+            requestPixivRoute("downloadTasks")
+          }),
+          S_BTN("clean", "清理缓存", "trash", "systemBlue", () => {
+            try { triggerHaptic("selection") } catch {}
+          }),
+        ]}
+      />
+    )
+  }
   if (top === "downloadTasks")
     return <DockInfoBar icon="list.clipboard" title="任务列表" />
   if (top === "downloadCreators" || top.startsWith("downloadCreator:")) {
@@ -1498,61 +1467,80 @@ export function renderRouteInfoBar(top: string) {
   if (top.startsWith("downloadDetail:")) {
     const cat = top.slice("downloadDetail:".length)
     const catTitle =
-      cat === "illustrations"
-        ? "插画下载"
-        : cat === "ugoira"
-        ? "动图下载"
-        : cat === "manga"
-        ? "漫画下载"
-        : cat === "novels"
-        ? "小说下载"
-        : cat === "pixivision"
-        ? "特辑导出"
-        : "全部下载文件"
+      cat === "illustrations" ? "插画下载"
+      : cat === "ugoira" ? "动图下载"
+      : cat === "manga" ? "漫画下载"
+      : cat === "novels" ? "小说下载"
+      : cat === "pixivision" ? "特辑导出"
+      : "全部下载文件"
     const catIcon =
-      cat === "illustrations"
-        ? "photo.fill"
-        : cat === "ugoira"
-        ? "play.circle.fill"
-        : cat === "manga"
-        ? "photo.on.rectangle.fill"
-        : cat === "novels"
-        ? "book.fill"
-        : cat === "pixivision"
-        ? "rectangle.stack.fill"
-        : "folder.fill"
+      cat === "illustrations" ? "photo.fill"
+      : cat === "ugoira" ? "play.circle.fill"
+      : cat === "manga" ? "photo.on.rectangle.fill"
+      : cat === "novels" ? "book.fill"
+      : cat === "pixivision" ? "rectangle.stack.fill"
+      : "folder.fill"
     return <DockInfoBar icon={catIcon} title={catTitle} />
   }
 
   // 7. 设置与关于
-  if (top === "settings")
-    return <DockInfoBar icon="gearshape.fill" title="应用设置" />
-  if (top === "blockedSettings")
-    return <DockInfoBar icon="shield.fill" title="屏蔽设置" />
+  if (top === "settings") {
+    return (
+      <DockActionBar
+        items={[
+          S_BTN("reset", "重置设置", "arrow.counterclockwise", "systemOrange"),
+          S_BTN("clear", "清理数据", "trash", "systemRed"),
+        ]}
+      />
+    )
+  }
+  if (top === "blockedSettings") {
+    return (
+      <DockSegmentedBar
+        items={[{ tag: "tag", label: "屏蔽标签" }, { tag: "user", label: "屏蔽用户" }]}
+        value="tag"
+        onChanged={() => {}}
+      />
+    )
+  }
   if (top === "customAISettings")
     return <DockInfoBar icon="sparkles" title="自定义AI模型" />
   if (top.startsWith("rankingCustomPicker:")) {
     const kind = top.slice("rankingCustomPicker:".length)
     const title =
-      kind === "illust"
-        ? "自定义插画榜单"
-        : kind === "manga"
-        ? "自定义漫画榜单"
-        : kind === "novel"
-        ? "自定义小说榜单"
-        : "自定义榜单"
+      kind === "illust" ? "自定义插画榜单"
+      : kind === "manga" ? "自定义漫画榜单"
+      : kind === "novel" ? "自定义小说榜单"
+      : "自定义榜单"
     return <DockInfoBar icon="slider.horizontal.3" title={title} />
   }
   if (top === "about")
     return <DockInfoBar icon="info.circle.fill" title="关于 Pix-Scripting" />
 
   // 8. 收藏与历史
-  if (top === "library" || top.startsWith("library:") || top === "pixivisionBookmarks")
-    return <DockInfoBar icon="heart.fill" title="我的收藏" />
+  if (top === "library" || top.startsWith("library:") || top === "pixivisionBookmarks") {
+    const hide = loadSettings().hideNovels
+    const items = [
+      { tag: "illustration", label: "插画·漫画" },
+      ...(hide ? [] : [{ tag: "novel", label: "小说" }]),
+      { tag: "pixivision", label: "特辑" },
+    ]
+    return <DockSegmentedBar items={items} value="illustration" onChanged={() => {}} />
+  }
   if (top === "novelBookmarks")
     return <DockInfoBar icon="book.pages.fill" title="小说书签" />
   if (top.startsWith("userBookmarks:"))
     return <DockInfoBar icon="heart" title="收藏作品" />
+
+  if (top === "history") {
+    const hide = loadSettings().hideNovels
+    const items = [
+      { tag: "illustration", label: "插画" },
+      { tag: "manga", label: "漫画" },
+      ...(hide ? [] : [{ tag: "novel", label: "小说" }]),
+    ]
+    return <DockSegmentedBar items={items} value="illustration" onChanged={() => {}} />
+  }
 
   if (top.startsWith("searchResults:")) {
     const hideNovels = loadSettings().hideNovels

@@ -694,7 +694,7 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
         >
           <Image
             systemName={isWatched ? "bookmark.fill" : "bookmark"}
-            foregroundStyle={isWatched ? "#0096FA" : undefined}
+            foregroundStyle={isWatched ? "systemBlue" : undefined}
           />
         </Button>,
         <Button
@@ -921,7 +921,12 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
                 ) : (
                   <>
                     {(paged.items as PixivNovel[]).map((novel, index) => (
-                      <NovelCard key={novel.id} novel={novel} priority={index} />
+                      <NovelCard
+                        key={novel.id}
+                        novel={novel}
+                        priority={index}
+                        showSeriesTitle={false}
+                      />
                     ))}
                     {paged.items.length > 0 ? (
                       <LoadMoreTrigger
