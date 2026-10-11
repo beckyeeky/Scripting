@@ -15,6 +15,17 @@ import { exportMangaToEpub } from "./epubExporter"
 import { DownloadTaskManager } from "./downloadTaskManager"
 import { yieldToMainThread } from "./downloadHelper"
 import { StageProgressPipeline } from "./StageProgressPipeline"
+import { parseNovelToChunks } from "../ui/NovelReader"
+import { cleanHtmlCaption } from "../api/aiService"
+import { getNovelTranslationSession } from "../store/novelTranslation"
+import { buildTranslatedNovelSource, novelTranslationExportIssue } from "../store/novelExport"
+import { resolveEffectiveUID } from "../store/dataDirectory"
+import { loadNovelReaderSettings, type NovelTranslationTargetLanguage } from "../store/novelReaderSettings"
+
+export interface NovelSeriesExportOptions {
+  mode?: "original" | "translated"
+  targetLanguage?: NovelTranslationTargetLanguage
+}
 
 /**
  * 整本下载并导出小说系列为单本 EPUB 电子书（支持断点续传与手动暂停/恢复/取消）
@@ -22,15 +33,24 @@ import { StageProgressPipeline } from "./StageProgressPipeline"
 export async function downloadEntireNovelSeries(
   seriesID: number,
   fallbackTitle?: string,
-  onProgress?: (msg: string, current: number, total: number) => void
+  onProgress?: (msg: string, current: number, total: number) => void,
+  options: NovelSeriesExportOptions = {}
 ): Promise<string | null> {
   const taskId = `series_novel_${seriesID}_${Date.now()}`
+  const translated = options.mode === "translated"
+  const targetLanguage = options.targetLanguage ?? loadNovelReaderSettings().translationTargetLanguage
+  const startingUID = resolveEffectiveUID()
+  const checkTranslationOwner = () => {
+    if (translated && resolveEffectiveUID() !== startingUID) {
+      throw new Error("账号已变化，请返回原账号后重新导出译文")
+    }
+  }
 
   return new Promise<string | null>((resolve, reject) => {
     void DownloadTaskManager.submitTask({
       taskId,
       type: "novel_epub",
-      title: "导出小说系列",
+      title: translated ? "导出小说系列译文" : "导出小说系列",
       subtitle: fallbackTitle ? `《${fallbackTitle}》` : `系列 ID: ${seriesID}`,
       categoryIcon: "book.closed.fill",
       runner: async (token, task, manifest, saveManifest) => {
@@ -41,6 +61,7 @@ export async function downloadEntireNovelSeries(
         })
 
         try {
+          checkTranslationOwner()
           const initMsg = "正在获取小说系列目录…"
           onProgress?.(initMsg, 0, 1)
           pipeline.reportPrepare(0, 1, initMsg)
@@ -65,6 +86,7 @@ export async function downloadEntireNovelSeries(
 
           while (page?.next_url) {
             await token.checkOrWait()
+            checkTranslationOwner()
             const nextURL = page.next_url
             page = await session.call((tokenVal) => nextNovelSeries(nextURL, tokenVal))
             if (Array.isArray(page?.novels)) {
@@ -87,6 +109,7 @@ export async function downloadEntireNovelSeries(
           // 2. 依次拉取每章节的正文与插图数据
           for (let i = 0; i < totalNovels; i++) {
             await token.checkOrWait()
+            checkTranslationOwner()
             const novelItem = allNovels[i]
             const statusMsg = `正在拉取章节正文 (${i + 1}/${totalNovels}): ${novelItem.title}`
             onProgress?.(statusMsg, i + 1, totalNovels)
@@ -94,6 +117,10 @@ export async function downloadEntireNovelSeries(
 
             try {
               const viewer = await session.call((tokenVal) => novelViewerData(novelItem.id, tokenVal))
+              checkTranslationOwner()
+              if (translated && !viewer?.text?.trim()) {
+                throw new Error("无法获取章节正文，请重试后导出译文")
+              }
               if (viewer && viewer.text) {
                 const imageMap: Record<string, string> = {}
                 if (viewer.textEmbeddedImages) {
@@ -114,13 +141,34 @@ export async function downloadEntireNovelSeries(
                   })
                 }
 
-                chapters.push({
+                let chapter: NovelChapter = {
                   id: novelItem.id,
                   title: novelItem.title,
                   text: viewer.text,
                   images: imageMap,
                   caption: novelItem.caption,
-                })
+                }
+                if (translated) {
+                  const caption = cleanHtmlCaption(novelItem.caption)
+                  const chunks = parseNovelToChunks(viewer.text)
+                  const translationSession = getNovelTranslationSession({
+                    novelId: novelItem.id, title: novelItem.title, caption, text: viewer.text,
+                    seriesId: seriesID, targetLanguage,
+                    blocks: chunks
+                      .filter((item) => (item.type === "text" && Boolean(item.text)) ||
+                        (item.type === "chapter" && Boolean(item.title)))
+                      .map((item) => ({ id: item.id, text: item.type === "chapter" ? item.title! : item.text!,
+                        kind: item.type === "chapter" ? "chapter" as const : "text" as const })),
+                  })
+                  const snapshot = translationSession.getSnapshot()
+                  const issue = novelTranslationExportIssue(snapshot, Boolean(caption))
+                  if (issue) throw new Error(issue)
+                  const text = buildTranslatedNovelSource(chunks, snapshot)
+                  if (!text) throw new Error("译文缓存不完整，请重试未完成段落后导出")
+                  chapter = { ...chapter, title: snapshot.translatedTitle!,
+                    caption: caption ? snapshot.translatedCaption ?? "" : "", text }
+                }
+                chapters.push(chapter)
                 if (!seriesCoverUrl && viewer.coverUrl) {
                   seriesCoverUrl = viewer.coverUrl
                 }
@@ -128,6 +176,9 @@ export async function downloadEntireNovelSeries(
                 saveManifest()
               }
             } catch (err: any) {
+              if (translated) {
+                throw new Error(`第 ${i + 1} 话《${novelItem.title}》：${err?.message ?? err}`)
+              }
               console.log(`Failed to fetch novel ${novelItem.id}:`, err?.message ?? err)
             }
             await yieldToMainThread()
@@ -139,6 +190,7 @@ export async function downloadEntireNovelSeries(
 
           // 3. 打包为整本 EPUB
           await token.checkOrWait()
+          checkTranslationOwner()
           const packMsg = `准备合成整本小说 EPUB (共 ${chapters.length} 章)…`
           onProgress?.(packMsg, 0, 1)
           pipeline.reportPack(0, 1, packMsg)
@@ -157,7 +209,10 @@ export async function downloadEntireNovelSeries(
           const novelSeriesTags = allNovels[0]?.tags?.map((t: any) => t.name) ?? []
           const filePath = await exportNovelToEpub({
             id: seriesID,
-            title: seriesTitle || `系列_${seriesID}`,
+            title: translated ? `${seriesTitle || `系列_${seriesID}`}（${targetLanguage}译文）`
+              : seriesTitle || `系列_${seriesID}`,
+            customFileName: translated
+              ? `${seriesTitle || `系列_${seriesID}`}_${authorName}_${targetLanguage}译文` : undefined,
             author: authorName,
             authorId,
             seriesTitle,
@@ -175,13 +230,14 @@ export async function downloadEntireNovelSeries(
             throw new Error("EPUB 电子书生成失败")
           }
 
-          const summary = `《${seriesTitle}》整本 EPUB (共 ${chapters.length} 章) 导出成功。`
+          const summary = `《${seriesTitle}》整本${translated ? "译文 " : " "}EPUB (共 ${chapters.length} 章) 导出成功。`
           pipeline.reportComplete("导出成功")
           resolve(filePath)
           return { outputPath: filePath, summary }
         } catch (err: any) {
           console.log("downloadEntireNovelSeries error:", err?.message ?? err)
-          resolve(null)
+          if (translated) reject(err)
+          else resolve(null)
           throw err
         }
       },

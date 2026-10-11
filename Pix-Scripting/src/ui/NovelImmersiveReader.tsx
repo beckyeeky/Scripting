@@ -271,7 +271,6 @@ function buildHorizontalImmersiveHtml(options: BuildHtmlOptions): string {
     initialChunkId,
     initialPage,
     title,
-    caption,
     seriesNav,
     imageCache,
     ambientActive,
@@ -1768,6 +1767,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
   const {
     novelId,
     title,
+    caption,
     text,
     coverUrl,
     textEmbeddedImages,

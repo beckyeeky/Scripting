@@ -524,21 +524,32 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
     triggerHaptic("light")
 
     if (kind === "novel") {
-      const confirmed = await Dialog.confirm({
-        title: "下载整本小说",
-        message: `确认下载《${title}》整本 EPUB 小说？`,
-        confirmLabel: "开始下载",
-        cancelLabel: "取消",
+      const targetLanguage = loadNovelReaderSettings().translationTargetLanguage
+      const choice = await Dialog.actionSheet({
+        title: `下载整本小说《${title}》`,
+        message: "译文 EPUB 需要全系列各话翻译完成；缺少译文时会提示对应章节。",
+        actions: [
+          { label: "原文 EPUB" },
+          { label: `译文 EPUB（${targetLanguage}）` },
+        ],
       })
-      if (!confirmed) return
+      if (choice !== 0 && choice !== 1) return
 
       setSeriesDownloading(true)
       try {
-        const filePath = await downloadEntireNovelSeries(seriesID, title)
+        const filePath = await downloadEntireNovelSeries(seriesID, title, undefined, {
+          mode: choice === 1 ? "translated" : "original", targetLanguage,
+        })
         if (filePath) {
           triggerHaptic("success")
           await ShareSheet.present([filePath])
+        } else {
+          triggerHaptic("error")
+          await Dialog.alert({ title: "导出失败", message: "无法生成 EPUB，请检查下载任务详情后重试" })
         }
+      } catch (err: any) {
+        triggerHaptic("error")
+        await Dialog.alert({ title: "无法导出", message: String(err?.message ?? err) })
       } finally {
         setSeriesDownloading(false)
       }
