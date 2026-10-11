@@ -1,3 +1,4 @@
+import { downloadAndShareNovelSeries } from "../novelSeriesDownload"
 import {
   Button,
   Group,
@@ -19,7 +20,6 @@ import { AvatarImage, CachedImage } from "./CachedImage"
 import { formatNumber } from "./formatUtils"
 import {
   downloadEntireMangaSeries,
-  downloadEntireNovelSeries,
 } from "../../downloader"
 import { recordWorkSeriesAssociation } from "../../store/seriesCache"
 import type { PixivWatchlistSeries } from "../../types"
@@ -76,18 +76,7 @@ export function WatchlistSeriesCard(props: {
   async function handleExportSeries() {
     triggerHaptic("light")
     if (isNovel) {
-      const confirmed = await Dialog.confirm({
-        title: "下载整本小说",
-        message: `确认下载《${item.title || "系列"}》整本 EPUB 小说？`,
-        confirmLabel: "开始下载",
-        cancelLabel: "取消",
-      })
-      if (!confirmed) return
-      const filePath = await downloadEntireNovelSeries(item.id, item.title)
-      if (filePath) {
-        triggerHaptic("success")
-        await ShareSheet.present([filePath])
-      }
+      await downloadAndShareNovelSeries(item.id, item.title || "系列")
     } else {
       const choice = await Dialog.actionSheet({
         title: `下载整套漫画《${item.title || "系列"}》`,

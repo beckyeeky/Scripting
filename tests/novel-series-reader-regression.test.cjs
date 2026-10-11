@@ -180,8 +180,7 @@ for (const [name, options, message] of [
   })
 }
 
-function seriesHandler(name, globals) {
-  const file = "Pix-Scripting/src/ui/seriesView.tsx"
+function seriesHandler(name, globals, file = "Pix-Scripting/src/ui/seriesView.tsx") {
   const source = fs.readFileSync(file, "utf8")
   // 用 TypeScript AST 提取真实入口，保留弹窗、模式传递、错误提示和 finally。
   const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
@@ -194,27 +193,53 @@ function seriesHandler(name, globals) {
   assert.ok(declaration)
   return evaluate(declaration.getText(ast) + `\nexport { ${name} }`, file, {}, globals)[name]
 }
-test("系列页译文选项传入所选模式与语言，失败可见且退出下载状态", async () => {
-  const harness = seriesHarness({ incompleteId: 2 })
-  const alerts = [], states = [], choices = []
-  let shares = 0
-  const action = seriesHandler("handleExportSeries", {
-    seriesDownloading: false, kind: "novel", seriesID: 10, title: "系列", triggerHaptic() {},
-    Dialog: { actionSheet: async options => { choices.push(options); return 1 },
-      confirm: async () => true, alert: async options => { alerts.push(options) } },
-    loadNovelReaderSettings: () => ({ translationTargetLanguage: "en" }),
-    setSeriesDownloading: value => states.push(value),
-    downloadEntireNovelSeries: (id, title, progress, options) => harness.download(options),
-    ShareSheet: { present: async () => { shares++ } },
-  })
-  await action()
-  assert.match(choices[0].actions[0].label, /原文/)
-  assert.match(choices[0].actions[1].label, /译文/)
-  assert.equal(alerts.length, 1)
-  assert.match(alerts[0].message, /第 2 话/)
-  assert.deepEqual(states, [true, false])
-  assert.equal(shares, 0)
-})
+const seriesDownloadEntrypoints = [
+  ["系列页工具栏", "Pix-Scripting/src/ui/seriesView.tsx", "handleExportSeries", true],
+  ["系列页底部操作栏", "Pix-Scripting/src/ui/bottomAccessory.tsx", "handleDownloadSeries", true],
+  ["追更卡片菜单", "Pix-Scripting/src/ui/components/WatchlistSeriesCard.tsx", "handleExportSeries", false],
+]
+for (const [label, file, handler, hasBusyState] of seriesDownloadEntrypoints) {
+  for (const [scenario, choice, incompleteId] of [["译文", 1], ["原文", 0], ["取消", null], ["译文缺章", 1, 2]]) {
+    test(`${label}：${scenario}走统一选择流程`, async () => {
+      const harness = seriesHarness({ incompleteId })
+      const alerts = [], states = [], choices = [], shares = []
+      const Dialog = { actionSheet: async options => { choices.push(options); return choice },
+        confirm: async () => true, alert: async options => { alerts.push(options) } }
+      const ShareSheet = { present: async files => shares.push(files) }
+      const downloadEntireNovelSeries = (id, title, progress, options) => harness.download(options)
+      const loadNovelReaderSettings = () => ({ translationTargetLanguage: "en" })
+      const helperFile = "Pix-Scripting/src/ui/novelSeriesDownload.ts"
+      const helper = fs.existsSync(helperFile) ? load(helperFile, {
+        "../downloader/seriesDownloader": { downloadEntireNovelSeries },
+        "../store/novelReaderSettings": { loadNovelReaderSettings },
+        "../platform/haptics": { triggerHaptic() {} },
+      }, { Dialog, ShareSheet }) : {}
+      const action = seriesHandler(handler, {
+        seriesDownloading: false, kind: "novel", isNovel: true, seriesID: 10, title: "系列", seriesTitle: "系列",
+        item: { id: 10, title: "系列" }, triggerHaptic() {}, Dialog, ShareSheet,
+        loadNovelReaderSettings, downloadEntireNovelSeries, ...helper,
+        setSeriesDownloading: value => states.push(value),
+      }, file)
+      await action()
+      assert.equal(choices.length, 1, "入口必须提供原文／译文选择")
+      assert.match(choices[0].actions[0].label, /原文/)
+      assert.match(choices[0].actions[1].label, /译文/)
+      if (choice === null || incompleteId) {
+        assert.equal(harness.exported.length, 0)
+        assert.equal(shares.length, 0)
+      } else {
+        assert.equal(harness.exported.length, 1)
+        assert.equal(shares.length, 1)
+        assert.equal(harness.exported[0].chapters[0].title, choice === 1 ? "译题1" : "原题1")
+      }
+      if (incompleteId) {
+        assert.equal(alerts.length, 1)
+        assert.match(alerts[0].message, /第 2 话/)
+      } else assert.equal(alerts.length, 0)
+      if (hasBusyState) assert.deepEqual(states, choice === null ? [] : [true, false])
+    })
+  }
+}
 
 test("真实系列翻译入口生成的缓存可在清空内存会话后直接导出译文 EPUB", async () => {
   const harness = seriesHarness({ realStore: true })

@@ -1,3 +1,4 @@
+import { downloadAndShareNovelSeries } from "./novelSeriesDownload"
 import {
   Button,
   GeometryReader,
@@ -51,7 +52,6 @@ import {
 } from "./Hooks"
 import {
   downloadEntireMangaSeries,
-  downloadEntireNovelSeries,
   downloadIllustToAlbum,
   exportIllustToZip,
   exportMangaToCbz,
@@ -1237,26 +1237,7 @@ export function SeriesDetailDockBar(props: {
     } catch {}
 
     if (kind === "novel") {
-      const confirmed = await Dialog.confirm({
-        title: "下载整本小说",
-        message: `确认下载《${seriesTitle}》整本 EPUB 小说？`,
-        confirmLabel: "开始下载",
-        cancelLabel: "取消",
-      })
-      if (!confirmed) return
-
-      setSeriesDownloading(true)
-      try {
-        const filePath = await downloadEntireNovelSeries(seriesID, seriesTitle)
-        if (filePath) {
-          try {
-            triggerHaptic("selection")
-          } catch {}
-          await ShareSheet.present([filePath])
-        }
-      } finally {
-        setSeriesDownloading(false)
-      }
+      await downloadAndShareNovelSeries(seriesID, seriesTitle, setSeriesDownloading)
     } else {
       const choice = await Dialog.actionSheet({
         title: `下载整套漫画《${seriesTitle}》`,
