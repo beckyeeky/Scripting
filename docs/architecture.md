@@ -63,3 +63,9 @@
 ## 验证边界
 
 `tests/*.test.cjs` 使用 Node 内置测试器、TypeScript 转译、VM 与宿主/网络替身，覆盖小说链路、日期筛选和列数回归。它们验证选定逻辑与入口调用，不验证真实网络、原生布局、WebView 渲染、系统权限或跨进程宿主集成。构建/ZIP 校验只证明包结构与脚本检查通过；最低宿主版本和完整类型检查方案待确定。
+
+## 修复分支附加说明（`fix/futurereader-novel-integrity-20261013`）
+
+- 沉浸阅读器 `src/ui/NovelImmersiveReader.tsx` 在内部换章时以自身持有的 `activeNovelId`/`currentPage` 为归属：进度写入当前作品、书签读写当前作品、跳页只在仍停留在进入时的作品才回调父级。正文 HTML/JS 带 `owner` 代际标识，`scriptMessageHandler` 一律先校验代际，切篇后旧文档的迟到消息整体丢弃。
+- 小说导出链路 `seriesDownloader` → `epubExporter` 传递 `expectedChapters`/`missingChapters`，`epubExporter` 只登记真正落盘的插图，并回传 `NovelExportReport`；`downloadHelper`/`client` 提供失败分类与受控重试。
+- 发布包校验：`scripts/verify-release-package.sh` 逐字节比对 `Release/Pix-Scripting.scripting` 与工作树 `Pix-Scripting/`，并校验包内版本与 `remoteResource.url`；`scripts/build-release.sh` 在打包后自动调用它。

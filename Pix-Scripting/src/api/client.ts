@@ -518,22 +518,37 @@ export function isAllowedImageDownloadURL(url: string): boolean {
   }
 }
 
+/**
+ * 二进制下载结果：保留 HTTP 状态与失败原因，供上层区分「可重试的瞬时故障」与
+ * 「鉴权／权限／资源缺失等不应重试的确定失败」，并生成完整的缺图报告。
+ */
+export interface BinaryDownloadOutcome {
+  data: Data | null
+  status: number | null
+  failure: "none" | "blocked" | "http" | "network" | "empty" | "aborted"
+  message?: string
+}
+
 // 下载二进制（图片等），带 Referer 与 HTTPS 安全过滤；跳过 API 限速（图片 CDN 并发下载）
 // 支持自动解析图片镜像源（如 i.pixiv.re），并在镜像源下载失败时静默回退至官方原始源重试
 // 支持通过 AbortSignal 实现秒级中断掐断网络阻塞
-export async function downloadBinary(
+// 与 downloadBinary 的差异：不做重试，返回真实状态码与失败原因，由调用方决定重试策略
+export async function downloadBinaryDetailed(
   url: string,
   extraHeaders?: Record<string, string>,
   signal?: AbortSignal
-): Promise<Data | null> {
+): Promise<BinaryDownloadOutcome> {
   if (signal?.aborted) {
-    return null
+    return { data: null, status: null, failure: "aborted", message: "已取消" }
   }
   const targetUrl = resolveImageUrl(url)
   if (!isAllowedImageDownloadURL(targetUrl)) {
     console.log("downloadBinary rejected insecure or non-HTTPS URL:", targetUrl.slice(0, 90))
-    return null
+    return { data: null, status: null, failure: "blocked", message: "非 HTTPS 或不被允许的图片地址" }
   }
+
+  let lastStatus: number | null = null
+  let lastMessage: string | undefined
 
   try {
     const { status, data } = await rawRequest(targetUrl, "GET", {
@@ -544,15 +559,20 @@ export async function downloadBinary(
     })
     if (status >= 200 && status < 300) {
       return data
+        ? { data, status, failure: "none" }
+        : { data: null, status, failure: "empty", message: "响应内容为空" }
     }
+    lastStatus = status
+    lastMessage = `HTTP ${status}`
   } catch (err: any) {
     if (err?.name === "AbortError" || signal?.aborted) {
-      return null
+      return { data: null, status: null, failure: "aborted", message: "已取消" }
     }
+    lastMessage = err?.message ?? String(err)
   }
 
   if (signal?.aborted) {
-    return null
+    return { data: null, status: lastStatus, failure: "aborted", message: "已取消" }
   }
 
   // 容灾降级：若镜像源未成功且与原 URL 不同，尝试回退官方原源重试
@@ -565,17 +585,39 @@ export async function downloadBinary(
         signal,
       })
       if (fallbackRes.status >= 200 && fallbackRes.status < 300 && fallbackRes.data) {
-        return fallbackRes.data
+        return { data: fallbackRes.data, status: fallbackRes.status, failure: "none" }
+      }
+      if (fallbackRes.status >= 400) {
+        lastStatus = fallbackRes.status
+        lastMessage = `HTTP ${fallbackRes.status}`
       }
     } catch (err: any) {
       if (err?.name === "AbortError" || signal?.aborted) {
-        return null
+        return { data: null, status: null, failure: "aborted", message: "已取消" }
       }
+      lastMessage = err?.message ?? String(err)
     }
   }
 
-  if (!signal?.aborted) {
-    console.log("image download failed:", targetUrl.slice(0, 90))
+  return {
+    data: null,
+    status: lastStatus,
+    failure: lastStatus !== null ? "http" : "network",
+    message: lastMessage,
+  }
+}
+
+export async function downloadBinary(
+  url: string,
+  extraHeaders?: Record<string, string>,
+  signal?: AbortSignal
+): Promise<Data | null> {
+  const outcome = await downloadBinaryDetailed(url, extraHeaders, signal)
+  if (outcome.data) {
+    return outcome.data
+  }
+  if ((outcome.failure === "http" || outcome.failure === "network") && !signal?.aborted) {
+    console.log("image download failed:", resolveImageUrl(url).slice(0, 90), outcome.message ?? "")
   }
   return null
 }

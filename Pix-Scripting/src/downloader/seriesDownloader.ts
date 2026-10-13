@@ -9,11 +9,11 @@ import {
 import { session } from "../api/session"
 import { imageUrlOf } from "../image/imageLoader"
 import { getDownloadImageQuality } from "../store/settings"
-import { exportNovelToEpub, type NovelChapter } from "./epubExporter"
+import { exportNovelToEpub, type NovelChapter, type NovelExportIssue, type NovelExportReport } from "./epubExporter"
 import { exportMangaToCbz } from "./cbzExporter"
 import { exportMangaToEpub } from "./epubExporter"
 import { DownloadTaskManager } from "./downloadTaskManager"
-import { yieldToMainThread } from "./downloadHelper"
+import { yieldToMainThread, runWithLimitedRetry, classifyDownloadError } from "./downloadHelper"
 import { StageProgressPipeline } from "./StageProgressPipeline"
 import { parseNovelToChunks } from "../ui/NovelReader"
 import { cleanHtmlCaption } from "../api/aiService"
@@ -104,6 +104,7 @@ export async function downloadEntireNovelSeries(
           const authorName = allNovels[0]?.user?.name || "Pixiv"
           const authorId = allNovels[0]?.user?.id
           const chapters: NovelChapter[] = []
+          const chapterFailures: NovelExportIssue[] = []
           const totalNovels = allNovels.length
 
           // 2. 依次拉取每章节的正文与插图数据
@@ -116,76 +117,97 @@ export async function downloadEntireNovelSeries(
             pipeline.reportPrepare(i + 1, totalNovels, statusMsg)
 
             try {
-              const viewer = await session.call((tokenVal) => novelViewerData(novelItem.id, tokenVal))
+              // 有限重试：网络／超时等瞬时故障最多重试一次，鉴权、权限、取消等确定失败立即失败
+              const viewer = await runWithLimitedRetry(
+                () => session.call((tokenVal) => novelViewerData(novelItem.id, tokenVal)),
+                { attempts: 2, delayMs: 800, token }
+              )
               checkTranslationOwner()
               if (translated && !viewer?.text?.trim()) {
                 throw new Error("无法获取章节正文，请重试后导出译文")
               }
-              if (viewer && viewer.text) {
-                const imageMap: Record<string, string> = {}
-                if (viewer.textEmbeddedImages) {
-                  Object.entries(viewer.textEmbeddedImages).forEach(([key, imgObj]) => {
-                    const url =
-                      imgObj?.urls?.original ||
-                      imgObj?.urls?.["1200x1200"] ||
-                      imgObj?.urls?.["480mw"] ||
-                      (imgObj as any)?.urls?.large ||
-                      (imgObj as any)?.urls?.medium ||
-                      (imgObj as any)?.url
-                    if (url) {
-                      imageMap[key] = url
-                      if (imgObj.novelImageId && imgObj.novelImageId !== key) {
-                        imageMap[imgObj.novelImageId] = url
-                      }
+              if (!viewer?.text?.trim()) {
+                throw new Error("无法获取章节正文（正文为空或未返回内容）")
+              }
+              const imageMap: Record<string, string> = {}
+              if (viewer.textEmbeddedImages) {
+                Object.entries(viewer.textEmbeddedImages).forEach(([key, imgObj]) => {
+                  const url =
+                    imgObj?.urls?.original ||
+                    imgObj?.urls?.["1200x1200"] ||
+                    imgObj?.urls?.["480mw"] ||
+                    (imgObj as any)?.urls?.large ||
+                    (imgObj as any)?.urls?.medium ||
+                    (imgObj as any)?.url
+                  if (url) {
+                    imageMap[key] = url
+                    if (imgObj.novelImageId && imgObj.novelImageId !== key) {
+                      imageMap[imgObj.novelImageId] = url
                     }
-                  })
-                }
+                  }
+                })
+              }
 
-                let chapter: NovelChapter = {
-                  id: novelItem.id,
-                  title: novelItem.title,
-                  text: viewer.text,
-                  images: imageMap,
-                  caption: novelItem.caption,
-                }
-                if (translated) {
-                  const caption = cleanHtmlCaption(novelItem.caption)
-                  const chunks = parseNovelToChunks(viewer.text)
-                  const translationSession = getNovelTranslationSession({
-                    novelId: novelItem.id, title: novelItem.title, caption, text: viewer.text,
-                    seriesId: seriesID, targetLanguage,
-                    blocks: chunks
-                      .filter((item) => (item.type === "text" && Boolean(item.text)) ||
-                        (item.type === "chapter" && Boolean(item.title)))
-                      .map((item) => ({ id: item.id, text: item.type === "chapter" ? item.title! : item.text!,
-                        kind: item.type === "chapter" ? "chapter" as const : "text" as const })),
-                  })
-                  const snapshot = translationSession.getSnapshot()
-                  const issue = novelTranslationExportIssue(snapshot, Boolean(caption))
-                  if (issue) throw new Error(issue)
-                  const text = buildTranslatedNovelSource(chunks, snapshot)
-                  if (!text) throw new Error("译文缓存不完整，请重试未完成段落后导出")
-                  chapter = { ...chapter, title: snapshot.translatedTitle!,
-                    caption: caption ? snapshot.translatedCaption ?? "" : "", text }
-                }
-                chapters.push(chapter)
-                if (!seriesCoverUrl && viewer.coverUrl) {
-                  seriesCoverUrl = viewer.coverUrl
-                }
-                manifest.completedIndices.push(i)
-                saveManifest()
+              let chapter: NovelChapter = {
+                id: novelItem.id,
+                title: novelItem.title,
+                text: viewer.text,
+                images: imageMap,
+                caption: novelItem.caption,
               }
-            } catch (err: any) {
               if (translated) {
-                throw new Error(`第 ${i + 1} 话《${novelItem.title}》：${err?.message ?? err}`)
+                const caption = cleanHtmlCaption(novelItem.caption)
+                const chunks = parseNovelToChunks(viewer.text)
+                const translationSession = getNovelTranslationSession({
+                  novelId: novelItem.id, title: novelItem.title, caption, text: viewer.text,
+                  seriesId: seriesID, targetLanguage,
+                  blocks: chunks
+                    .filter((item) => (item.type === "text" && Boolean(item.text)) ||
+                      (item.type === "chapter" && Boolean(item.title)))
+                    .map((item) => ({ id: item.id, text: item.type === "chapter" ? item.title! : item.text!,
+                      kind: item.type === "chapter" ? "chapter" as const : "text" as const })),
+                })
+                const snapshot = translationSession.getSnapshot()
+                const issue = novelTranslationExportIssue(snapshot, Boolean(caption))
+                if (issue) throw new Error(issue)
+                const text = buildTranslatedNovelSource(chunks, snapshot)
+                if (!text) throw new Error("译文缓存不完整，请重试未完成段落后导出")
+                chapter = { ...chapter, title: snapshot.translatedTitle!,
+                  caption: caption ? snapshot.translatedCaption ?? "" : "", text }
               }
-              console.log(`Failed to fetch novel ${novelItem.id}:`, err?.message ?? err)
+              chapters.push(chapter)
+              if (!seriesCoverUrl && viewer.coverUrl) {
+                seriesCoverUrl = viewer.coverUrl
+              }
+              manifest.completedIndices.push(i)
+              saveManifest()
+            } catch (err: any) {
+              // 取消／暂停必须向上传播，绝不能当作缺章继续导出
+              if (err?.name === "TaskAbortError" || err?.name === "TaskPauseError" || token.isCancelled) {
+                throw err
+              }
+              const failure = classifyDownloadError(err)
+              const reason = failure.message || "未知错误"
+              if (translated) {
+                throw new Error(`第 ${i + 1} 话《${novelItem.title}》：${reason}`)
+              }
+              chapterFailures.push({
+                index: i + 1,
+                title: novelItem.title || `第 ${i + 1} 话`,
+                reason,
+              })
+              console.log(`Failed to fetch novel ${novelItem.id}:`, reason)
             }
             await yieldToMainThread()
           }
 
           if (chapters.length === 0) {
-            throw new Error("无法获取章节正文内容")
+            const firstFailure = chapterFailures[0]
+            throw new Error(
+              firstFailure
+                ? `无法获取章节正文内容：全部 ${totalNovels} 话均失败（例如第 ${firstFailure.index} 话《${firstFailure.title}》：${firstFailure.reason}）`
+                : "无法获取章节正文内容"
+            )
           }
 
           // 3. 打包为整本 EPUB
@@ -207,6 +229,7 @@ export async function downloadEntireNovelSeries(
 
           const isNovelSeriesR18 = allNovels.some((n) => (n.x_restrict ?? 0) > 0 || n.tags?.some((t: any) => /r-?18/i.test(t.name)))
           const novelSeriesTags = allNovels[0]?.tags?.map((t: any) => t.name) ?? []
+          let integrityReport: NovelExportReport | null = null
           const filePath = await exportNovelToEpub({
             id: seriesID,
             title: translated ? `${seriesTitle || `系列_${seriesID}`}（${targetLanguage}译文）`
@@ -222,6 +245,9 @@ export async function downloadEntireNovelSeries(
             isR18: isNovelSeriesR18,
             coverUrl: seriesCoverUrl,
             chapters,
+            expectedChapters: totalNovels,
+            missingChapters: chapterFailures,
+            onIntegrityReport: (report) => { integrityReport = report },
             token,
             onProgress: handleNovelExportProgress,
           })
@@ -230,8 +256,17 @@ export async function downloadEntireNovelSeries(
             throw new Error("EPUB 电子书生成失败")
           }
 
-          const summary = `《${seriesTitle}》整本${translated ? "译文 " : " "}EPUB (共 ${chapters.length} 章) 导出成功。`
-          pipeline.reportComplete("导出成功")
+          const report = integrityReport as NovelExportReport | null
+          const missingChapterCount = chapterFailures.length
+          const missingImageCount = report?.missingImages.length ?? 0
+          const isPartial = missingChapterCount > 0 || (report?.isPartial ?? false)
+          const missingChapterText = missingChapterCount > 0
+            ? `第 ${chapterFailures.map((issue) => issue.index).join("、")} 话`
+            : (missingImageCount > 0 ? "无（仅插图缺失）" : "无")
+          const summary = isPartial
+            ? `《${seriesTitle}》整本${translated ? "译文 " : " "}EPUB 部分导出：成功 ${chapters.length}/${totalNovels} 章；缺失 ${missingChapterText}${missingImageCount > 0 ? `；缺图 ${missingImageCount} 张` : ""}。文件名为「${String(filePath).split("/").pop()}」，书内首页已标注缺失明细，可重试导出补齐。`
+            : `《${seriesTitle}》整本${translated ? "译文 " : " "}EPUB (共 ${chapters.length} 章) 导出成功。`
+          pipeline.reportComplete(isPartial ? "部分导出完成" : "导出成功")
           resolve(filePath)
           return { outputPath: filePath, summary }
         } catch (err: any) {

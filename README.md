@@ -6,7 +6,7 @@
 
 | 项目名称 | 类型 / 简介 | 当前版本 | 快速跳转 |
 | :--- | :--- | :---: | :---: |
-| **Pix-Scripting** | 液态玻璃风格 Pixiv 客户端，含 PixivReader 正文翻译移植 | `v1.7.13.3` | [查看介绍 & 安装](#pix-scripting) |
+| **Pix-Scripting** | 液态玻璃风格 Pixiv 客户端，含 PixivReader 正文翻译移植 | `v1.7.13.4` | [查看介绍 & 安装](#pix-scripting) |
 | *（更多项目）* | 更多高品质脚本持续孵化中... | `Planning` | - |
 
 ---
@@ -29,7 +29,7 @@
 #### 📥 快速安装
 
 1. 安装 **[Scripting](https://apps.apple.com/app/scripting/id6477833076)** App；
-2. 下载并导入当前移植分支的 [`Release/Pix-Scripting.scripting`](https://raw.githubusercontent.com/beckyeeky/Scripting/feature/pixivreader-port/Release/Pix-Scripting.scripting)；也可从 [v1.7.13.3 发布页](https://github.com/beckyeeky/Scripting/releases/tag/v1.7.13.3-pixivreader) 下载附件；
+2. 下载并导入修复分支的 [`Release/Pix-Scripting.scripting`](https://raw.githubusercontent.com/beckyeeky/Scripting/fix/futurereader-novel-integrity-20261013/Release/Pix-Scripting.scripting)；也可从 [v1.7.13.4 实验修复版发布页](https://github.com/beckyeeky/Scripting/releases/tag/v1.7.13.4-pixivreader) 下载附件。该包为独立实验修复版（prerelease），未合入 `main` / `feature/pixivreader-port`，包内 `remoteResource.url` 指向本修复分支，不会被上游自动更新覆盖；
 3. 在小说详情或沉浸阅读器中打开「正文翻译」，选择翻译、暂停/继续或原文/译文切换；在小说系列页可分批翻译当前已加载的章节。先在「设置 → 智能助手」配置模型，或使用可用的 Scripting 原生助手。
 
 正文上方有常驻翻译进度条，可直接看已完成段数、摘要与术语状态、暂停/继续、原文/译文切换；展开「摘要与术语」可查看内容、系列继承的术语数及失败段落的单块重试。沉浸阅读时也显示浮动进度条。故事摘要先生成，术语表随后整理，最后最多两个正文请求并发；上下文失败时会显示状态并继续翻译正文。长篇摘要和术语表会抽取开头、中段、结尾各约 3000 字，避免只看到开头；超长正文块优先在换行或句末拆分，保留接缝空行与 Pixiv 链接。
@@ -40,11 +40,20 @@
 
 小说系列页工具栏、底部操作栏「下载」以及追更卡片菜单「下载整本小说」均可选择原文 EPUB 或当前目标语言的译文 EPUB。译文导出复用已完成的翻译，包含各话的译名、简介和正文，并保留分页、章节与插图标记；任一话未完成翻译、正文获取失败或账号切换时，会停止导出并提示原因。译文文件名带目标语言和「译文」，便于与原文区分。
 
+#### 🧪 v1.7.13.4 实验修复版（独立分支，未合入 main / futurereader）
+
+> 在 `fix/futurereader-novel-integrity-20261013` 分支独立发布的修复包，解决两组完整性问题；普通阅读器与既有下载入口行为保持不变。
+
+- **沉浸阅读器跨篇归属修复**：内部换章后，阅读进度、跳页与书签一律按「当前作品 + 当前页」写入，不再沿用进入阅读器时的作品 ID 与页码；切篇后旧正文文档迟到的滚动进度会被丢弃，不会覆盖新作品的阅读位置；关闭全屏时仍回传最终作品、页码与锚点，跳转路由保持正确。父级（普通阅读器）回调仍按原签名工作，内部换章时自动改写到当前作品。
+- **系列导出完整性修复**：原文导出时单章正文异常不再静默忽略，会记录缺章（序号 + 标题 + 原因）并在书内首页与文件名（`_缺N章`）标注；插图下载失败不再产生 manifest/正文中的悬空引用，缺失插图同样书内标注（`_缺N图`）；任务摘要明确给出「成功 x/y 章、缺章、缺图」的部分导出结论，不再出现错误的完整成功提示。译文导出继续保持缺章即失败。
+- **受控重试与取消**：图片与章节正文仅在超时/网络/限流/5xx 等瞬时故障时有限重试（最多 2 次尝试）；401 鉴权失败、403 权限/受限内容、404/410 资源缺失、账号切换与取消一律不重试。取消/暂停沿任务令牌向上传播，不会退化成「缺章导出」。
+- 未包含离线、AI、目录等无关改动；现有权限与敏感配置未变更。
+
 #### 修改源码与重新发布
 
 这个分支的发布包由仓库内可直接编辑的 [`Pix-Scripting/`](Pix-Scripting/) 源码构建，不需要修改 `.scripting` 压缩包。小说翻译的主要修改点是 [`src/store/novelTranslation.ts`](Pix-Scripting/src/store/novelTranslation.ts)（任务和缓存）、[`src/api/aiService.ts`](Pix-Scripting/src/api/aiService.ts)（模型提示词）、[`src/api/aiAdapters/translationThinking.ts`](Pix-Scripting/src/api/aiAdapters/translationThinking.ts)（各模型关闭思考参数）、[`src/ui/NovelReader.tsx`](Pix-Scripting/src/ui/NovelReader.tsx)（原位显示）、[`src/ui/NovelTranslationStatus.tsx`](Pix-Scripting/src/ui/NovelTranslationStatus.tsx)（进度与重试）、[`src/ui/NovelDetail.tsx`](Pix-Scripting/src/ui/NovelDetail.tsx)（单篇入口）和 [`src/ui/seriesView.tsx`](Pix-Scripting/src/ui/seriesView.tsx)（系列入口）。直接在这些文件里改即可。
 
-在仓库根目录运行 `npm ci && npm test` 可执行翻译链路回归测试；运行 `bash scripts/build-release.sh` 会检查版本号一致性并重建 `Release/Pix-Scripting.scripting`。构建只需要 `zip`、`unzip` 和 `node`；完成后将源码与发布包一起提交到 `feature/pixivreader-port` 分支。当前版本 `1.7.13.3` 表示基于上游 `1.7.13` 的第 3 个移植小版本；下次发布同步修改 [`script.json`](Pix-Scripting/script.json) 的 `version` 和 [`src/config.ts`](Pix-Scripting/src/config.ts) 的回退版本，再重新构建。此分支的 `remoteResource.url` 指向分支发布包，不会误更新到上游 `main`。
+在仓库根目录运行 `npm ci && npm test` 可执行翻译链路回归测试；运行 `bash scripts/build-release.sh` 会检查版本号一致性并重建 `Release/Pix-Scripting.scripting`。构建只需要 `zip`、`unzip` 和 `node`；完成后将源码与发布包一起提交到对应发布分支（本次为 `fix/futurereader-novel-integrity-20261013`）。`bash scripts/verify-release-package.sh` 会逐字节核对发布包与工作树 `Pix-Scripting/`、并校验包内版本与更新地址。当前版本 `1.7.13.4` 表示基于上游 `1.7.13` 的第 4 个移植小版本（独立修复分支）；下次发布同步修改 [`script.json`](Pix-Scripting/script.json) 的 `version` 和 [`src/config.ts`](Pix-Scripting/src/config.ts) 的回退版本，再重新构建。此分支的 `remoteResource.url` 指向分支发布包，不会误更新到上游 `main`。
 
 ---
 

@@ -57,3 +57,27 @@
 - 原因：使后续任务能快速接手，避免临时状态混入长期约束或把猜测当作项目事实。
 - 影响：任务开始读规则与交接，结束更新交接；未知项明确标记“待确定”。
 - 依据：本次用户要求。
+
+## D008：跨篇阅读状态必须显式绑定「当前作品 + 当前页」
+
+- 状态：已实现（修复分支 `fix/futurereader-novel-integrity-20261013`）。
+- 选择：沉浸阅读器内部换章后，阅读进度、跳页与书签一律按内部持有的当前作品 ID 写入；切入的作品书签改为读取该作品自己的书签并直接调用其书签接口；正文文档带代际标识，切章后旧文档迟到的滚动进度/跳页/系列翻页按代际丢弃；关闭全屏仍回传最终作品、页码与锚点。父级回调（普通阅读器）保留原签名，仅在内部换章时改写为当前作品归属。
+- 原因：进入阅读器时传入的 `novelId` 与父级 `currentPage`/`markerPage` 绑定原作品，内部换章后继续使用会把新作品页码写到原作品、把原作品书签状态显示到新作品，旧 DOM 的迟到进度也会污染新作品。
+- 影响：新增可选属性 `onToggleMarkerAtPage`（按页码切换书签，避免父级页码滞后）与正文代际参数；不破坏既有调用方。
+- 依据：`src/ui/NovelImmersiveReader.tsx`、`src/ui/NovelDetail.tsx`、`src/store/novelProgress.ts`、`src/store/bookmarkSync.ts`、`tests/novel-immersive-episode-guard.test.cjs`。
+
+## D009：导出必须报告完整性，失败图片不得留下悬空引用
+
+- 状态：已实现（修复分支 `fix/futurereader-novel-integrity-20261013`）。
+- 选择：原文系列导出逐章记录失败（序号、标题、原因），仍导出其余章节，并在书内首页、文件名（`_缺N章`/`_缺N图`）与任务摘要中明确「成功 x/y 章」；只有真正落盘成功的插图才进入正文引用与 EPUB manifest，缺失插图在书内标注；导出结束时通过 `onIntegrityReport` 回报预期/成功/失败数量。
+- 原因：原先单章异常仅写日志并继续，图片下载失败不落盘但 manifest 与正文仍引用，最终给出「整本导出成功」的错误提示，用户无法判断缺章缺图。
+- 影响：`exportNovelToEpub` 新增可选 `expectedChapters`、`missingChapters`、`onIntegrityReport`；发布文件名可能带缺失后缀；译文导出仍保持「缺章即失败」。
+- 依据：`src/downloader/seriesDownloader.ts`、`src/downloader/epubExporter.ts`、`tests/novel-series-integrity.test.cjs`、`tests/novel-export-integrity.test.cjs`。
+
+## D010：重试必须区分瞬时故障与确定失败
+
+- 状态：已实现（修复分支 `fix/futurereader-novel-integrity-20261013`）。
+- 选择：新增二进制下载明细结果与失败分类（`auth`/`permission`/`notFound`/`rateLimited`/`server`/`network`/`empty`/`canceled`）；仅瞬时故障有限重试（最多 2 次尝试），401/403/404/410、账号切换与取消立即失败；取消/暂停沿任务令牌向上传播。
+- 原因：对无效凭据或受限内容反复重试会放大请求、延长失败等待，并可能把取消误当成缺章继续导出。
+- 影响：`downloadBinary` 语义不变（仍返回数据或 null）；新增 `downloadBinaryDetailed`、`fetchImageBinaryWithResult`、`runWithLimitedRetry`、`classifyDownloadError`、`classifyHttpStatus`。
+- 依据：`src/api/client.ts`、`src/downloader/downloadHelper.ts`、`tests/novel-export-integrity.test.cjs`。

@@ -1,10 +1,13 @@
 import {
+  describeDownloadFailure,
+  fetchImageBinaryWithResult,
   fetchImageBinaryWithRetry,
   runConcurrentTasks,
   yieldToMainThread,
   yieldIfExceeded,
   createThrottledProgress,
   sniffImageDimensions,
+  type DownloadFailure,
   type ExportResult,
 } from "./downloadHelper"
 import { getCategoryDirectory, sanitizeFileName } from "./directoryResolver"
@@ -24,6 +27,33 @@ export interface NovelChapter {
   caption?: string
 }
 
+/** 单章缺失记录（章节序号从 1 开始，与系列顺序一致） */
+export interface NovelExportIssue {
+  index: number
+  title: string
+  reason: string
+}
+
+/** 小说导出完整性报告：明确「预期 / 成功 / 失败」的章节与插图，用于避免错误的“完整导出成功”提示 */
+export interface NovelExportReport {
+  /** 系列预期的章节总数（单篇导出为 1） */
+  expectedChapters: number
+  /** 实际写入 EPUB 的章节数 */
+  exportedChapters: number
+  /** 未成功导出的章节（含原因） */
+  missingChapters: NovelExportIssue[]
+  /** 计划下载的插图总数（含封面） */
+  totalImages: number
+  /** 成功落盘并被正文/manifest 引用的插图数 */
+  exportedImages: number
+  /** 缺失插图（含 key 与原因），不会在 EPUB 中留下悬空引用 */
+  missingImages: { key: string; reason: string }[]
+  coverRequested: boolean
+  coverExported: boolean
+  /** 任一章节或插图缺失即为部分导出 */
+  isPartial: boolean
+}
+
 export interface NovelEpubOptions {
   id: number
   title: string
@@ -39,6 +69,12 @@ export interface NovelEpubOptions {
   chapters: NovelChapter[]
   targetDir?: string
   customFileName?: string
+  /** 系列预期章节总数：仅用于报告「成功 x/y 章」 */
+  expectedChapters?: number
+  /** 上游已确认无法导出的章节：写入书内标注、文件名与完整性报告 */
+  missingChapters?: NovelExportIssue[]
+  /** 完整性报告回调：导出结束（成功或部分成功）时调用 */
+  onIntegrityReport?: (report: NovelExportReport) => void
   token?: TaskControlToken
   onProgress?: (msg: string, current: number, total: number) => void
 }
@@ -178,6 +214,27 @@ p {
   height: auto;
   border-radius: 4px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+.export-notice {
+  border: 1px solid #e0a800;
+  border-left: 4px solid #e0a800;
+  background: #fff8e1;
+  color: #7a5200;
+  padding: 12px 16px;
+  margin: 16px 0;
+  border-radius: 4px;
+  font-size: 0.9em;
+  line-height: 1.6;
+}
+.export-notice-title {
+  font-weight: 700;
+  margin: 0 0 6px 0;
+  text-indent: 0;
+}
+.export-notice p {
+  text-indent: 0;
+  margin: 0.35em 0;
+  word-break: break-word;
 }
 .cover-box {
   text-align: center;
@@ -709,21 +766,33 @@ export async function exportNovelToEpub(options: NovelEpubOptions): Promise<stri
     chapters,
     targetDir: customTargetDir,
     customFileName,
+    expectedChapters: expectedChaptersOption,
+    missingChapters: missingChaptersOption,
+    onIntegrityReport,
     token,
     onProgress,
   } = options
 
   if (token) await token.checkOrWait()
 
-  const safeTitle = customFileName
+  const expectedChapters = Math.max(
+    chapters.length + (missingChaptersOption?.length ?? 0),
+    expectedChaptersOption ?? chapters.length,
+    chapters.length
+  )
+  const missingChapters: NovelExportIssue[] = (missingChaptersOption ?? []).map((issue) => ({
+    index: issue.index,
+    title: issue.title,
+    reason: issue.reason,
+  }))
+
+  const baseSafeTitle = customFileName
     ? sanitizeFileName(customFileName)
     : sanitizeFileName(seriesTitle ? `${seriesTitle} - ${title}` : `${title}_${author}`)
-  const outputFileName = `${safeTitle}.epub`
   const targetDir = customTargetDir || getCategoryDirectory("novels")
   if (!FileManager.existsSync(targetDir)) {
     try { FileManager.createDirectorySync(targetDir, true) } catch {}
   }
-  const targetFilePath = `${targetDir}/${outputFileName}`
 
   const tempDir = `${getCategoryDirectory("temp")}/epub_novel_${id}_${Date.now()}`
   const oebpsDir = `${tempDir}/OEBPS`
@@ -754,9 +823,13 @@ export async function exportNovelToEpub(options: NovelEpubOptions): Promise<stri
     progressReporter.notify("准备下载封面与插图...", 0, chapters.length)
     let hasCover = false
     let rawCoverData: Data | null = null
+    let coverFailure: DownloadFailure | null = null
+    const coverRequested = Boolean(coverUrl)
     if (coverUrl) {
       if (token) await token.checkOrWait()
-      rawCoverData = await fetchImageBinaryWithRetry(coverUrl, 1, token)
+      const coverResult = await fetchImageBinaryWithResult(coverUrl, 2, token)
+      rawCoverData = coverResult.data
+      coverFailure = coverResult.failure
     }
 
     if (seriesTitle || rawCoverData) {
@@ -774,7 +847,9 @@ export async function exportNovelToEpub(options: NovelEpubOptions): Promise<stri
     }
 
     // 收集所有章节的插图（包括 uploadedimage 和正文中引用的 pixivimage）
-    const imageKeyToFileMap = new Map<string, string>()
+    // plannedKeyToFileMap 记录「计划中的 key → 文件名」；只有真正落盘成功的文件才会
+    // 进入 imageKeyToFileMap，确保正文与 manifest 绝不引用不存在的资源。
+    const plannedKeyToFileMap = new Map<string, string>()
     const allImagesToDownload: { key: string; url: string; filename: string }[] = []
     const urlToFilenameMap = new Map<string, string>()
 
@@ -790,8 +865,8 @@ export async function exportNovelToEpub(options: NovelEpubOptions): Promise<stri
             urlToFilenameMap.set(url, filename)
             allImagesToDownload.push({ key, url, filename })
           }
-          imageKeyToFileMap.set(key, filename)
-          imageKeyToFileMap.set(key.trim(), filename)
+          plannedKeyToFileMap.set(key, filename)
+          plannedKeyToFileMap.set(key.trim(), filename)
         }
       }
     }
@@ -804,7 +879,7 @@ export async function exportNovelToEpub(options: NovelEpubOptions): Promise<stri
         const illustId = parseInt(m[1], 10)
         const pageIdx = Math.max(0, (m[2] ? parseInt(m[2], 10) : 1) - 1)
         const fullKey = m[2] ? `${m[1]}-${m[2]}` : m[1]
-        if (!imageKeyToFileMap.has(fullKey) && !imageKeyToFileMap.has(m[1])) {
+        if (!plannedKeyToFileMap.has(fullKey) && !plannedKeyToFileMap.has(m[1])) {
           try {
             const illust = await session.call((token) => illustrationDetail(illustId, token))
             if (illust) {
@@ -817,8 +892,8 @@ export async function exportNovelToEpub(options: NovelEpubOptions): Promise<stri
                   urlToFilenameMap.set(url, filename)
                   allImagesToDownload.push({ key: fullKey, url, filename })
                 }
-                imageKeyToFileMap.set(fullKey, filename)
-                imageKeyToFileMap.set(m[1], filename)
+                plannedKeyToFileMap.set(fullKey, filename)
+                plannedKeyToFileMap.set(m[1], filename)
               }
             }
           } catch (e: any) {
@@ -828,25 +903,100 @@ export async function exportNovelToEpub(options: NovelEpubOptions): Promise<stri
       }
     }
 
+    // 3. 下载全部插图：逐张记录失败原因，取消／暂停沿 token 向上传播
+    const imageFailureReasons = new Map<string, string>()
     if (allImagesToDownload.length > 0) {
       if (token) await token.checkOrWait()
       progressReporter.notify(`下载插图 (共 ${allImagesToDownload.length} 张)...`, 0, allImagesToDownload.length)
-      await runConcurrentTasks(
+      const downloadResults = await runConcurrentTasks(
         allImagesToDownload,
         4,
         async (item, idx) => {
           if (token) await token.checkOrWait()
-          const data = await fetchImageBinaryWithRetry(item.url, 1, token)
+          const { data, failure } = await fetchImageBinaryWithResult(item.url, 2, token)
+          let written = false
           if (data) {
-            FileManager.writeAsDataSync(`${imagesDir}/${item.filename}`, data)
+            try {
+              FileManager.writeAsDataSync(`${imagesDir}/${item.filename}`, data)
+              written = true
+            } catch (err: any) {
+              imageFailureReasons.set(item.filename, `写入失败：${err?.message ?? err}`)
+            }
+          } else {
+            if (failure?.kind === "cancelled" && token) {
+              // 取消／暂停必须冒泡为任务异常，不能当成缺图继续导出
+              await token.checkOrWait()
+            }
+            imageFailureReasons.set(item.filename, describeDownloadFailure(failure))
           }
           progressReporter.notify(`下载插图 (${idx + 1}/${allImagesToDownload.length})`, idx + 1, allImagesToDownload.length)
+          return written
         },
         token
       )
+      allImagesToDownload.forEach((item, index) => {
+        if (!downloadResults[index] && !imageFailureReasons.has(item.filename)) {
+          imageFailureReasons.set(item.filename, "下载未完成")
+        }
+      })
     }
 
     if (token) await token.checkOrWait()
+
+    // 仅把真正落盘成功的插图映射进正文引用表，失败图片不会留下悬空引用
+    const imageKeyToFileMap = new Map<string, string>()
+    for (const [key, filename] of plannedKeyToFileMap) {
+      if (!imageFailureReasons.has(filename)) {
+        imageKeyToFileMap.set(key, filename)
+      }
+    }
+    const missingImageRefs: { key: string; reason: string }[] = []
+    const seenMissingKeys = new Set<string>()
+    for (const [key, filename] of plannedKeyToFileMap) {
+      if (!imageFailureReasons.has(filename) || seenMissingKeys.has(key)) continue
+      seenMissingKeys.add(key)
+      missingImageRefs.push({ key, reason: imageFailureReasons.get(filename) ?? "下载失败" })
+    }
+    if (coverRequested && !hasCover) {
+      missingImageRefs.push({
+        key: "cover",
+        reason: coverFailure ? describeDownloadFailure(coverFailure) : "封面合成失败",
+      })
+    }
+
+    // 完整性汇总：明确「预期 / 成功 / 失败」，供书内标注、文件名与报告共用
+    const exportedImageCount =
+      allImagesToDownload.filter((item) => !imageFailureReasons.has(item.filename)).length +
+      (hasCover ? 1 : 0)
+    const totalImageCount = allImagesToDownload.length + (coverRequested ? 1 : 0)
+    const isPartial = missingChapters.length > 0 || missingImageRefs.length > 0
+    const partialSummaryText = isPartial
+      ? `部分导出：成功 ${chapters.length}/${expectedChapters} 章；缺失 ${missingChapters.length} 章、${missingImageRefs.length} 张插图`
+      : ""
+    const partialDescriptionPrefix = partialSummaryText ? `【${partialSummaryText}】` : ""
+    const partialNoticeHtml = isPartial
+      ? `<div class="export-notice">
+    <p class="export-notice-title">⚠️ 本次为部分导出</p>
+    <p>成功导出：${chapters.length} / ${expectedChapters} 章；插图：${exportedImageCount} / ${totalImageCount} 张。</p>
+    ${missingChapters.length > 0
+      ? `<p>缺失章节：${escapeXml(
+          missingChapters
+            .slice(0, 20)
+            .map((issue) => `第 ${issue.index} 话《${issue.title}》（${issue.reason}）`)
+            .join("；")
+        )}${missingChapters.length > 20 ? ` 等共 ${missingChapters.length} 章` : ""}</p>`
+      : ""}
+    ${missingImageRefs.length > 0
+      ? `<p>缺失插图：${escapeXml(
+          missingImageRefs
+            .slice(0, 20)
+            .map((item) => `${item.key}（${item.reason}）`)
+            .join("；")
+        )}${missingImageRefs.length > 20 ? ` 等共 ${missingImageRefs.length} 张` : ""}</p>`
+      : ""}
+    <p>缺失内容不会在正文中留下失效图片引用；可稍后重试导出以补齐。</p>
+  </div>`
+      : ""
 
     // 5. 规划章节与多页切分结构
     interface NovelPageSection {
@@ -1014,7 +1164,7 @@ export async function exportNovelToEpub(options: NovelEpubOptions): Promise<stri
             metaItems.push(`<div class="meta-item">投稿时间：${createdDateFormatted}</div>`)
           }
           metaItems.push(`<div class="meta-item">导出时间：${exportTimeStr}</div>`)
-          metaInfoHtml = `<div class="meta-info">\n    ${metaItems.join("\n    ")}\n  </div>`
+          metaInfoHtml = `<div class="meta-info">\n    ${metaItems.join("\n    ")}\n  </div>` + partialNoticeHtml
 
           if (resolvedSeriesDesc) {
             seriesCaptionHtml = formatCaptionToXHtml(resolvedSeriesDesc, "系列简介")
@@ -1144,10 +1294,12 @@ export async function exportNovelToEpub(options: NovelEpubOptions): Promise<stri
       }
     }
 
-    // 加入插图 manifest (去重确保每个文件唯一注册)
+    // 加入插图 manifest (仅注册真正落盘成功的文件，避免悬空资源引用)
     const registeredFiles = new Set<string>()
     for (const item of allImagesToDownload) {
       if (registeredFiles.has(item.filename)) continue
+      if (imageFailureReasons.has(item.filename)) continue
+      if (!FileManager.existsSync(`${imagesDir}/${item.filename}`)) continue
       registeredFiles.add(item.filename)
       const mime = item.filename.endsWith(".png")
         ? "image/png"
@@ -1194,7 +1346,7 @@ export async function exportNovelToEpub(options: NovelEpubOptions): Promise<stri
     <dc:publisher>Pixiv</dc:publisher>
     <dc:source>${workUrl}</dc:source>
     ${authorUrl ? `<dc:relation>${authorUrl}</dc:relation>` : ""}
-    ${cleanDescription ? `<dc:description>${escapeXml(cleanDescription)}</dc:description>` : ""}
+    ${(cleanDescription || partialDescriptionPrefix) ? `<dc:description>${escapeXml(partialDescriptionPrefix + cleanDescription)}</dc:description>` : ""}
     ${tagSubjects}
     ${createdDateMeta}
     ${ageRatingMeta}
@@ -1244,11 +1396,38 @@ export async function exportNovelToEpub(options: NovelEpubOptions): Promise<stri
 </html>`
     FileManager.writeAsStringSync(`${oebpsDir}/toc.xhtml`, tocXhtml, "utf-8")
 
-    // 9. 打包压缩
+    // 9. 打包压缩（文件名带上缺章缺图标记，避免与完整导出混淆）
+    const partialSuffix = missingChapters.length > 0 ? `_缺${missingChapters.length}章` : ""
+    const partialImageSuffix = missingImageRefs.length > 0 ? `_缺${missingImageRefs.length}图` : ""
+    const outputFileName = `${baseSafeTitle}${partialSuffix}${partialImageSuffix}.epub`
+    const targetFilePath = `${targetDir}/${outputFileName}`
     progressReporter.notify("正在组装 EPUB 电子书...", chapters.length, chapters.length)
     progressReporter.flush()
     await yieldToMainThread()
     const success = await packageEpubDirectory(tempDir, targetFilePath)
+
+    const report: NovelExportReport = {
+      expectedChapters,
+      exportedChapters: chapters.length,
+      missingChapters,
+      totalImages: totalImageCount,
+      exportedImages: exportedImageCount,
+      missingImages: missingImageRefs,
+      coverRequested,
+      coverExported: hasCover,
+      isPartial,
+    }
+    try {
+      onIntegrityReport?.(report)
+    } catch (err: any) {
+      console.log("onIntegrityReport error:", err?.message ?? err)
+    }
+    if (isPartial) {
+      console.log(
+        `exportNovelToEpub partial: ${partialSummaryText}, file=${outputFileName}${success ? "" : " (pack failed)"}`
+      )
+    }
+
     return success ? targetFilePath : null
   } catch (err: any) {
     if (err?.name === "TaskAbortError" || token?.isCancelled) {

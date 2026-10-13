@@ -38,6 +38,7 @@ import {
 import type { AmbientAlgorithm } from "../store/settings"
 import type { IllustAmbientPalette } from "../image/colorExtractor"
 import { getNovelProgress, recordNovelProgress } from "../store/novelProgress"
+import { getCachedNovelMarker, recordNovelMarker } from "../store/bookmarkSync"
 import { NovelTypographySheet } from "./NovelTypographySheet"
 import type { PixivIllustration, PixivNovel, PixivNovelDetail, TextEmbeddedImage } from "../types"
 import {
@@ -51,7 +52,7 @@ import {
 import { imageUrlOf, loadImage, novelThumbUrlOf } from "../image/imageLoader"
 import { useNovelExperimentalAmbientPalette, generateAmbientBackgroundCss } from "./ambient"
 import { session } from "../api/session"
-import { illustrationDetail, novelDetail, novelViewerData } from "../api/pixiv"
+import { illustrationDetail, novelDetail, novelViewerData, addNovelMarker, deleteNovelMarker } from "../api/pixiv"
 import { getCachedNovel, cacheNovel } from "../store/novelCache"
 import { recordNovelHistory } from "../store/history"
 import { useSeriesEpisodeNav, type SeriesEpisodeNavState } from "./SeriesEpisodePager"
@@ -92,6 +93,8 @@ export interface NovelImmersiveReaderViewProps {
   episodeNumber?: number | null
   onClose: (lastChunkId: string | null, page: number, finalNovelId: number) => void
   onToggleMarker?: () => Promise<void> | void
+  /** 按指定页码切换书签（可选）：沉浸阅读器内部换章或父级当前页滞后时，避免写到错误作品的页码 */
+  onToggleMarkerAtPage?: (page: number) => Promise<void> | void
   onJumpToPage?: (page: number) => void
   onNavigateNovel?: (novelId: number) => void
   onNavigateSeries?: (seriesId: number) => void
@@ -259,6 +262,8 @@ interface BuildHtmlOptions {
   >
   ambientActive?: boolean
   ambientBgCss?: string
+  /** 文档代际：切章后旧文档的迟到消息按代际丢弃，避免跨篇写入 */
+  ownerGeneration?: number
 }
 
 /**
@@ -275,6 +280,7 @@ function buildHorizontalImmersiveHtml(options: BuildHtmlOptions): string {
     imageCache,
     ambientActive,
     ambientBgCss: propBgCss,
+    ownerGeneration,
   } = options
   const ambientBgCss = propBgCss || "transparent"
 
@@ -414,6 +420,9 @@ function buildHorizontalImmersiveHtml(options: BuildHtmlOptions): string {
 
   const safeInitialChunk = JSON.stringify(initialChunkId || null)
   const safeInitialPage = JSON.stringify(typeof initialPage === "number" ? initialPage : null)
+  const safeOwnerGeneration = JSON.stringify(
+    typeof ownerGeneration === "number" ? ownerGeneration : 0
+  )
 
   return `<!DOCTYPE html>
 <html>
@@ -718,6 +727,18 @@ ${THEME_CSS_VARS}
     var targetChunkId = ${safeInitialChunk};
     var targetPage = ${safeInitialPage};
     var isRestoring = true;
+    // 文档代际标识：本页脚本只代表这一次载入的正文，旧文档（已被替换）的迟到回调一律不再向上通报
+    var novelOwnerId = ${safeOwnerGeneration};
+    window.__novelOwnerId = novelOwnerId;
+    function postNovelMessage(name, payload) {
+      if (window.__novelOwnerId !== novelOwnerId) return false;
+      var handlers = window.webkit && window.webkit.messageHandlers;
+      if (!handlers || !handlers[name]) return false;
+      var body = payload || {};
+      body.owner = novelOwnerId;
+      handlers[name].postMessage(body);
+      return true;
+    }
 
     window.updateAmbientBackground = function(bgCss, enabled) {
       var layer = document.getElementById("ambient-bg-layer");
@@ -752,21 +773,15 @@ ${THEME_CSS_VARS}
     };
 
     function handleOpenIllust(illustId) {
-      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openIllust) {
-        window.webkit.messageHandlers.openIllust.postMessage({ illustId: illustId });
-      }
+      postNovelMessage("openIllust", { illustId: illustId });
     }
 
     function handleJumpToPage(page) {
-      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.jumpToPage) {
-        window.webkit.messageHandlers.jumpToPage.postMessage({ page: page });
-      }
+      postNovelMessage("jumpToPage", { page: page });
     }
 
     function handleSeriesNav(action, id) {
-      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.onSeriesNav) {
-        window.webkit.messageHandlers.onSeriesNav.postMessage({ action: action, id: id });
-      }
+      postNovelMessage("onSeriesNav", { action: action, id: id });
     }
 
     window.updateSeriesNav = function(nav) {
@@ -801,9 +816,7 @@ ${THEME_CSS_VARS}
     };
 
     function handleLinkClick(url) {
-      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openLink) {
-        window.webkit.messageHandlers.openLink.postMessage({ url: url });
-      }
+      postNovelMessage("openLink", { url: url });
     }
 
     window.pendingImages = window.pendingImages || {};
@@ -856,9 +869,7 @@ ${THEME_CSS_VARS}
 
     function notifyReaderReady() {
       flushPendingImages();
-      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.readerReady) {
-        window.webkit.messageHandlers.readerReady.postMessage({});
-      }
+      postNovelMessage("readerReady", {});
     }
 
     window.addEventListener("DOMContentLoaded", notifyReaderReady);
@@ -870,8 +881,8 @@ ${THEME_CSS_VARS}
     function checkPlaceholders() {
       flushPendingImages();
       var spinners = document.querySelectorAll(".illust-spinner");
-      if (spinners.length > 0 && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.readerReady) {
-        window.webkit.messageHandlers.readerReady.postMessage({});
+      if (spinners.length > 0) {
+        postNovelMessage("readerReady", {});
       }
     }
     setTimeout(checkPlaceholders, 300);
@@ -901,16 +912,12 @@ ${THEME_CSS_VARS}
     window.addEventListener("scroll", function() {
       if (!isScrolling) {
         isScrolling = true;
-        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.onScrollState) {
-          window.webkit.messageHandlers.onScrollState.postMessage({ scrolling: true });
-        }
+        postNovelMessage("onScrollState", { scrolling: true });
       }
       if (scrollStopTimer) clearTimeout(scrollStopTimer);
       scrollStopTimer = setTimeout(function() {
         isScrolling = false;
-        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.onScrollState) {
-          window.webkit.messageHandlers.onScrollState.postMessage({ scrolling: false });
-        }
+        postNovelMessage("onScrollState", { scrolling: false });
       }, 1400);
     }, { passive: true });
 
@@ -921,9 +928,7 @@ ${THEME_CSS_VARS}
       if (target.closest("button") || target.closest("a") || target.closest(".pixiv-illust-card")) {
         return;
       }
-      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.toggleControls) {
-        window.webkit.messageHandlers.toggleControls.postMessage({});
-      }
+      postNovelMessage("toggleControls", {});
     });
 
     var progressTimer = null;
@@ -945,9 +950,7 @@ ${THEME_CSS_VARS}
           lastReportedChunk = chunkId;
           if (progressTimer) clearTimeout(progressTimer);
           progressTimer = setTimeout(function() {
-            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.onProgressChange) {
-              window.webkit.messageHandlers.onProgressChange.postMessage({ page: page, chunkId: chunkId });
-            }
+            postNovelMessage("onProgressChange", { page: page, chunkId: chunkId });
           }, 100);
         }
       }, {
@@ -989,6 +992,7 @@ function buildVerticalImmersiveHtml(options: BuildHtmlOptions): string {
     imageCache,
     ambientActive,
     ambientBgCss: propBgCss,
+    ownerGeneration,
   } = options
   const ambientBgCss = propBgCss || "transparent"
 
@@ -1136,6 +1140,9 @@ function buildVerticalImmersiveHtml(options: BuildHtmlOptions): string {
 
   const safeInitialChunk = JSON.stringify(initialChunkId || null)
   const safeInitialPage = JSON.stringify(typeof initialPage === "number" ? initialPage : null)
+  const safeOwnerGeneration = JSON.stringify(
+    typeof ownerGeneration === "number" ? ownerGeneration : 0
+  )
 
   return `<!DOCTYPE html>
 <html>
@@ -1490,6 +1497,18 @@ ${THEME_CSS_VARS}
     var targetChunkId = ${safeInitialChunk};
     var targetPage = ${safeInitialPage};
     var isRestoring = true;
+    // 文档代际标识：本页脚本只代表这一次载入的正文，旧文档（已被替换）的迟到回调一律不再向上通报
+    var novelOwnerId = ${safeOwnerGeneration};
+    window.__novelOwnerId = novelOwnerId;
+    function postNovelMessage(name, payload) {
+      if (window.__novelOwnerId !== novelOwnerId) return false;
+      var handlers = window.webkit && window.webkit.messageHandlers;
+      if (!handlers || !handlers[name]) return false;
+      var body = payload || {};
+      body.owner = novelOwnerId;
+      handlers[name].postMessage(body);
+      return true;
+    }
 
     window.updateAmbientBackground = function(bgCss, enabled) {
       var layer = document.getElementById("ambient-bg-layer");
@@ -1518,21 +1537,15 @@ ${THEME_CSS_VARS}
     };
 
     function handleOpenIllust(illustId) {
-      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openIllust) {
-        window.webkit.messageHandlers.openIllust.postMessage({ illustId: illustId });
-      }
+      postNovelMessage("openIllust", { illustId: illustId });
     }
 
     function handleJumpToPage(page) {
-      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.jumpToPage) {
-        window.webkit.messageHandlers.jumpToPage.postMessage({ page: page });
-      }
+      postNovelMessage("jumpToPage", { page: page });
     }
 
     function handleSeriesNav(action, id) {
-      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.onSeriesNav) {
-        window.webkit.messageHandlers.onSeriesNav.postMessage({ action: action, id: id });
-      }
+      postNovelMessage("onSeriesNav", { action: action, id: id });
     }
 
     window.updateSeriesNav = function(nav) {
@@ -1567,9 +1580,7 @@ ${THEME_CSS_VARS}
     };
 
     function handleLinkClick(url) {
-      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.openLink) {
-        window.webkit.messageHandlers.openLink.postMessage({ url: url });
-      }
+      postNovelMessage("openLink", { url: url });
     }
 
     window.pendingImages = window.pendingImages || {};
@@ -1622,9 +1633,7 @@ ${THEME_CSS_VARS}
 
     function notifyReaderReady() {
       flushPendingImages();
-      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.readerReady) {
-        window.webkit.messageHandlers.readerReady.postMessage({});
-      }
+      postNovelMessage("readerReady", {});
     }
 
     window.addEventListener("DOMContentLoaded", notifyReaderReady);
@@ -1636,8 +1645,8 @@ ${THEME_CSS_VARS}
     function checkPlaceholders() {
       flushPendingImages();
       var spinners = document.querySelectorAll(".illust-spinner");
-      if (spinners.length > 0 && window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.readerReady) {
-        window.webkit.messageHandlers.readerReady.postMessage({});
+      if (spinners.length > 0) {
+        postNovelMessage("readerReady", {});
       }
     }
     setTimeout(checkPlaceholders, 300);
@@ -1679,16 +1688,12 @@ ${THEME_CSS_VARS}
     scrollTarget.addEventListener("scroll", function() {
       if (!isScrolling) {
         isScrolling = true;
-        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.onScrollState) {
-          window.webkit.messageHandlers.onScrollState.postMessage({ scrolling: true });
-        }
+        postNovelMessage("onScrollState", { scrolling: true });
       }
       if (scrollStopTimer) clearTimeout(scrollStopTimer);
       scrollStopTimer = setTimeout(function() {
         isScrolling = false;
-        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.onScrollState) {
-          window.webkit.messageHandlers.onScrollState.postMessage({ scrolling: false });
-        }
+        postNovelMessage("onScrollState", { scrolling: false });
       }, 1400);
     }, { passive: true });
 
@@ -1699,9 +1704,7 @@ ${THEME_CSS_VARS}
       if (target.closest("button") || target.closest("a") || target.closest(".pixiv-illust-card")) {
         return;
       }
-      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.toggleControls) {
-        window.webkit.messageHandlers.toggleControls.postMessage({});
-      }
+      postNovelMessage("toggleControls", {});
     });
 
     var progressTimer = null;
@@ -1723,9 +1726,7 @@ ${THEME_CSS_VARS}
           lastReportedChunk = chunkId;
           if (progressTimer) clearTimeout(progressTimer);
           progressTimer = setTimeout(function() {
-            if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.onProgressChange) {
-              window.webkit.messageHandlers.onProgressChange.postMessage({ page: page, chunkId: chunkId });
-            }
+            postNovelMessage("onProgressChange", { page: page, chunkId: chunkId });
           }, 100);
         }
       }, {
@@ -1781,6 +1782,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     episodeNumber,
     onClose,
     onToggleMarker,
+    onToggleMarkerAtPage,
     onJumpToPage,
     onNavigateNovel,
     onNavigateSeries,
@@ -1797,6 +1799,13 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
   )
   const [switchingEpisode, setSwitchingEpisode] = useState(false)
   const [switchHint, setSwitchHint] = useState<string | null>(null)
+
+  // 内部换章后的书签页码（当前作品与父级传入的 novelId 不同时使用，避免把页码写到原作品）
+  const [activeMarkerPage, setActiveMarkerPage] = useState<number | null>(null)
+
+  // 当前内嵌 WebView 文档的代际标识：切章会换掉整篇正文文档，
+  // 旧文档的迟到消息（滚动进度、跳页、系列翻页）一律按代际丢弃，绝不写到新作品。
+  const documentGenerationRef = useRef(0)
 
   // 接入小说正文同款沉浸光感（设置值与状态跟随“对小说正文页启用”）
   const {
@@ -1849,7 +1858,11 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
 
   const currentChunkIdRef = useRef<string | null>(initialChunkId ?? null)
   const novelIdRef = useRef(activeNovelId)
-  novelIdRef.current = activeNovelId
+
+  // 代际与当前作品引用必须在提交后统一更新，避免渲染期副作用导致消息校验错位
+  useEffect(() => {
+    novelIdRef.current = activeNovelId
+  }, [activeNovelId])
 
   const controllerRef = useRef<any>(null)
   if (!controllerRef.current) {
@@ -1915,12 +1928,17 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     }
   }, [markerBusy, onToggleMarker])
 
-  // 跳页
+  // 跳页：内部换章后父级跳页回调仍绑定原作品，必须改写到当前作品自身的进度，避免跨篇污染
   const handlePageChange = useCallback(
     (page: number) => {
       triggerHaptic("selection")
       setCurrentPage(page)
-      onJumpToPage?.(page)
+      const ownerId = novelIdRef.current
+      if (ownerId && ownerId !== novelId) {
+        recordNovelProgress(ownerId, page, currentChunkIdRef.current ?? undefined, true)
+      } else {
+        onJumpToPage?.(page)
+      }
       const ctrl = controllerRef.current
       if (ctrl) {
         const targetId = `page-${page}`
@@ -1931,8 +1949,52 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
         void ctrl.evaluateJavaScript(script).catch(() => {})
       }
     },
-    [onJumpToPage]
+    [onJumpToPage, novelId]
   )
+
+  // 书签：按「当前作品 + 当前页」写入，跨篇时直接落到该作品自己的书签接口
+  const handleToggleActiveMarker = useCallback(async () => {
+    if (markerBusy) return
+    const ownerId = novelIdRef.current
+    const page = Math.max(1, currentPageRef.current || 1)
+    if (!ownerId) return
+    if (ownerId === novelId) {
+      // 父级 currentPage 可能滞后于阅读器内部页码，优先按阅读器当前页切换
+      if (onToggleMarkerAtPage) {
+        triggerHaptic("medium")
+        setMarkerBusy(true)
+        try {
+          await onToggleMarkerAtPage(page)
+        } catch (err: any) {
+          console.warn("Toggle novel marker failed:", err?.message ?? err)
+        } finally {
+          setMarkerBusy(false)
+        }
+        return
+      }
+      await handleToggleMarker()
+      return
+    }
+
+    triggerHaptic("medium")
+    setMarkerBusy(true)
+    try {
+      const currentMarker = getCachedNovelMarker(ownerId) ?? null
+      if (currentMarker === page) {
+        await session.call((token) => deleteNovelMarker(ownerId, token))
+        recordNovelMarker(ownerId, null)
+        setActiveMarkerPage(null)
+      } else {
+        await session.call((token) => addNovelMarker(ownerId, page, token))
+        recordNovelMarker(ownerId, page)
+        setActiveMarkerPage(page)
+      }
+    } catch (err: any) {
+      console.warn("Toggle novel marker failed:", err?.message ?? err)
+    } finally {
+      setMarkerBusy(false)
+    }
+  }, [handleToggleMarker, markerBusy, novelId, onToggleMarkerAtPage])
 
   // 沉浸阅读器内部静默换章管线（不退出全屏，瞬时无缝切章）
   const handleSwitchEpisode = useCallback(
@@ -1965,10 +2027,18 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
           (detail as any)?.text_embedded_images ??
           undefined
 
-        // 读取该新章节的历史进度（默认从开头开始）
+        // 读取该新章节的历史进度与书签（默认从开头开始）
         const saved = getNovelProgress(targetNovelId)
         const targetChunk = saved?.chunkId ?? null
         const targetPage = saved?.page ?? 1
+        const detailMarker =
+          (detail as any)?.novel_marker?.page ?? (detail as any)?.marker?.page ?? null
+        const nextMarker = typeof detailMarker === "number" && detailMarker > 0
+          ? detailMarker
+          : (getCachedNovelMarker(targetNovelId) ?? null)
+        if (typeof detailMarker === "number" && detailMarker > 0) {
+          recordNovelMarker(targetNovelId, detailMarker)
+        }
 
         setActiveNovelId(targetNovelId)
         setActiveTitle(newTitle)
@@ -1978,8 +2048,8 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
         setActiveImages(newImages)
         setImageCache({})
         setCurrentPage(targetPage)
+        setActiveMarkerPage(nextMarker)
         currentChunkIdRef.current = targetChunk
-        novelIdRef.current = targetNovelId
 
         // 视口平滑归位至开头
         const ctrl = controllerRef.current
@@ -2033,8 +2103,14 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     if (!ctrl || handlersRegisteredRef.current) return
     handlersRegisteredRef.current = true
 
+    // 代际校验：仅接受当前有效文档发来的消息，丢弃切篇期间迟到的旧正文进度/跳页/翻页
+    const isStaleDocument = (data: any): boolean => {
+      const owner = data?.owner
+      return typeof owner === "number" && owner !== documentGenerationRef.current
+    }
+
     void ctrl.addScriptMessageHandler("onProgressChange", (data: any) => {
-      if (!data) return
+      if (!data || isStaleDocument(data)) return
       const page = typeof data.page === "number" ? data.page : 1
       const chunkId = typeof data.chunkId === "string" ? data.chunkId : undefined
       if (chunkId) {
@@ -2051,19 +2127,23 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     }).catch(() => {})
 
     void ctrl.addScriptMessageHandler("onScrollState", (data: any) => {
+      if (isStaleDocument(data)) return
       const scrolling = Boolean(data?.scrolling)
       setControlsVisible(!scrolling)
     }).catch(() => {})
 
-    void ctrl.addScriptMessageHandler("toggleControls", () => {
+    void ctrl.addScriptMessageHandler("toggleControls", (data: any) => {
+      if (isStaleDocument(data)) return
       setControlsVisible((prev) => !prev)
     }).catch(() => {})
 
-    void ctrl.addScriptMessageHandler("readerReady", () => {
+    void ctrl.addScriptMessageHandler("readerReady", (data: any) => {
+      if (isStaleDocument(data)) return
       replayLoadedImagesRef.current()
     }).catch(() => {})
 
     void ctrl.addScriptMessageHandler("openIllust", (data: any) => {
+      if (isStaleDocument(data)) return
       const illustId =
         typeof data?.illustId === "number" ? data.illustId : parseInt(data?.illustId, 10)
       if (illustId && !isNaN(illustId)) {
@@ -2072,6 +2152,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     }).catch(() => {})
 
     void ctrl.addScriptMessageHandler("jumpToPage", (data: any) => {
+      if (isStaleDocument(data)) return
       const page = typeof data?.page === "number" ? data.page : parseInt(data?.page, 10)
       if (page && !isNaN(page)) {
         handlePageChangeRef.current(page)
@@ -2079,6 +2160,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     }).catch(() => {})
 
     void ctrl.addScriptMessageHandler("onSeriesNav", (data: any) => {
+      if (isStaleDocument(data)) return
       const action = data?.action
       const id = typeof data?.id === "number" ? data.id : parseInt(data?.id, 10)
       if (!id || isNaN(id)) return
@@ -2095,6 +2177,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     }).catch(() => {})
 
     void ctrl.addScriptMessageHandler("openLink", (data: any) => {
+      if (isStaleDocument(data)) return
       const url = typeof data?.url === "string" ? data.url : ""
       if (!url) return
       if (url.startsWith("http://") || url.startsWith("https://")) {
@@ -2105,6 +2188,15 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
       }
     }).catch(() => {})
   }, [])
+
+  // 文档代际递增：与正文载入效应同依赖，切章时旧文档立即作废（清理时也会递增，
+  // 保证「旧 DOM 迟到进度」不会写到刚切换的新作品上）
+  useEffect(() => {
+    documentGenerationRef.current += 1
+    return () => {
+      documentGenerationRef.current += 1
+    }
+  }, [activeNovelId, displayedChunks, activeTitle, settings.layoutDirection, ambientActive])
 
   // 仅在章节变更、文本分块变更、或横竖排方向切换时载入对应引擎的 HTML
   useEffect(() => {
@@ -2121,6 +2213,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
       imageCache: imageCacheRef.current,
       ambientActive,
       ambientBgCss,
+      ownerGeneration: documentGenerationRef.current,
     })
 
     void ctrl.loadHTML(html).then(() => {
@@ -2259,6 +2352,9 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
   const bottomInset = metrics.isLandscape ? 18 : (Device.screen.height > 800 ? 32 : 16)
   const horizontalInset = metrics.isLandscape ? 32 : 20
 
+  // 书签页码归属：内部换章后用该作品自己的书签，绝不把新作品页码显示成原作品书签
+  const displayedMarkerPage = activeNovelId === novelId ? (markerPage ?? null) : activeMarkerPage
+
   return (
     <NavigationStack tint={appCustomTint()}>
       <ZStack
@@ -2395,7 +2491,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
                 >
                   {Array.from({ length: totalPages }, (_, i) => totalPages - i).map((p) => (
                     <Text key={p} tag={p}>
-                      {`第 ${p} 页${p === markerPage ? "（书签）" : ""}`}
+                      {`第 ${p} 页${p === displayedMarkerPage ? "（书签）" : ""}`}
                     </Text>
                   ))}
                 </Picker>
@@ -2412,13 +2508,13 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
                     glassEffect={appInteractiveGlass("circle")}
                     contentShape="circle"
                     shadow={{ color: "#0000001F", radius: 8, y: 2 }}
-                    onTapGesture={handleToggleMarker}
+                    onTapGesture={() => void handleToggleActiveMarker()}
                   >
                     <Image
-                      systemName={markerPage === currentPage ? "book.pages.fill" : "book.pages"}
+                      systemName={displayedMarkerPage === currentPage ? "book.pages.fill" : "book.pages"}
                       font="subheadline"
                       fontWeight="semibold"
-                      foregroundStyle={markerPage === currentPage ? "systemBlue" : "secondaryLabel"}
+                      foregroundStyle={displayedMarkerPage === currentPage ? "systemBlue" : "secondaryLabel"}
                     />
                   </ZStack>
                 ) : null}

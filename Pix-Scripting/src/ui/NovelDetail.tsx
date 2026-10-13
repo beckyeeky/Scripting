@@ -2155,6 +2155,7 @@ export function NovelDetailView(props: { novelID: number }) {
                 }
               }}
               onToggleMarker={handleToggleMarker}
+              onToggleMarkerAtPage={handleToggleSpecificPageMarker}
               onJumpToPage={handlePageChange}
               onNavigateNovel={(nextId) => {
                 setShowImmersiveReader(false)

@@ -1,4 +1,4 @@
-import { downloadBinary } from "../api/client"
+import { downloadBinary, downloadBinaryDetailed, type BinaryDownloadOutcome } from "../api/client"
 import { imageUrlOf } from "../image/imageLoader"
 import { getDownloadImageQuality, loadSettings, type DownloadImageQuality } from "../store/settings"
 import type { PixivIllustration } from "../types"
@@ -16,41 +16,196 @@ export function getDownloadImageUrl(
   return imageUrlOf(illust, pageIndex, quality)
 }
 
+export type DownloadFailureKind =
+  | "cancelled"
+  | "auth"
+  | "permission"
+  | "notFound"
+  | "rateLimited"
+  | "server"
+  | "network"
+  | "empty"
+  | "invalid"
+  | "unknown"
+
+export interface DownloadFailure {
+  kind: DownloadFailureKind
+  message: string
+  status: number | null
+  retryable: boolean
+}
+
+const AUTH_MESSAGE_PATTERN = /(401|unauthorized|未登录|登录失效|登录已失效|请先登录|重新登录|凭据|令牌|access\s*token|token\s*无效|invalid[_ ]grant)/i
+const ACCOUNT_MESSAGE_PATTERN = /(账号|账户).*(变化|切换|不一致|不同)/i
+const PERMISSION_MESSAGE_PATTERN = /(403|forbidden|权限|无权|受限|不允许|access\s*denied|not\s*allowed)/i
+const NOT_FOUND_MESSAGE_PATTERN = /(404|410|不存在|未找到|已被删除|not\s*found)/i
+const CANCEL_MESSAGE_PATTERN = /(已取消|取消|cancel|abort|暂停|paused|taskpause)/i
+const RETRYABLE_MESSAGE_PATTERN = /(超时|timeout|timed?\s*out|网络|network|连接|connection|断线|限流|rate\s*limit|429|5\d\d\s*(错误|error)|服务(器)?(错误|不可用)|temporar)/i
+
+/** 依据 HTTP 状态码判定失败性质；仅瞬时故障允许重试 */
+export function classifyHttpStatus(status: number, message?: string): DownloadFailure {
+  const base = { message: message ?? `HTTP ${status}`, status }
+  if (status === 401) return { ...base, kind: "auth", retryable: false }
+  if (status === 403) return { ...base, kind: "permission", retryable: false }
+  if (status === 404 || status === 410) return { ...base, kind: "notFound", retryable: false }
+  if (status === 408 || status === 425 || status === 429) return { ...base, kind: "rateLimited", retryable: true }
+  if (status >= 500) return { ...base, kind: "server", retryable: true }
+  if (status >= 400) return { ...base, kind: "invalid", retryable: false }
+  return { ...base, kind: "unknown", retryable: false }
+}
+
+function parseStatusFromText(text: string): number | null {
+  const match = text.match(/\b(4\d\d|5\d\d)\b/)
+  if (!match) return null
+  const status = parseInt(match[1], 10)
+  return isNaN(status) ? null : status
+}
+
+/** 依据抛出的错误（含 PixivError.status）判定失败性质与是否可重试 */
+export function classifyDownloadError(error: unknown): DownloadFailure {
+  const err = error as any
+  const message =
+    typeof err?.message === "string" && err.message ? err.message : String(err ?? "未知错误")
+  if (err?.name === "TaskAbortError" || err?.name === "TaskPauseError") {
+    return { kind: "cancelled", message, status: null, retryable: false }
+  }
+  if (CANCEL_MESSAGE_PATTERN.test(message)) {
+    return { kind: "cancelled", message, status: null, retryable: false }
+  }
+  if (ACCOUNT_MESSAGE_PATTERN.test(message)) {
+    return { kind: "auth", message, status: null, retryable: false }
+  }
+  const status =
+    typeof err?.status === "number" && err.status > 0 ? err.status : parseStatusFromText(message)
+  if (status !== null) {
+    const byStatus = classifyHttpStatus(status, message)
+    if (byStatus.kind !== "unknown") return byStatus
+  }
+  if (AUTH_MESSAGE_PATTERN.test(message)) {
+    return { kind: "auth", message, status, retryable: false }
+  }
+  if (PERMISSION_MESSAGE_PATTERN.test(message)) {
+    return { kind: "permission", message, status, retryable: false }
+  }
+  if (NOT_FOUND_MESSAGE_PATTERN.test(message)) {
+    return { kind: "notFound", message, status, retryable: false }
+  }
+  if (RETRYABLE_MESSAGE_PATTERN.test(message)) {
+    return { kind: "network", message, status, retryable: true }
+  }
+  // 未识别的错误：保守处理，不做盲目重试，交由上层报告
+  return { kind: "unknown", message, status, retryable: false }
+}
+
+/** 依据 downloadBinaryDetailed 的下载结果判定失败性质与是否可重试 */
+export function classifyDownloadOutcome(outcome: BinaryDownloadOutcome): DownloadFailure {
+  const message = outcome.message ?? ""
+  if (outcome.failure === "aborted") {
+    return { kind: "cancelled", message: message || "已取消", status: outcome.status, retryable: false }
+  }
+  if (outcome.failure === "blocked") {
+    return { kind: "invalid", message: message || "地址不被允许", status: outcome.status, retryable: false }
+  }
+  if (outcome.failure === "empty") {
+    return { kind: "empty", message: message || "响应内容为空", status: outcome.status, retryable: true }
+  }
+  if (outcome.status !== null && outcome.status > 0) {
+    return classifyHttpStatus(outcome.status, message)
+  }
+  return { kind: "network", message: message || "网络错误", status: outcome.status, retryable: true }
+}
+
+export function isNonRetryableFailure(failure: DownloadFailure | null | undefined): boolean {
+  return !failure || !failure.retryable
+}
+
+/** 供报告使用的可读失败描述 */
+export function describeDownloadFailure(failure: DownloadFailure | null | undefined): string {
+  if (!failure) return "未知原因"
+  const statusText = failure.status ? `（HTTP ${failure.status}）` : ""
+  return `${failure.message || failure.kind}${statusText}`
+}
+
 /**
- * 安全下载二进制图片，带有一次自动重试与可选取消控制
+ * 安全下载二进制图片，按失败性质做有限重试：
+ * · 网络／超时／限流／5xx 等瞬时故障最多重试到 maxAttempts 次；
+ * · 鉴权、权限、资源缺失、地址非法、取消等确定失败立即返回，绝不盲目重试。
+ */
+export async function fetchImageBinaryWithResult(
+  url: string,
+  maxAttempts = 2,
+  token?: TaskControlToken
+): Promise<{ data: Data | null; failure: DownloadFailure | null }> {
+  if (!url) {
+    return {
+      data: null,
+      failure: { kind: "invalid", message: "缺少图片地址", status: null, retryable: false },
+    }
+  }
+  const attempts = Math.max(1, Math.min(3, maxAttempts))
+  let lastFailure: DownloadFailure | null = null
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (token) await token.checkOrWait()
+    const outcome = await downloadBinaryDetailed(url, undefined, token?.signal)
+    if (outcome.data) {
+      return { data: outcome.data, failure: null }
+    }
+    lastFailure = classifyDownloadOutcome(outcome)
+    if (!lastFailure.retryable || attempt === attempts - 1) break
+    if (token?.isCancelled || token?.isPaused) break
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 600 * (attempt + 1))
+    })
+  }
+
+  if (lastFailure && lastFailure.kind !== "cancelled") {
+    console.log("fetchImageBinary failed:", url.slice(0, 80), describeDownloadFailure(lastFailure))
+  }
+  return { data: null, failure: lastFailure }
+}
+
+/**
+ * 安全下载二进制图片，带有一次自动重试与可选取消控制。
+ * 兼容既有调用方：只返回数据，失败时返回 null（重试策略见 fetchImageBinaryWithResult）。
  */
 export async function fetchImageBinaryWithRetry(
   url: string,
   retryCount = 1,
   token?: TaskControlToken
 ): Promise<Data | null> {
-  if (!url) return null
-  if (token) await token.checkOrWait()
+  const { data } = await fetchImageBinaryWithResult(url, retryCount + 1, token)
+  return data
+}
 
-  try {
-    const data = await downloadBinary(url, undefined, token?.signal)
-    if (data) return data
-  } catch (err: any) {
-    if (token?.isCancelled || token?.isPaused) return null
-    console.log("fetchImageBinary error (retrying):", url.slice(0, 80), err?.message ?? err)
-  }
+/**
+ * 受限重试执行器：仅对判定为瞬时故障的错误重试，鉴权／权限／取消／资源缺失等
+ * 确定失败立即抛出，避免把无效凭据或受限内容反复打到服务端。
+ */
+export async function runWithLimitedRetry<T>(
+  task: () => Promise<T>,
+  options: { attempts?: number; delayMs?: number; token?: TaskControlToken } = {}
+): Promise<T> {
+  const attempts = Math.max(1, Math.min(3, options.attempts ?? 2))
+  const delayMs = options.delayMs ?? 800
+  let lastError: unknown
 
-  if (token) await token.checkOrWait()
-
-  if (retryCount > 0) {
-    if (token?.isCancelled || token?.isPaused) return null
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, 600)
-    })
-    if (token) await token.checkOrWait()
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    if (options.token) await options.token.checkOrWait()
     try {
-      const data = await downloadBinary(url, undefined, token?.signal)
-      if (data) return data
-    } catch {
-      if (token?.isCancelled || token?.isPaused) return null
+      return await task()
+    } catch (error) {
+      lastError = error
+      const failure = classifyDownloadError(error)
+      if (attempt === attempts - 1 || !failure.retryable) throw error
+      if (options.token?.isCancelled) throw error
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, delayMs * (attempt + 1))
+      })
     }
   }
-  return null
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError))
 }
 
 /**
