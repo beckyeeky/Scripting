@@ -14,6 +14,21 @@ import {
 } from "scripting"
 import { useDualRoute } from "./DualRouteContext"
 import { nextNovelMarkers, novelMarkers } from "../api/pixiv"
+import {
+  buildOfflineViews,
+  filterOfflineViews,
+  listOfflineEpisodes,
+  offlineBadgeText,
+  offlineLibraryUsage,
+  removeOfflineEpisode,
+  sortOfflineViews,
+  type OfflineEpisodeSummary,
+  type OfflineFilter,
+  type OfflineSort,
+} from "../store/novelOfflineLibrary"
+import { getNovelHighestProgress, getNovelProgress, onNovelProgressChanged } from "../store/novelProgress"
+import { appGlass } from "./components/glass"
+import { requestPixivRoute } from "../store/routeNavigation"
 import { novelThumbUrlOf, prefetch } from "../image/imageLoader"
 import {
   loadSettings,
@@ -119,6 +134,33 @@ export function NovelLibraryView() {
     isAppleMusic
   )
 
+  // ── 离线书库（按账号隔离；阅读进度与批注独立于缓存清理） ──
+  const [offlineFilter, setOfflineFilter] = useState<OfflineFilter>("all")
+  const [offlineSort, setOfflineSort] = useState<OfflineSort>("recent")
+  const [offlineVersion, setOfflineVersion] = useState(0)
+  const [showOffline, setShowOffline] = useState(true)
+
+  useEffect(() => {
+    // 阅读进度变化时刷新「在读/已读」筛选结果；离线缓存变化由 offlineVersion 触发
+    return onNovelProgressChanged(() => setOfflineVersion((value) => value + 1))
+  }, [])
+
+  const offlineViews = useMemo(() => {
+    const summaries: OfflineEpisodeSummary[] = listOfflineEpisodes()
+    const views = buildOfflineViews(summaries, (novelId) => {
+      const current = getNovelProgress(novelId)
+      const highest = getNovelHighestProgress(novelId)
+      if (!current && !highest) return null
+      return {
+        currentPage: current?.page ?? highest?.page ?? 1,
+        highestPage: highest?.page ?? current?.page ?? 1,
+      }
+    })
+    return sortOfflineViews(filterOfflineViews(views, offlineFilter), offlineSort)
+  }, [offlineFilter, offlineSort, offlineVersion])
+
+  const offlineUsage = useMemo(() => offlineLibraryUsage(), [offlineVersion])
+
   const [ambientImageUrl, setAmbientImageUrl] = useState<string | null>(() => getLastActiveAmbientImageUrl())
   useEffect(() => {
     const firstUrl = sortedItems[0] ? novelThumbUrlOf(sortedItems[0].novel) : null
@@ -212,6 +254,107 @@ export function NovelLibraryView() {
         <EmptyView text="暂无小说书签" systemImage="book.pages" />
       ) : (
         <LazyVStack alignment="leading" spacing={8} padding={{ horizontal: 8 }}>
+          {/* 离线书库：正文与元数据磁盘缓存；阅读进度、批注在缓存清理后仍保留 */}
+          <VStack alignment="leading" spacing={6} frame={{ maxWidth: "infinity" }}>
+            <Button
+              buttonStyle="plain"
+              action={() => setShowOffline((value) => !value)}
+            >
+              <HStack spacing={6} alignment="center" padding={{ vertical: 4 }} frame={{ maxWidth: "infinity" }}>
+                <Image systemName="arrow.down.circle" font="footnote" foregroundStyle="systemBlue" />
+                <Text font="subheadline" fontWeight="bold">
+                  离线书库
+                </Text>
+                <Text font="caption2" foregroundStyle="secondaryLabel">
+                  {`${offlineUsage.count} 篇 · ${Math.max(1, Math.round(offlineUsage.bytes / 1024))} KB`}
+                </Text>
+                <Spacer />
+                <Image
+                  systemName={showOffline ? "chevron.up" : "chevron.down"}
+                  font="caption2"
+                  foregroundStyle="secondaryLabel"
+                />
+              </HStack>
+            </Button>
+            {showOffline ? (
+              <VStack alignment="leading" spacing={6} frame={{ maxWidth: "infinity" }}>
+                <HStack spacing={10} alignment="center" frame={{ maxWidth: "infinity" }}>
+                  <Picker
+                    title="筛选"
+                    value={offlineFilter}
+                    onChanged={(value: string) => setOfflineFilter(value as OfflineFilter)}
+                  >
+                    <Text tag="all">全部</Text>
+                    <Text tag="reading">在读</Text>
+                    <Text tag="unread">未读</Text>
+                    <Text tag="finished">已读完</Text>
+                  </Picker>
+                  <Picker
+                    title="排序"
+                    value={offlineSort}
+                    onChanged={(value: string) => setOfflineSort(value as OfflineSort)}
+                  >
+                    <Text tag="recent">最近阅读</Text>
+                    <Text tag="saved">保存时间</Text>
+                    <Text tag="title">标题</Text>
+                  </Picker>
+                </HStack>
+                {offlineViews.length === 0 ? (
+                  <Text font="footnote" foregroundStyle="secondaryLabel">
+                    还没有符合条件的离线作品。打开小说详情页「离线与目录 → 保存到离线书库」即可断网阅读。
+                  </Text>
+                ) : (
+                  offlineViews.map((view) => (
+                    <HStack
+                      key={`offline-${view.novelId}`}
+                      spacing={10}
+                      alignment="center"
+                      padding={{ horizontal: 12, vertical: 10 }}
+                      glassEffect={appGlass({ type: "rect", cornerRadius: 12 })}
+                      contentShape={{ type: "rect", cornerRadius: 12 }}
+                      frame={{ maxWidth: "infinity" }}
+                      onTapGesture={() => requestPixivRoute(`novel:${view.novelId}`)}
+                    >
+                      <VStack alignment="leading" spacing={3} frame={{ maxWidth: "infinity" }}>
+                        <Text font="subheadline" fontWeight="semibold" lineLimit={1}>
+                          {view.title}
+                        </Text>
+                        <Text font="caption2" foregroundStyle="secondaryLabel">
+                          {[
+                            offlineBadgeText(true, true),
+                            view.readState
+                              ? `阅读 ${view.readState.currentPage}/${view.pageCount} 页 · 最高 ${view.readState.highestPage} 页`
+                              : `${view.pageCount} 页 · 未读`,
+                            view.imageTotal > 0 ? `图片 ${view.imageOk}/${view.imageTotal}` : null,
+                          ].filter(Boolean).join(" · ")}
+                        </Text>
+                      </VStack>
+                      <Button
+                        buttonStyle="plain"
+                        action={async () => {
+                          const confirmed = typeof Dialog !== "undefined" && typeof Dialog.confirm === "function"
+                            ? await Dialog.confirm({
+                                title: "移除离线缓存？",
+                                message: `将删除《${view.title}》的离线正文；阅读进度与批注保留。`,
+                                confirmLabel: "移除",
+                                cancelLabel: "取消",
+                              })
+                            : true
+                          if (!confirmed) return
+                          removeOfflineEpisode(view.novelId)
+                          triggerHaptic("success")
+                          setOfflineVersion((value) => value + 1)
+                        }}
+                      >
+                        <Image systemName="trash" font="footnote" foregroundStyle="systemRed" />
+                      </Button>
+                    </HStack>
+                  ))
+                )}
+              </VStack>
+            ) : null}
+          </VStack>
+
           {sortedItems.map((item, index) => (
             <NovelCard
               key={item.novel.id}

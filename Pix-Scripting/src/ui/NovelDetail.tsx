@@ -43,6 +43,7 @@ import {
   novelBookmarkTags,
   novelDetail,
   novelViewerData,
+  illustrationDetail,
   relatedNovels,
   removeNovelBookmark,
   unfollowUser,
@@ -65,7 +66,7 @@ import {
 } from "./Hooks"
 import { useNovelExperimentalAmbientPalette } from "./ambient"
 import { useFloatingCapsuleHeight } from "./bottomAccessory"
-import { novelThumbUrlOf, prefetch } from "../image/imageLoader"
+import { imageUrlOf, loadImage, novelThumbUrlOf, prefetch } from "../image/imageLoader"
 import {
   recordNovelHistory,
   updateNovelHistoryBookmark,
@@ -90,7 +91,7 @@ import {
   recordNovelMarker,
 } from "../store/bookmarkSync"
 import { cacheNovel, getCachedNovel } from "../store/novelCache"
-import type { PixivNovel, PixivNovelDetail, PixivUser, PixivUserPreview, TextEmbeddedImage } from "../types"
+import type { PixivIllustration, PixivNovel, PixivNovelDetail, PixivUser, PixivUserPreview, TextEmbeddedImage } from "../types"
 import {
   loadSettings,
   onSettingsChanged,
@@ -116,6 +117,37 @@ import {
 } from "./components"
 import { SeriesEpisodePager } from "./SeriesEpisodePager"
 import { NovelReaderView, NovelReaderWebView, parseNovelToChunks } from "./NovelReader"
+import { NovelOutlineSearchSheet, type NovelJumpTarget } from "./NovelOutlineSearchSheet"
+import { anchorFromReaderMessage, readerJumpPayload } from "./novelReaderRuntime"
+import {
+  anchorFromProgress,
+  anchorRestoreNotice,
+  computeNovelContentVersion,
+  createNovelAnchor,
+  resolveNovelAnchor,
+  type NovelReadingAnchor,
+} from "../store/novelAnchor"
+import {
+  addEpisodeToOfflineSeries,
+  buildOfflineViews,
+  enforceOfflineLibraryCapacity,
+  hasOfflineEpisode,
+  markOfflineEpisodeAccessed,
+  offlineBadgeText,
+  offlineLibraryUsage,
+  readOfflineEpisode,
+  removeOfflineEpisode,
+  saveOfflineEpisode,
+  synthesizeOfflineNovelDetail,
+  type OfflineImageRecord,
+} from "../store/novelOfflineLibrary"
+import {
+  offlineImageSummaryText,
+  persistOfflineImages,
+  type OfflineImageTask,
+} from "../store/novelOfflineImages"
+import { buildOfflineImageTasks } from "./novelOfflineCapture"
+import { jumpFeedbackText, type ReaderEngineKind } from "../store/novelSearch"
 import { useNovelTranslation } from "./useNovelTranslation"
 import { NovelTranslationStatus } from "./NovelTranslationStatus"
 import { ConnectionRow } from "./components/ConnectionRow"
@@ -134,8 +166,10 @@ import {
   type NovelReaderSettings,
 } from "../store/novelReaderSettings"
 import {
+  buildBilingualNovelSource,
   buildNovelPlainTextDocument,
   buildTranslatedNovelSource,
+  bilingualExportIssue,
   novelTranslationExportIssue,
 } from "../store/novelExport"
 import { cleanHtmlCaption } from "../api/aiService"
@@ -301,9 +335,13 @@ export function NovelDetailView(props: { novelID: number }) {
   const rawSeries = novel?.series ?? (novel as any)?.novel_series
   const rawSeriesObj = Array.isArray(rawSeries) ? rawSeries[0] : rawSeries
   const associatedRef = getSeriesByWorkID(novelID, "novel")
-  const resolvedSeriesID = rawSeriesObj?.id ?? associatedRef?.seriesID ?? null
-  const resolvedSeriesTitle = rawSeriesObj?.title ?? associatedRef?.seriesTitle ?? null
-  const resolvedEpisodeNumber = novel?.episode_number ?? associatedRef?.episodeNumber ?? null
+  // 离线回退时详情接口不可用，系列归属来自离线记录（由 applyOfflineFallback 写入）
+  const offlineSeries = offlineSeriesRef.current
+  const resolvedSeriesID = rawSeriesObj?.id ?? associatedRef?.seriesID ?? offlineSeries?.id ?? null
+  const resolvedSeriesTitle =
+    rawSeriesObj?.title ?? associatedRef?.seriesTitle ?? offlineSeries?.title ?? null
+  const resolvedEpisodeNumber =
+    novel?.episode_number ?? associatedRef?.episodeNumber ?? offlineSeries?.episodeNumber ?? null
   const cleanedCaption = cleanHtmlCaption(novel?.caption)
   const { session: translationSession, snapshot: translation } = useNovelTranslation(
     novelID, novel?.title ?? "", cleanedCaption, text, resolvedSeriesID
@@ -486,11 +524,56 @@ export function NovelDetailView(props: { novelID: number }) {
     })
   }, [novelID, performScrollRestoration])
 
+  /**
+   * 网络失败时的离线回退：只读本地磁盘，并把来源明确标注为「离线」。
+   *
+   * 关键点：详情接口断网时不可用，若不合成作品元数据，详情页会落到「小说不存在」
+   * 错误页，磁盘上的正文再完整也读不到 —— 因此这里用地缓存 + 离线记录合成最小元数据。
+   */
+  function applyOfflineFallback(message?: string): boolean {
+    const record = readOfflineEpisode(novelID)
+    if (!record) return false
+    const synthesized = synthesizeOfflineNovelDetail(record, getCachedNovel(novelID) ?? null)
+    offlineSeriesRef.current = record.seriesId
+      ? { id: record.seriesId, title: synthesized?.series?.title ?? null, episodeNumber: record.episodeNumber ?? null }
+      : null
+    if (synthesized) setNovel(synthesized)
+    setText(record.text)
+    setTextEmbeddedImages(undefined)
+    setOfflineReading(true)
+    setTextError(message ? `离线阅读（${message}）` : "离线阅读")
+    markOfflineEpisodeAccessed(novelID)
+    const restored = resolveNovelAnchor(
+      anchorFromProgress({
+        novelID,
+        page: initialProgress?.page ?? 1,
+        chunkId: initialProgress?.chunkId,
+        contentVersion: initialProgress?.contentVersion,
+        offset: initialProgress?.offset,
+        quote: initialProgress?.quote,
+        chunkIndex: initialProgress?.chunkIndex,
+      }),
+      (record.text ? parseNovelToChunks(record.text) : []),
+      { contentVersion: computeNovelContentVersion(record.text) }
+    )
+    if (restored.chunkId) {
+      initialScrollChunkIdRef.current = restored.chunkId
+      lastRecordedChunkRef.current = restored.chunkId
+      scrollPos.setValue(restored.chunkId)
+      isRestoringScrollRef.current = true
+    }
+    if (restored.page > 1) setCurrentPage(restored.page)
+    const notice = anchorRestoreNotice(restored.matched, restored.contentChanged)
+    if (notice) setAnchorNotice(notice)
+    return true
+  }
+
   async function load() {
     const g = guard()
     setLoading(true)
     setReaderReady(false)
     setError(null)
+    setOfflineReading(false)
     try {
       const [detail, viewer] = await Promise.all([
         session.call((token) => novelDetail(novelID, token)),
@@ -600,10 +683,15 @@ export function NovelDetailView(props: { novelID: number }) {
         setReaderReady(true)
       }
     } catch (err: any) {
-      if (g.isCurrent()) {
-        setError(err?.message ?? "加载失败")
+      if (!g.isCurrent()) return
+      // 网络失败：优先用离线书库，任何情况下都不静默失败
+      if (applyOfflineFallback(err?.message)) {
         setReaderReady(true)
+        setLoading(false)
+        return
       }
+      setError(err?.message ?? "加载失败")
+      setReaderReady(true)
     } finally {
       if (g.isCurrent()) setLoading(false)
     }
@@ -893,6 +981,68 @@ export function NovelDetailView(props: { novelID: number }) {
   }
 
   const [downloadingEpub, setDownloadingEpub] = useState(false)
+  const [savingOffline, setSavingOffline] = useState(false)
+  // 阅读器锚点（含正文版本与段内偏移）；解析版本变化时按文本锚点安全回退
+  const readerAnchorRef = useRef<NovelReadingAnchor | null>(null)
+  const outlineReturnAnchorRef = useRef<NovelReadingAnchor | null>(null)
+  const [canReturnToOutline, setCanReturnToOutline] = useState(false)
+  const readerControllerRef = useRef<any>(null)
+  // 本篇正文块（目录与检索只在本篇范围内；系列目录由系列页负责）
+  const chunksForReader = useMemo(() => (text ? parseNovelToChunks(text, textEmbeddedImages) : []), [text, textEmbeddedImages])
+  const detailContentVersion = useMemo(() => computeNovelContentVersion(text), [text])
+  const detailContentVersionRef = useRef(detailContentVersion)
+  detailContentVersionRef.current = detailContentVersion
+  const chunkIndexOf = useCallback(
+    (chunkId?: string | null): number => {
+      if (!chunkId) return -1
+      return chunksForReader.findIndex((chunk) => chunk.id === chunkId)
+    },
+    [chunksForReader]
+  )
+  const chunkSourceTextOf = useCallback(
+    (chunkId?: string | null): string => {
+      const index = chunkIndexOf(chunkId)
+      if (index < 0) return ""
+      const chunk = chunksForReader[index]
+      return chunk.type === "chapter" ? chunk.title ?? "" : chunk.text ?? ""
+    },
+    [chunkIndexOf, chunksForReader]
+  )
+  const visibleChunkIndex = useCallback((chunkId: string) => chunkIndexOf(chunkId), [chunkIndexOf])
+  const visibleChunkQuote = useCallback(
+    (chunkId: string) => {
+      const sourceText = chunkSourceTextOf(chunkId)
+      if (!sourceText) return undefined
+      return sourceText.slice(0, 24).replace(/\s+/g, " ").trim() || undefined
+    },
+    [chunkSourceTextOf]
+  )
+  const [offlineReading, setOfflineReading] = useState(false)
+  const [showOutlineSearch, setShowOutlineSearch] = useState(false)
+  /** 续读/目录检索恢复的说明文案（精确命中不打扰用户） */
+  const [anchorNotice, setAnchorNotice] = useState<string | null>(null)
+  /** 离线回退时合成的系列归属（详情接口不可用，无法从 novel 读取） */
+  const offlineSeriesRef = useRef<{ id: number; title: string | null; episodeNumber: number | null } | null>(null)
+  /**
+   * 正文渲染引擎：竖向排版走 WebView（支持命中片段高亮），
+   * 其余为原生 SwiftUI 节点树（只能滚动到段落，不能高亮片段）。
+   */
+  const readerEngine: ReaderEngineKind = readerSettings.layoutDirection === "vertical" ? "webview" : "native"
+  const highlightSupported = readerEngine === "webview"
+
+  /** 离线保存 / 系列离线保存共用的插图地址解析（只取地址，不落凭据） */
+  const resolveOfflineIllustUrl = useCallback(
+    async (illustId: number, pageIndex: number): Promise<string | null> => {
+      try {
+        const illust = await session.call((token) => illustrationDetail(illustId, token))
+        if (!illust) return null
+        return imageUrlOf(illust as PixivIllustration, Math.max(0, pageIndex), "large") ?? null
+      } catch {
+        return null
+      }
+    },
+    []
+  )
 
   async function resolveNovelExportSource() {
     let fullText = text
@@ -946,7 +1096,26 @@ export function NovelDetailView(props: { novelID: number }) {
     }
   }
 
-  async function handleExportNovelEpub(mode: "original" | "translated") {
+  /** 双语（按块对照）导出：任一段落缺译文即拒绝，绝不输出半双语文档 */
+  function resolveBilingualExport(fullText: string) {
+    const issue = bilingualExportIssue(translation, false)
+    if (issue) return { issue, data: null }
+    const chunks = parseNovelToChunks(fullText)
+    const bilingualText = buildBilingualNovelSource(chunks, translation)
+    if (!bilingualText || !translation?.translatedTitle) {
+      return { issue: "译文缓存不完整，请重试未完成段落后导出", data: null }
+    }
+    return {
+      issue: null,
+      data: {
+        title: `${translation.translatedTitle}（双语）`,
+        caption: cleanedCaption ? translation.translatedCaption ?? "" : "",
+        text: bilingualText,
+      },
+    }
+  }
+
+  async function handleExportNovelEpub(mode: "original" | "translated" | "bilingual") {
     if (downloadingEpub) return
     triggerHaptic("light")
     setDownloadingEpub(true)
@@ -961,8 +1130,10 @@ export function NovelDetailView(props: { novelID: number }) {
       let exportCaption = current.caption
       let exportText = fullText
       let customFileName: string | undefined
-      if (mode === "translated") {
-        const translated = resolveTranslatedExport(fullText)
+      if (mode === "translated" || mode === "bilingual") {
+        const translated = mode === "bilingual"
+          ? resolveBilingualExport(fullText)
+          : resolveTranslatedExport(fullText)
         if (!translated.data) {
           await Dialog.alert({ title: "译文尚未完成", message: translated.issue ?? "请完成翻译后重试" })
           return
@@ -970,7 +1141,7 @@ export function NovelDetailView(props: { novelID: number }) {
         exportTitle = translated.data.title
         exportCaption = translated.data.caption
         exportText = translated.data.text
-        customFileName = `${exportTitle}_${current.user?.name || "Unknown"}_${translation?.targetLanguage ?? "translated"}译文`
+        customFileName = `${exportTitle}_${current.user?.name || "Unknown"}_${translation?.targetLanguage ?? "translated"}${mode === "bilingual" ? "双语" : "译文"}`
       }
 
       const isR18 = (current.x_restrict ?? 0) > 0 || current.tags?.some((t) => /r-?18/i.test(t.name))
@@ -1081,6 +1252,187 @@ export function NovelDetailView(props: { novelID: number }) {
     await ShareSheet.present([filePath])
   }
 
+  /** 保存本篇到离线书库（正文 + 元数据 + 图片完整性状态），并执行容量管理 */
+  /** 目录 / 检索命中 → 跳转（页内阅读器：定位到块并记录锚点；竖向引擎同时高亮命中片段） */
+  const handleOutlineSearchJump = useCallback((target: NovelJumpTarget) => {
+    const previous = readerAnchorRef.current
+    if (previous) {
+      outlineReturnAnchorRef.current = previous
+    } else if (lastRecordedChunkRef.current) {
+      outlineReturnAnchorRef.current = createNovelAnchor({
+        novelId: novelID,
+        page: currentPageRef.current,
+        chunkId: lastRecordedChunkRef.current,
+        chunkIndex: chunkIndexOf(lastRecordedChunkRef.current),
+        chunkText: chunkSourceTextOf(lastRecordedChunkRef.current),
+        contentVersion: detailContentVersionRef.current,
+      })
+    }
+    setCanReturnToOutline(Boolean(outlineReturnAnchorRef.current))
+
+    lastRecordedChunkRef.current = target.chunkId
+    initialScrollChunkIdRef.current = target.chunkId
+    isRestoringScrollRef.current = true
+    hasRestoredScrollRef.current = true
+    scrollPos.setValue(target.chunkId)
+    try {
+      proxyRef.current?.scrollTo(target.chunkId, "top")
+    } catch {
+      // 原生横向阅读器不支持逐块定位时静默忽略，位置仍以进度记录为准
+    }
+    const anchor = createNovelAnchor({
+      novelId: novelID,
+      page: target.page,
+      chunkId: target.chunkId,
+      chunkIndex: chunkIndexOf(target.chunkId),
+      chunkText: chunkSourceTextOf(target.chunkId),
+      contentVersion: detailContentVersionRef.current,
+      offset: target.offset,
+    })
+    if (target.quote) anchor.quote = target.quote
+    readerAnchorRef.current = anchor
+    if (target.page && target.page !== currentPageRef.current) setCurrentPage(target.page)
+    recordNovelProgress(novelID, target.page, target.chunkId, false, {
+      contentVersion: anchor.contentVersion,
+      offset: anchor.offset,
+      quote: anchor.quote,
+      chunkIndex: anchor.chunkIndex,
+    })
+
+    // 竖向（WebView）引擎：下发滚动 + 命中高亮
+    const payload = readerJumpPayload(anchor, chunksForReader, detailContentVersionRef.current)
+    const controller = readerControllerRef.current
+    if (controller) {
+      const script = `if (window.jumpToReaderAnchor) { window.jumpToReaderAnchor(${JSON.stringify({
+        chunkId: payload.chunkId,
+        page: payload.page,
+        offset: payload.offset,
+        quote: payload.quote ?? "",
+      })}); }`
+      void controller.evaluateJavaScript(script).catch(() => {})
+    }
+  }, [chunkIndexOf, chunkSourceTextOf, chunksForReader, novelID, scrollPos])
+
+  /** 返回目录/检索跳转前的位置 */
+  const handleReturnToOutline = useCallback(() => {
+    const anchor = outlineReturnAnchorRef.current
+    if (!anchor) return
+    const payload = readerJumpPayload(anchor, chunksForReader, detailContentVersionRef.current)
+    if (payload.chunkId) {
+      lastRecordedChunkRef.current = payload.chunkId
+      initialScrollChunkIdRef.current = payload.chunkId
+      isRestoringScrollRef.current = true
+      hasRestoredScrollRef.current = true
+      scrollPos.setValue(payload.chunkId)
+      try {
+        proxyRef.current?.scrollTo(payload.chunkId, "top")
+      } catch {}
+    }
+    if (payload.page && payload.page !== currentPageRef.current) setCurrentPage(payload.page)
+    const controller = readerControllerRef.current
+    if (controller) {
+      const script = `if (window.jumpToReaderAnchor) { window.jumpToReaderAnchor(${JSON.stringify({
+        chunkId: payload.chunkId,
+        page: payload.page,
+        offset: payload.offset,
+        quote: payload.quote ?? "",
+      })}); }`
+      void controller.evaluateJavaScript(script).catch(() => {})
+    }
+    outlineReturnAnchorRef.current = null
+    setCanReturnToOutline(false)
+  }, [chunksForReader, scrollPos])
+
+  async function handleSaveOffline() {
+    if (savingOffline) return
+    triggerHaptic("light")
+    setSavingOffline(true)
+    try {
+      const { fullText, imagesMap, cover } = await resolveNovelExportSource()
+      if (!fullText) {
+        await Dialog.alert({ title: "无法保存", message: "没有获取到正文，请连网后重试" })
+        return
+      }
+      // 1) 先列出正文里出现的插图任务（拿不到地址的如实标注，不谎称完整）
+      const captureChunks = parseNovelToChunks(fullText, textEmbeddedImages)
+      const tasks = await buildOfflineImageTasks({
+        chunks: captureChunks,
+        embeddedImages: textEmbeddedImages,
+        imageUrls: imagesMap,
+        resolveIllustUrl: resolveOfflineIllustUrl,
+      })
+      const pendingImages: OfflineImageRecord[] = tasks.map((task) => ({
+        chunkId: task.chunkId,
+        status: task.url ? "pending" : task.deferred ? "pending" : "missing",
+        note: task.url
+          ? undefined
+          : task.deferred
+            ? "超出本次保存上限，阅读时可继续补全"
+            : "未解析到插图地址",
+      }))
+      // 2) 正文与元数据落盘（图片先记为待补）
+      const record = saveOfflineEpisode({
+        novelId: current.id,
+        title: current.title,
+        text: fullText,
+        author: current.user?.name,
+        seriesId: resolvedSeriesID,
+        episodeNumber: resolvedEpisodeNumber,
+        caption: cleanedCaption,
+        coverUrl: cover ?? null,
+        tags: current.tags?.map((tag) => tag.name),
+        images: pendingImages,
+      })
+      if (!record) {
+        await Dialog.alert({ title: "保存失败", message: "无法写入离线书库，请检查可用空间后重试" })
+        return
+      }
+      // 3) 把插图字节真实复制进离线书库：断网重启后仍按账号可读，而不是只记缓存路径
+      let imageText = "本篇没有正文插图"
+      if (tasks.length > 0) {
+        const summary = await persistOfflineImages({
+          novelId: current.id,
+          tasks,
+          loadBytes: (url) => loadImage(url, -1000),
+        })
+        imageText = offlineImageSummaryText(summary)
+      }
+      // 容量管理：超限时按最近访问淘汰旧正文缓存；阅读进度与批注在其它目录，不会被删除
+      enforceOfflineLibraryCapacity()
+      triggerHaptic("success")
+      await Dialog.alert({
+        title: "已保存离线",
+        message: `《${record.title}》已可离线阅读（${record.pageCount} 页）。\n${imageText}\n\n阅读进度与批注不受缓存清理影响；离线缓存不会常驻系统后台。`,
+      })
+    } catch (e: any) {
+      await Dialog.alert({ title: "保存失败", message: e?.message ?? "未知错误" })
+    } finally {
+      setSavingOffline(false)
+    }
+  }
+
+  /** 移除本篇离线缓存（阅读进度与批注保留） */
+  async function handleRemoveOffline() {
+    if (!hasOfflineEpisode(current.id)) {
+      await Dialog.alert({ title: "未保存离线", message: "本篇尚未保存到离线书库" })
+      return
+    }
+    const usage = offlineLibraryUsage()
+    let confirmed = true
+    if (typeof Dialog !== "undefined" && typeof Dialog.confirm === "function") {
+      confirmed = await Dialog.confirm({
+        title: "移除离线缓存？",
+        message: `将删除《${current.title}》的离线正文（当前书库共 ${usage.count} 篇）。阅读进度与批注会保留。`,
+        confirmLabel: "移除",
+        cancelLabel: "取消",
+      })
+    }
+    if (!confirmed) return
+    removeOfflineEpisode(current.id)
+    triggerHaptic("success")
+    await Dialog.alert({ title: "已移除", message: "离线正文已删除，阅读进度与批注保留。" })
+  }
+
   async function handleNovelExportMenu() {
     if (downloadingEpub) return
     const targetLabel = NOVEL_TRANSLATION_TARGETS.find(
@@ -1092,6 +1444,7 @@ export function NovelDetailView(props: { novelID: number }) {
       actions: [
         { label: "原文 EPUB" },
         { label: `译文 EPUB（${targetLabel}）` },
+        { label: `双语 EPUB（原文 + ${targetLabel} 译文，按块对照）` },
         { label: "复制原文全文" },
         { label: `复制译文全文（${targetLabel}）` },
         { label: "导出原文 TXT" },
@@ -1100,10 +1453,11 @@ export function NovelDetailView(props: { novelID: number }) {
     })
     if (choice === 0) await handleExportNovelEpub("original")
     else if (choice === 1) await handleExportNovelEpub("translated")
-    else if (choice === 2) await handleCopyNovelText("original")
-    else if (choice === 3) await handleCopyNovelText("translated")
-    else if (choice === 4) await handleExportNovelText("original")
-    else if (choice === 5) await handleExportNovelText("translated")
+    else if (choice === 2) await handleExportNovelEpub("bilingual")
+    else if (choice === 3) await handleCopyNovelText("original")
+    else if (choice === 4) await handleCopyNovelText("translated")
+    else if (choice === 5) await handleExportNovelText("original")
+    else if (choice === 6) await handleExportNovelText("translated")
   }
 
   async function shareNovel() {
@@ -1424,7 +1778,12 @@ export function NovelDetailView(props: { novelID: number }) {
 
                   lastRecordedChunkRef.current = visibleChunkId
                   if (visiblePage !== currentPageRef.current) setCurrentPage(visiblePage)
-                  recordNovelProgress(novelID, visiblePage, visibleChunkId)
+                  recordNovelProgress(novelID, visiblePage, visibleChunkId, false, {
+                    contentVersion: detailContentVersionRef.current,
+                    offset: 0,
+                    quote: visibleChunkQuote(visibleChunkId),
+                    chunkIndex: visibleChunkIndex(visibleChunkId),
+                  })
                 }
               },
             }}
@@ -1761,6 +2120,27 @@ export function NovelDetailView(props: { novelID: number }) {
               action={handleNovelExportMenu}
             />
             <Divider />
+            <Menu title="离线与目录" systemImage="arrow.down.circle">
+              <Button
+                title={hasOfflineEpisode(current.id) ? "更新离线缓存" : "保存到离线书库"}
+                systemImage="arrow.down.circle"
+                action={() => void handleSaveOffline()}
+              />
+              <Button
+                title="移除离线缓存"
+                systemImage="trash"
+                role="destructive"
+                action={() => void handleRemoveOffline()}
+              />
+              <Button
+                title="目录与正文检索"
+                systemImage="list.bullet.indent"
+                action={() => {
+                  triggerHaptic("light")
+                  setShowOutlineSearch(true)
+                }}
+              />
+            </Menu>,
             <Menu title="信息" systemImage="info.circle">
               <Button
                 title={`作者：${current.user.name}`}
@@ -1977,10 +2357,27 @@ export function NovelDetailView(props: { novelID: number }) {
         {text && translationSession && translation ? (
           <NovelTranslationStatus session={translationSession} snapshot={translation} />
         ) : null}
+        {offlineReading ? (
+          <HStack
+            key="novel-offline-banner"
+            spacing={6}
+            alignment="center"
+            padding={{ horizontal: 12, vertical: 6 }}
+            background="secondarySystemFill"
+            clipShape={{ type: "capsule", style: "continuous" }}
+          >
+            <Image systemName="wifi.slash" font="caption2" foregroundStyle="systemOrange" />
+            <Text font="caption2" foregroundStyle="secondaryLabel">
+              离线阅读中（使用本地缓存正文，不含网络图片）
+            </Text>
+          </HStack>
+        ) : null}
         {text ? (
           <NovelReaderView
             novelId={current.id}
             text={text}
+            readingAnchor={readerAnchorRef.current ?? (initialProgress ? anchorFromProgress(initialProgress) : null)}
+            controllerSink={readerControllerRef}
             translation={translation}
             title={current.title}
             markerPage={markerPage}
@@ -1991,12 +2388,35 @@ export function NovelDetailView(props: { novelID: number }) {
             ambientAlgorithm={ambientAlgorithm}
             onJumpToPage={handlePageChange}
             onReady={handleReaderReady}
-            onProgressChange={(page, chunkId) => {
+            onProgressChange={(page, chunkId, detail) => {
               if (page && page !== currentPageRef.current) {
                 setCurrentPage(page)
               }
               if (chunkId) {
                 lastRecordedChunkRef.current = chunkId
+                const index = chunkIndexOf(chunkId)
+                const sourceText = index >= 0
+                  ? (chunksForReader[index].type === "chapter"
+                      ? chunksForReader[index].title ?? ""
+                      : chunksForReader[index].text ?? "")
+                  : ""
+                // 段内偏移与文本锚点：正文或排版变化后仍能回到同一处
+                const anchor = anchorFromReaderMessage(
+                  { novelId: novelID, page, chunkId, offset: detail?.offset, quote: detail?.quote,
+                    chunkIndex: index >= 0 ? index : undefined },
+                  sourceText,
+                  detailContentVersionRef.current,
+                  novelID
+                )
+                if (anchor) {
+                  readerAnchorRef.current = anchor
+                  recordNovelProgress(novelID, page, chunkId, false, {
+                    contentVersion: anchor.contentVersion,
+                    offset: anchor.offset,
+                    quote: anchor.quote,
+                    chunkIndex: anchor.chunkIndex,
+                  })
+                }
               }
             }}
           />
@@ -2123,6 +2543,24 @@ export function NovelDetailView(props: { novelID: number }) {
         }}
       />
       <VStack
+        sheet={{
+          content: (
+            <NovelOutlineSearchSheet
+              title={current.title}
+              chunks={chunksForReader}
+              currentChunkId={lastRecordedChunkRef.current}
+              currentPage={currentPage}
+              onJump={handleOutlineSearchJump}
+              onReturn={handleReturnToOutline}
+              canReturn={canReturnToOutline}
+              onClose={() => setShowOutlineSearch(false)}
+            />
+          ),
+          isPresented: showOutlineSearch,
+          onChanged: setShowOutlineSearch,
+        }}
+      />
+      <VStack
         fullScreenCover={{
           content: (
             <NovelImmersiveReaderView
@@ -2135,6 +2573,26 @@ export function NovelDetailView(props: { novelID: number }) {
               markerPage={markerPage}
               currentPage={currentPage}
               initialChunkId={lastRecordedChunkRef.current ?? undefined}
+              initialAnchor={
+                readerAnchorRef.current
+                  ? {
+                      chunkId: readerAnchorRef.current.chunkId ?? null,
+                      page: readerAnchorRef.current.page,
+                      offset: readerAnchorRef.current.offset,
+                      quote: readerAnchorRef.current.quote,
+                    }
+                  : initialProgress
+                    ? (() => {
+                        const anchor = anchorFromProgress(initialProgress)
+                        return {
+                          chunkId: anchor.chunkId ?? null,
+                          page: anchor.page,
+                          offset: anchor.offset,
+                          quote: anchor.quote,
+                        }
+                      })()
+                    : null
+              }
               seriesID={resolvedSeriesID}
               seriesTitle={resolvedSeriesTitle}
               seriesPrev={current.series_prev}

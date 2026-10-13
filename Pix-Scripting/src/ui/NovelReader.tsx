@@ -36,7 +36,9 @@ import {
   type NovelReaderSettings,
 } from "../store/novelReaderSettings"
 import { getNovelProgress, recordNovelProgress } from "../store/novelProgress"
+import { completePendingOfflineImage, offlineImagePathMap } from "../store/novelOfflineLibrary"
 import type { NovelTranslationSnapshot } from "../store/novelTranslation"
+import { NOVEL_READER_RUNTIME_CSS, NOVEL_READER_RUNTIME_JS } from "./novelReaderRuntime"
 
 export function escapeHtml(text: string): string {
   if (!text) return ""
@@ -837,7 +839,9 @@ export function buildVerticalHtml(
     { dataUrl: string; title?: string; author?: string; illustId?: number }
   >,
   ambientActive?: boolean,
-  ambientBgCss?: string
+  ambientBgCss?: string,
+  /** 续读锚点：正文版本 + 段内偏移 + 文本锚点，正文/排版变化后按片段安全恢复 */
+  readingAnchor?: { chunkId?: string | null; page?: number; offset?: number; quote?: string } | null
 ): string {
   const fontName = resolveFontName(settings.fontId, settings.customFontPostscriptName)
   let fontFamily = "-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif"
@@ -942,6 +946,14 @@ export function buildVerticalHtml(
 
   const safeTargetId = JSON.stringify(targetChunkId || null)
   const safeTargetPage = JSON.stringify(typeof targetPage === "number" ? targetPage : null)
+  const safeRuntimeAnchor = JSON.stringify({
+    chunkId: readingAnchor?.chunkId ?? targetChunkId ?? null,
+    page: typeof readingAnchor?.page === "number"
+      ? readingAnchor.page
+      : (typeof targetPage === "number" ? targetPage : null),
+    offset: typeof readingAnchor?.offset === "number" ? readingAnchor.offset : 0,
+    quote: readingAnchor?.quote ?? "",
+  })
 
   return `<!DOCTYPE html>
 <html>
@@ -1119,6 +1131,7 @@ ${themeCssVars}
     color: var(--accent-color);
     text-decoration: underline;
   }
+${NOVEL_READER_RUNTIME_CSS}
 </style>
 </head>
 <body>
@@ -1128,7 +1141,9 @@ ${themeCssVars}
     ${bodyHtmlParts.join("\n")}
   </div>
   <script>
+${NOVEL_READER_RUNTIME_JS}
     var targetChunkId = ${safeTargetId};
+    var runtimeAnchor = ${safeRuntimeAnchor};
     var targetPage = ${safeTargetPage};
 
     window.updateAmbientBackground = function(bgCss, enabled) {
@@ -1197,6 +1212,8 @@ ${themeCssVars}
       } else {
         container.innerHTML = '<img class="novel-img" src="' + dataUrl + '" />';
       }
+      // 图片撑开高度后重新对齐续读位置；用户已滚动则绝不拉回
+      realignAfterImageLoad();
     };
 
     function scrollToNovelStart() {
@@ -1225,16 +1242,21 @@ ${themeCssVars}
 
     function restoreProgress(customTargetId) {
       var chunkToFind = customTargetId || targetChunkId;
+      // 优先使用文本锚点：正文或排版变化后仍能找回位置
+      if (!customTargetId && runtimeAnchor && (runtimeAnchor.quote || runtimeAnchor.chunkId)) {
+        var result = NovelReaderRuntime.jumpToAnchor({
+          chunkId: runtimeAnchor.chunkId || chunkToFind,
+          page: runtimeAnchor.page || targetPage,
+          quote: runtimeAnchor.quote,
+          offset: runtimeAnchor.offset,
+        });
+        if (result.chunkId && result.matched !== "start") return true;
+      }
       if (chunkToFind && chunkToFind !== "novel-top-anchor" && chunkToFind !== "chunk-0") {
         var el = document.getElementById(chunkToFind);
         if (el && typeof el.scrollIntoView === "function") {
-          try {
-            el.scrollIntoView({ inline: "start", block: "start", behavior: "instant" });
-            return true;
-          } catch (e) {
-            el.scrollIntoView(true);
-            return true;
-          }
+          NovelReaderRuntime.scrollElementIntoView(el);
+          return true;
         }
       }
       if (targetPage && targetPage > 1 && !customTargetId) {
@@ -1333,10 +1355,14 @@ ${themeCssVars}
         var chunkId = foundEl.getAttribute("data-chunk-id");
         var pageNum = parseInt(foundEl.getAttribute("data-page") || "1", 10);
         targetChunkId = chunkId;
+        var anchorInfo = NovelReaderRuntime.computeAnchor(
+          foundEl, Math.max(24, window.innerHeight * 0.15)) || { offset: 0, quote: "" };
         if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.onProgressChange) {
           window.webkit.messageHandlers.onProgressChange.postMessage({
             chunkId: chunkId,
-            page: pageNum
+            page: pageNum,
+            offset: anchorInfo.offset || 0,
+            quote: anchorInfo.quote || ""
           });
         }
       }
@@ -1345,6 +1371,10 @@ ${themeCssVars}
     var vContainer = document.querySelector(".vertical-container");
     if (vContainer) {
       vContainer.addEventListener("scroll", function() {
+        if (NovelReaderRuntime.noteScroll() && isRestoringOrResizing) {
+          isRestoringOrResizing = false;
+          NovelReaderRuntime.setSettling(false);
+        }
         if (isRestoringOrResizing) return;
         if (scrollTimer) clearTimeout(scrollTimer);
         scrollTimer = setTimeout(reportProgress, 80);
@@ -1355,10 +1385,44 @@ ${themeCssVars}
       }, { passive: true });
     }
     window.addEventListener("scroll", function() {
+      if (NovelReaderRuntime.noteScroll() && isRestoringOrResizing) {
+        isRestoringOrResizing = false;
+        NovelReaderRuntime.setSettling(false);
+      }
       if (isRestoringOrResizing) return;
       if (scrollTimer) clearTimeout(scrollTimer);
       scrollTimer = setTimeout(reportProgress, 80);
     }, { passive: true });
+    window.addEventListener("touchstart", function() {
+      NovelReaderRuntime.setSettling(false);
+    }, { passive: true });
+
+    // 图片迟加载后的重新对齐：仅待稳态内生效，用户接管后绝不拉回
+    function realignAfterImageLoad() {
+      NovelReaderRuntime.realignAfterContentChange(function() {
+        if (targetChunkId && targetChunkId !== "novel-top-anchor") {
+          restoreProgress(targetChunkId);
+        }
+      });
+    }
+
+    // 目录 / 检索命中跳转（TS 侧下发）：滚动 + 命中高亮
+    window.jumpToReaderAnchor = function(payload) {
+      isRestoringOrResizing = true;
+      var target = (payload && payload.chunkId) || null;
+      if (target) targetChunkId = target;
+      var result = NovelReaderRuntime.jumpToAnchor(payload || {});
+      if (payload && payload.quote) {
+        var hitEl = NovelReaderRuntime.findElementForQuote(payload.quote, target);
+        if (hitEl) NovelReaderRuntime.highlightQuote(hitEl, payload.quote);
+      }
+      setTimeout(function() {
+        isRestoringOrResizing = false;
+        NovelReaderRuntime.setSettling(false);
+      }, 300);
+      return result;
+    };
+    window.clearReaderHighlight = function() { NovelReaderRuntime.clearHighlight(); };
     window.addEventListener("touchend", function() {
       if (isRestoringOrResizing) return;
       setTimeout(reportProgress, 20);
@@ -1395,11 +1459,19 @@ function NovelVerticalReaderView(props: {
   settings: NovelReaderSettings
   targetChunkId?: string | null
   targetPage?: number
+  /** 续读锚点（正文版本 + 段内偏移 + 文本锚点），正文/排版变化后按片段安全恢复 */
+  readingAnchor?: { chunkId?: string | null; page?: number; offset?: number; quote?: string } | null
   ambientEnabled?: boolean
   ambientPalette?: IllustAmbientPalette | null
   ambientAlgorithm?: AmbientAlgorithm
-  onProgressChange?: (page: number, chunkId?: string) => void
+  onProgressChange?: (
+    page: number,
+    chunkId?: string,
+    detail?: { offset?: number; quote?: string }
+  ) => void
   onJumpToPage?: (page: number) => void
+  /** 向外暴露 WebView 控制器，供上层下发目录/检索跳转与高亮 */
+  controllerSink?: { current: WebViewController | null }
   translation?: NovelTranslationSnapshot | null
 }) {
   const {
@@ -1407,6 +1479,7 @@ function NovelVerticalReaderView(props: {
     chunks,
     settings,
     targetChunkId,
+    readingAnchor,
     targetPage,
     ambientEnabled,
     ambientPalette,
@@ -1419,6 +1492,12 @@ function NovelVerticalReaderView(props: {
   translationRef.current = translation
 
   const { height: screenHeight, isiPad, isLandscape } = useLayoutMetrics()
+
+  // 离线书库里「已真实落盘」的插图路径（chunkId → 路径）：断网重启后仍能显示正文插图
+  const offlineImagePaths = useMemo<Record<string, string>>(
+    () => (novelId ? offlineImagePathMap(novelId) : {}),
+    [novelId]
+  )
 
   const containerHeight = useMemo(() => {
     const margin = isiPad ? (isLandscape ? 180 : 220) : 200
@@ -1469,6 +1548,14 @@ function NovelVerticalReaderView(props: {
     controllerRef.current = new WebViewController()
   }
   const controller = controllerRef.current
+  // 暴露控制器给上层（只读用途：下发目录/检索跳转脚本）
+  useEffect(() => {
+    if (!props.controllerSink) return
+    props.controllerSink.current = controller
+    return () => {
+      props.controllerSink.current = null
+    }
+  }, [controller, props.controllerSink])
 
   const isDark = useEffectiveIsDark()
   const ambientActive = ambientEnabled && !!ambientPalette
@@ -1502,11 +1589,11 @@ function NovelVerticalReaderView(props: {
       if (chunkId) {
         currentChunkIdRef.current = chunkId
       }
-      const id = novelIdRef.current
-      if (id) {
-        recordNovelProgress(id, page, chunkId)
+      const detail = {
+        offset: typeof data.offset === "number" ? data.offset : undefined,
+        quote: typeof data.quote === "string" && data.quote ? data.quote : undefined,
       }
-      onProgressChangeRef.current?.(page, chunkId)
+      onProgressChangeRef.current?.(page, chunkId, detail)
     }).catch(() => {})
 
     void ctrl.addScriptMessageHandler("openIllust", (data: any) => {
@@ -1542,7 +1629,8 @@ function NovelVerticalReaderView(props: {
       targetPage,
       imageCacheRef.current,
       ambientActive,
-      ambientBgCss
+      ambientBgCss,
+      readingAnchor
     )
 
     void ctrl.loadHTML(html).then(() => {
@@ -1624,6 +1712,25 @@ function NovelVerticalReaderView(props: {
     let active = true
 
     for (const chunk of chunks) {
+      if (chunk.type !== "uploadedimage" && chunk.type !== "pixivimage") continue
+
+      // 离线书库优先：已真实落盘的插图直接读本地字节，断网/缓存被清理后依然可读
+      const offlinePath = offlineImagePaths[chunk.id]
+      if (offlinePath) {
+        const offlineDataUrl = getLocalImageDataUrl(offlinePath)
+        if (offlineDataUrl) {
+          setImageCache((prev: any) => ({ ...prev, [chunk.id]: { dataUrl: offlineDataUrl } }))
+          void controller
+            .evaluateJavaScript(
+              `if (window.updateNovelImage) { window.updateNovelImage(${JSON.stringify(
+                chunk.id
+              )}, ${JSON.stringify(offlineDataUrl)}); }`
+            )
+            .catch(() => {})
+          continue
+        }
+      }
+
       if (chunk.type === "uploadedimage") {
         const url = getUploadedImageUrl(chunk.info)
         if (!url || imageCacheRef.current[chunk.id]?.dataUrl) continue
@@ -1633,6 +1740,8 @@ function NovelVerticalReaderView(props: {
             if (!active || !path) return
             const dataUrl = getLocalImageDataUrl(path)
             if (!dataUrl) return
+            // 该篇若已保存离线，把这次真实拿到的字节补进书库（原本待补/缺地址的插图）
+            if (novelId) completePendingOfflineImage(novelId, chunk.id, path)
             setImageCache((prev: any) => ({
               ...prev,
               [chunk.id]: { dataUrl },
@@ -1663,6 +1772,7 @@ function NovelVerticalReaderView(props: {
             if (!dataUrl) return
             const title = illust.title || `Pixiv 插画 #${illustId}`
             const author = illust.user?.name || ""
+            if (novelId) completePendingOfflineImage(novelId, chunk.id, path)
             setImageCache((prev: any) => ({
               ...prev,
               [chunk.id]: { dataUrl, title, author, illustId },
@@ -1713,8 +1823,16 @@ export function NovelReaderView(props: {
   ambientAlgorithm?: AmbientAlgorithm
   onJumpToPage?: (page: number) => void
   onReady?: (totalPages: number, chunkPages: Record<string, number>) => void
-  onProgressChange?: (page: number, chunkId?: string) => void
+  onProgressChange?: (
+    page: number,
+    chunkId?: string,
+    detail?: { offset?: number; quote?: string }
+  ) => void
   onChunkVisible?: (chunkId: string) => void
+  /** 续读锚点（正文版本 + 段内偏移 + 文本锚点），正文/排版变化后安全恢复 */
+  readingAnchor?: { chunkId?: string | null; page?: number; offset?: number; quote?: string } | null
+  /** 向外暴露 WebView 控制器（仅竖向引擎可用），供目录/检索下发跳转与高亮 */
+  controllerSink?: { current: WebViewController | null }
   translation?: NovelTranslationSnapshot | null
 }) {
   const {
@@ -1811,11 +1929,13 @@ export function NovelReaderView(props: {
         settings={settings}
         targetChunkId={targetChunkId}
         targetPage={targetPage}
+        readingAnchor={readingAnchor}
+        controllerSink={controllerSink}
         ambientEnabled={ambientEnabled}
         ambientPalette={ambientPalette}
         ambientAlgorithm={ambientAlgorithm}
-        onProgressChange={(page, chunkId) => {
-          onProgressChange?.(page, chunkId)
+        onProgressChange={(page, chunkId, detail) => {
+          onProgressChange?.(page, chunkId, detail)
           if (chunkId) onChunkVisible?.(chunkId)
         }}
         onJumpToPage={onJumpToPage}

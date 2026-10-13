@@ -12,6 +12,17 @@ import { resolveGeneralAIConfigRoute } from "../api/aiAdapters"
 import { pixivDataDirectory, resolveEffectiveUID } from "./dataDirectory"
 import { recoverFile, writeTextSafely } from "./safeFile"
 import type { NovelTranslationTargetLanguage } from "./novelReaderSettings"
+import {
+  ledgerBlockStatus,
+  ledgerSourceFingerprint,
+  mergeLockedGlossary,
+  parseGlossaryEntries,
+  retryableBlockIds,
+  serializeGlossaryEntries,
+  translationAlignmentWarnings,
+  translationSendScopeNotice,
+  type TranslationProviderKind,
+} from "./novelTranslationLedger"
 
 export type TranslationDisplayMode = "original" | "translated"
 export type TranslationBlockStatus = "pending" | "running" | "done" | "error"
@@ -44,6 +55,10 @@ export interface NovelTranslationSnapshot {
   glossary?: string
   glossaryCount: number
   seriesGlossaryCount: number
+  /** 源正文已改动而失效的段落数（旧译文不得静默复用） */
+  stale: number
+  /** 术语表是否已锁定（锁定后不重新生成，且始终进入 prompt） */
+  glossaryLocked: boolean
   thinkingNotice: string
   message?: string
 }
@@ -66,12 +81,14 @@ interface StoredTranslation {
   captionFingerprint?: string
   seriesId?: number | null
   mode: TranslationDisplayMode
-  blocks: Record<string, { source: string; translation?: string; error?: string }>
+  blocks: Record<string, { source: string; translation?: string; error?: string; model?: string }>
   translatedTitle?: string
   translatedCaption?: string
   summary?: string
   glossary?: string
   glossarySkipped?: boolean
+  /** 用户手动编辑并锁定的术语表：不再自动重新生成，且必须进入 prompt */
+  glossaryLocked?: boolean
 }
 
 function fingerprint(value: string): string {
@@ -188,21 +205,25 @@ export class NovelTranslationSession {
 
   private hydrate(): NovelTranslationSnapshot {
     const blocks: Record<string, TranslationBlock> = {}
+    let stale = 0
     for (const item of this.input.blocks) {
       const source = fingerprint(item.text)
       const saved = this.stored.blocks[item.id]
-      const valid = saved?.source === source
+      // 账本判定：区分 未完成 / 完成 / 失败 / 失效（源正文或模型配置变化）
+      const status = ledgerBlockStatus(saved, source, this.model)
+      if (status === "stale") stale += 1
       blocks[item.id] = {
         id: item.id,
         original: item.text,
         kind: item.kind ?? "text",
-        translation: valid ? saved.translation : undefined,
-        status: valid && saved.translation ? "done" : valid && saved.error ? "error" : "pending",
-        error: valid ? saved.error : undefined,
+        translation: status === "done" ? saved?.translation : undefined,
+        status: status === "done" ? "done" : status === "failed" ? "error" : "pending",
+        error: status === "failed" ? saved?.error : undefined,
       }
     }
     this.stored.blocks = Object.fromEntries(Object.values(blocks).map((block) => [block.id, {
       source: fingerprint(block.original), translation: block.translation, error: block.error,
+      model: this.model,
     }]))
     const seriesKey = this.input.seriesId ? `${this.uid}:${this.model}:${this.input.seriesId}` : ""
     const seriesFile = this.input.seriesId && this.persistent
@@ -214,13 +235,14 @@ export class NovelTranslationSession {
     const needsGlossary = this.input.text.length >= 500 || Boolean(this.input.seriesId)
     return this.count({ novelId: this.input.novelId, targetLanguage: this.input.targetLanguage,
       mode: this.stored.mode, running: false, blocks,
-      done: 0, total: 0, failed: 0, phase: "idle",
+      done: 0, total: 0, failed: 0, stale, phase: "idle",
       summaryStatus: this.stored.summary && this.stored.translatedTitle &&
         (!this.input.caption || this.stored.translatedCaption) ? "ready" : "pending",
       glossaryStatus: glossary ? "ready" : needsGlossary && !this.stored.glossarySkipped ? "pending" : "skipped",
       translatedTitle: this.stored.translatedTitle, translatedCaption: this.stored.translatedCaption,
       summary: this.stored.summary, glossary, glossaryCount: glossaryEntries(glossary).size,
       seriesGlossaryCount: glossaryEntries(inherited).size,
+      glossaryLocked: Boolean(this.stored.glossaryLocked),
       thinkingNotice: getNovelTranslationThinkingNotice() })
   }
 
@@ -251,6 +273,86 @@ export class NovelTranslationSession {
     this.listeners.add(listener)
     listener(this.snapshot)
     return () => this.listeners.delete(listener)
+  }
+
+  /**
+   * 保存用户编辑的术语表，并可锁定。
+   * 锁定后不再自动重新生成，且该术语表始终进入翻译 prompt（系列术语只补缺，不覆盖锁定项）。
+   */
+  setGlossary(raw: string, locked: boolean): void {
+    const normalized = mergeLockedGlossary(raw, "")
+    this.stored.glossary = normalized || undefined
+    this.stored.glossaryLocked = locked && Boolean(normalized)
+    this.stored.glossarySkipped = !normalized
+    const inherited = this.currentSeriesGlossary()
+    const glossary = mergeLockedGlossary(inherited, this.stored.glossary ?? "")
+    this.snapshot = {
+      ...this.snapshot,
+      glossary,
+      glossaryCount: glossaryEntries(glossary).size,
+      seriesGlossaryCount: glossaryEntries(inherited).size,
+      glossaryLocked: Boolean(this.stored.glossaryLocked),
+      glossaryStatus: glossary ? "ready" : "skipped",
+    }
+    this.persist()
+    this.publish()
+  }
+
+  /** 当前可用的系列术语（内存缓存优先，其次磁盘） */
+  private currentSeriesGlossary(): string {
+    if (!this.input.seriesId) return ""
+    return seriesGlossaries.get(`${this.uid}:${this.model}:${this.input.seriesId}`) ?? ""
+  }
+
+  /**
+   * 当前翻译供应商（用于「发送范围」提示；只返回类别，不含端点与密钥）。
+   */
+  currentProviderKind(): TranslationProviderKind {
+    if (!isCustomAIConfigured()) return "assistant"
+    const config = resolveGeneralAIConfigRoute(loadCustomAIProfile().general)
+    switch (config.protocol) {
+      case "anthropic":
+        return "anthropic"
+      case "gemini":
+        return "gemini"
+      case "openai-chat":
+      case "openai-responses":
+        return "openai"
+      default:
+        return "unknown"
+    }
+  }
+
+  /** 重试全部未完成、失败与失效段落（失效段落必须重译，不能复用旧译文） */
+  async retryPending(): Promise<void> {
+    await this.start(this.pendingBlockIds())
+  }
+
+  /** 需要重新翻译的段落（未完成 / 失败 / 源改动后失效） */
+  pendingBlockIds(): string[] {
+    return Object.values(this.snapshot.blocks)
+      .filter((block) => block.status !== "done")
+      .map((block) => block.id)
+  }
+
+  /** 发送范围与供应商提示（不含端点与凭据，供 UI 展示） */
+  sendScopeNotice(provider: "assistant" | "openai" | "anthropic" | "gemini" | "unknown"): string {
+    return translationSendScopeNotice({
+      provider,
+      title: this.input.title,
+      caption: this.input.caption ?? "",
+      blocks: this.input.blocks.map((item) => ({ id: item.id, original: item.text, kind: item.kind })),
+      targetLanguage: this.input.targetLanguage,
+      glossaryCount: this.snapshot.glossaryCount,
+    })
+  }
+
+  /** 对齐校验回退提示：按块对照，不宣称逐句对齐 */
+  alignmentWarnings(): string[] {
+    return translationAlignmentWarnings(
+      this.input.blocks.map((item) => ({ id: item.id, original: item.text, kind: item.kind })),
+      this.snapshot.blocks
+    )
   }
 
   setMode(mode: TranslationDisplayMode): void {
@@ -409,7 +511,8 @@ export class NovelTranslationSession {
         this.publish()
       }
     }
-    if (needsGlossary && !this.stored.glossary && !this.stored.glossarySkipped && !signal.aborted) {
+    if (needsGlossary && !this.stored.glossaryLocked &&
+      !this.stored.glossary && !this.stored.glossarySkipped && !signal.aborted) {
       this.snapshot = { ...this.snapshot, phase: "glossary", glossaryStatus: "running" }
       this.publish()
       try {

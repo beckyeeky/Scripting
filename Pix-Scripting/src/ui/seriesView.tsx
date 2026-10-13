@@ -86,6 +86,18 @@ import {
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl } from "./ambient"
 import { parseNovelToChunks } from "./NovelReader"
 import { getNovelTranslationSession, type NovelTranslationSession } from "../store/novelTranslation"
+import { getCachedNovel } from "../store/novelCache"
+import { novelDetail as fetchNovelDetail, illustrationDetail } from "../api/pixiv"
+import { imageUrlOf } from "../image/imageLoader"
+import {
+  saveOfflineEpisode,
+  hasOfflineEpisode,
+  enforceOfflineLibraryCapacity,
+  offlineLibraryUsage,
+} from "../store/novelOfflineLibrary"
+import { persistOfflineImages, offlineImageSummaryText } from "../store/novelOfflineImages"
+import { buildOfflineImageTasks } from "./novelOfflineCapture"
+import { saveNovelSeriesOffline, describeSeriesOffline } from "../store/novelSeriesOffline"
 import { resolveEffectiveUID } from "../store/dataDirectory"
 import { onCustomAIConfigChanged } from "../store/customAI"
 import { cleanHtmlCaption } from "../api/aiService"
@@ -434,6 +446,9 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
 
   const pagedRef = useLatest(paged)
   const [seriesDownloading, setSeriesDownloading] = useState(false)
+  const [seriesOfflineSaving, setSeriesOfflineSaving] = useState(false)
+  const [seriesOfflineStatus, setSeriesOfflineStatus] = useState("")
+  const stopSeriesOfflineRef = useRef(false)
   const [seriesTranslating, setSeriesTranslating] = useState(false)
   const [translationStatus, setTranslationStatus] = useState("")
   const stopTranslationRef = useRef(false)
@@ -519,8 +534,101 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
     }
   }
 
+  /**
+   * 整系列离线保存：逐话抓正文（含正文插图字节）写入离线书库。
+   * 与单话保存共用落盘实现；抓不到的话进入缺章列表，系列清单绝不标为完整。
+   */
+  async function handleSaveSeriesOffline() {
+    if (kind !== "novel" || seriesOfflineSaving) return
+    const novels = [...(paged.items as PixivNovel[])].sort(
+      (a, b) => (a.episode_number ?? 0) - (b.episode_number ?? 0)
+    )
+    if (!novels.length) {
+      setSeriesOfflineStatus("暂无可保存的章节，请先加载列表")
+      return
+    }
+    const already = novels.filter((novel) => hasOfflineEpisode(novel.id)).length
+    const usage = offlineLibraryUsage()
+    const confirmed = await Dialog.confirm({
+      title: "保存系列离线",
+      message: `将按章节顺序保存《${title}》的 ${novels.length} 话正文与正文插图（其中 ${already} 话已有离线缓存）。\n当前离线书库 ${usage.count} 篇 / 约 ${Math.max(1, Math.round(usage.bytes / 1024 / 1024))} MB。\n\n离线缓存不放系统后台，页面被回收后可重新进入继续；阅读进度与批注不会被清理。`,
+      confirmLabel: "开始保存",
+      cancelLabel: "取消",
+    })
+    if (!confirmed) return
+    triggerHaptic("light")
+    stopSeriesOfflineRef.current = false
+    const startingUID = resolveEffectiveUID()
+    setSeriesOfflineSaving(true)
+    try {
+      const result = await saveNovelSeriesOffline({
+        seriesId: seriesID,
+        title,
+        episodes: novels.map((novel) => ({
+          novelId: novel.id,
+          title: novel.title,
+          episodeNumber: novel.episode_number ?? null,
+        })),
+        expectedEpisodeCount:
+          workCount && workCount >= novels.length ? workCount : novels.length,
+        fetchEpisode: async (episode) => {
+          if (resolveEffectiveUID() !== startingUID) return null
+          const novel = novels.find((item) => item.id === episode.novelId) ?? null
+          const detailPromise = getCachedNovel(episode.novelId)
+            ? Promise.resolve(getCachedNovel(episode.novelId))
+            : session.call((token) => fetchNovelDetail(episode.novelId, token))
+          const viewerPromise = session.call((token) => novelViewerData(episode.novelId, token))
+          const [detail, viewer] = await Promise.all([detailPromise, viewerPromise])
+          const text = viewer?.text
+          if (!text) return null
+          const tasks = await buildOfflineImageTasks({
+            chunks: parseNovelToChunks(text, viewer?.textEmbeddedImages),
+            embeddedImages: viewer?.textEmbeddedImages,
+            resolveIllustUrl: async (illustId, pageIndex) => {
+              try {
+                const illust = await session.call((token) => illustrationDetail(illustId, token))
+                if (!illust) return null
+                return imageUrlOf(illust as PixivIllustration, pageIndex, "large") ?? null
+              } catch {
+                return null
+              }
+            },
+          })
+          return {
+            text,
+            title: detail?.title || episode.title || `作品 ${episode.novelId}`,
+            author: detail?.user?.name,
+            caption: cleanHtmlCaption(detail?.caption),
+            coverUrl: detail?.image_urls?.large ?? detail?.image_urls?.medium ?? null,
+            tags: detail?.tags?.map((tag: any) => tag.name),
+            imageTasks: tasks,
+          }
+        },
+        loadBytes: (url) => loadImage(url, -1000),
+        shouldStop: () =>
+          stopSeriesOfflineRef.current || resolveEffectiveUID() !== startingUID,
+        onProgress: (_done, _total, message) => setSeriesOfflineStatus(message),
+      })
+      enforceOfflineLibraryCapacity()
+      setSeriesOfflineStatus(describeSeriesOffline(result))
+      if (result.messages.length > 0) {
+        await Dialog.alert({
+          title: result.complete ? "系列已离线保存" : "系列离线保存完成（不完整）",
+          message: `${describeSeriesOffline(result)}\n${result.messages.join("\n")}${
+            result.imageTotal > 0
+              ? `\n插图 ${result.imageOk}/${result.imageTotal} 已离线`
+              : ""
+          }`,
+        })
+      }
+    } catch (error: any) {
+      setSeriesOfflineStatus(`保存中断：${error?.message ?? "未知错误"}`)
+    } finally {
+      setSeriesOfflineSaving(false)
+    }
+  }
+
   async function handleExportSeries() {
-    if (seriesDownloading) return
     triggerHaptic("light")
 
     if (kind === "novel") {
@@ -656,6 +764,21 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
               action={handleExportSeries}
             />
           ) : null}
+          {kind === "novel" ? (
+            <Button
+              title={seriesOfflineSaving ? "停止保存离线" : "保存系列离线"}
+              systemImage={seriesOfflineSaving ? "stop.circle" : "arrow.down.circle"}
+              foregroundStyle={seriesOfflineSaving ? "systemBlue" : undefined}
+              action={() => {
+                if (seriesOfflineSaving) {
+                  stopSeriesOfflineRef.current = true
+                  setSeriesOfflineStatus("正在停止，已完成的话会保留")
+                } else {
+                  void handleSaveSeriesOffline()
+                }
+              }}
+            />
+          ) : null}
           {author ? (
             <Button
               title={author.name ? `作者：${author.name}` : "主页"}
@@ -718,6 +841,20 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
                   disabled={seriesDownloading}
                   action={handleExportSeries}
                 />
+                {kind === "novel" ? (
+                  <Button
+                    title={seriesOfflineSaving ? "停止保存离线" : "保存系列离线"}
+                    systemImage={seriesOfflineSaving ? "stop.circle" : "arrow.down.circle"}
+                    action={() => {
+                      if (seriesOfflineSaving) {
+                        stopSeriesOfflineRef.current = true
+                        setSeriesOfflineStatus("正在停止，已完成的话会保留")
+                      } else {
+                        void handleSaveSeriesOffline()
+                      }
+                    }}
+                  />
+                ) : null}
               </Menu>,
             ]
           : [
@@ -885,6 +1022,21 @@ export function SeriesView(props: { kind: SeriesKind; seriesID: number }) {
                     }}
                   />
                   {translationStatus ? <Text font="caption" foregroundStyle="secondaryLabel">{translationStatus}</Text> : null}
+                  <Button
+                    title={seriesOfflineSaving ? "停止保存离线" : "保存系列离线（正文＋插图）"}
+                    systemImage={seriesOfflineSaving ? "stop.circle" : "arrow.down.circle"}
+                    action={() => {
+                      if (seriesOfflineSaving) {
+                        stopSeriesOfflineRef.current = true
+                        setSeriesOfflineStatus("正在停止，已完成的话会保留")
+                      } else {
+                        void handleSaveSeriesOffline()
+                      }
+                    }}
+                  />
+                  {seriesOfflineStatus ? (
+                    <Text font="caption" foregroundStyle="secondaryLabel">{seriesOfflineStatus}</Text>
+                  ) : null}
                 </VStack>
               ) : null}
             </VStack>
