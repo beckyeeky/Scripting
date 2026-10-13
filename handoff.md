@@ -26,6 +26,13 @@
 - **sha256：`4e56096f68e76969ffa29f41db4dc2e2b035ca7df19085a62b8193128e1eb110`** —— 已核验三者一致：本地构建包、Release 附件下载、`raw.githubusercontent.com/.../feature/pixivreader-port/Release/Pix-Scripting.scripting` 分支 raw 地址；包内 `version=1.7.13.5`、`remoteResource.url` 指向本分支。
 - 本地安装包与校验文件另存于 `/var/minis/workspace/release-1.7.13.5/`（`Pix-Scripting.1.7.13.5.scripting`、`Pix-Scripting.1.7.13.5.scripting.sha256`），仓库内只保留 `Release/Pix-Scripting.scripting` 与源码同源的那一份。
 
+## UI 接线实测（本轮补充验证）
+
+- 目录与检索：`novel-outline-search.test.cjs` 覆盖目录构建、检索命中上下文/顺序键、跳转目标与锚点生成；`NovelOutlineSearchSheet.tsx` 的「返回原位置」按钮与 `canReturn` 禁用逻辑由 `NovelDetail.tsx` 的 `canReturnToOutline` 状态驱动（跳转时记录 `outlineReturnAnchorRef`，返回后清空并禁用），源码接线已核对。
+- 译文台账失效阻止导出：`novel-translation-ui-wiring.test.cjs` 用真实 `novelExport` 验证存在 `stale` 段落时单语与双语导出都被拒（`buildTranslatedNovelSource`/`buildBilingualNovelSource` 返回 null），并做正向对照（无失效段落时正常导出）；`NovelDetail.tsx` 三处译文导出路径与 `seriesDownloader` 系列译文导出都调用 `novelTranslationExportIssue`。
+- 术语/供应商发送范围：`NovelTranslationStatus.tsx` 展开「译名、摘要与术语」后显示术语条数与系列继承条数、发送范围文案（供应商类别 + 标题/简介/章节标题数/正文段落数/术语条数/目标语言，明确不含账号序列号、令牌或本地凭据），由真实渲染测试断言（并断言不出现 `apiKey`/`Bearer` 等凭据痕迹）。
+- 未在真机验证的交互手势（列表滑动跳转、高亮动效、输入法下的检索体验）仍属真机验收范围。
+
 ## 未验证（需要真机）
 
 - 无 iOS/iPadOS 真机与 Scripting App 宿主验收：目录/检索面板实际跳转与命中高亮、返回原位置手势与滚动恢复、离线插图在 WebView 与断网重启后的显示、系列离线保存长时间运行的进度/停止/被系统回收后继续、EPUB 在第三方阅读器打开与分享、小组件与灵动岛。
