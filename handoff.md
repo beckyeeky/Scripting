@@ -7,8 +7,9 @@
 - 分支：`fix/futurereader-novel-integrity-20261013`，基线 `abfaae4`（`feature/pixivreader-port` 最新提交）；未合并 `main` / `feature/pixivreader-port`。
 - 版本：源码、`script.json`、`src/config.ts` 回退版本、README 与包内元数据均为 `1.7.13.4`；包内 `remoteResource.url` 指向本修复分支，避免上游自动更新覆盖。
 - 改动：沉浸阅读器跨篇归属（进度/书签/跳页/关闭路由，旧文档迟到进度按代际丢弃）；系列导出完整性（缺章记录与书内标注、失败图片不产生悬空引用、`NovelExportReport`、文件名缺章缺图后缀）；下载失败分类与受控重试（鉴权/权限/取消不重试，取消向上传播）。
-- 验证：`npm test` 全部通过（含新增 3 个测试文件）；新增测试在修复前代码上失败、修复后通过；`bash scripts/build-release.sh` + `bash scripts/verify-release-package.sh` 通过（188 个文件逐字节一致、包内元数据校验通过）。
-- 未验证：无 iOS/iPadOS 真机与 Scripting App 宿主验收（阅读器交互、WebView 消息、EPUB 在阅读器中打开、分享、小组件）；未运行 `npx tsc --noEmit`（仓库无 tsconfig，不构成有效类型检查）。
+- 验证：逐文件运行测试共 75 项全部通过（feed-columns 4、novel-export 4、novel-export-integrity 6、novel-immersive-episode-guard 4、novel-series-integrity 6、novel-series-reader-regression 21、novel-translation 26、search-advanced-date-range 4）；`npm test` 退出码 0（本机 iSH 下 node 测试运行器无法稳定创建 worker 线程，聚合计数会波动，故以逐文件结果为准）。新增测试在修复前代码上失败（3/4、11/12），修复后通过；`bash scripts/build-release.sh` + `bash scripts/verify-release-package.sh` 通过（188 个文件逐字节一致、包内元数据校验通过），并对人为改包做了负向验证（能检出字节差异）。
+- 发布：分支尖端 `cd7b169`（功能提交 `0cc07c0`，基线 `abfaae4`）；提交 `0cc07c0` 打标签 `v1.7.13.4-pixivreader`，独立 Release（prerelease）https://github.com/beckyeeky/Scripting/releases/tag/v1.7.13.4-pixivreader 附 `Pix-Scripting.1.7.13.4.scripting`（754,817 字节）与同名 `.sha256`；包 sha256 `3669dfbce3272701e5e40a248411579b01e95659f46a32dea29ad0607231ef76`，与分支 raw 地址下载结果一致。未合并 `main` / `feature/pixivreader-port`，未 force push。
+- 未验证：无 iOS/iPadOS 真机与 Scripting App 宿主验收（阅读器跨篇交互、WebView 消息、缺章缺图 EPUB 在第三方阅读器中的打开效果、分享、小组件）；未运行 `npx tsc --noEmit`（仓库无 tsconfig，不构成有效类型检查）；未做真实网络下的重试/鉴权失败端到端复现（仅单元级替身）。
 - 下一步：真机核验跨篇阅读进度/书签归属与缺章缺图 EPUB 的实际效果；如获授权再将修复合入功能分支。
 
 ## 当前快照
