@@ -1,49 +1,38 @@
 # 项目交接
 
-更新日期：2026-10-13。此文件记录当前状态；长期规则见 [AGENTS.md](AGENTS.md)。
+更新日期：2026-10-14。此文件记录当前状态；长期规则见 [AGENTS.md](AGENTS.md)。
 
-## 修复分支快照（v1.7.13.4 实验修复版，2026-10-13）
+## 功能分支快照（v1.7.13.5，2026-10-14）
 
-- 分支：`fix/futurereader-novel-integrity-20261013`，基线 `abfaae4`（`feature/pixivreader-port` 最新提交）；未合并 `main` / `feature/pixivreader-port`。
-- 版本：源码、`script.json`、`src/config.ts` 回退版本、README 与包内元数据均为 `1.7.13.4`；包内 `remoteResource.url` 指向本修复分支，避免上游自动更新覆盖。
-- 改动：沉浸阅读器跨篇归属（进度/书签/跳页/关闭路由，旧文档迟到进度按代际丢弃）；系列导出完整性（缺章记录与书内标注、失败图片不产生悬空引用、`NovelExportReport`、文件名缺章缺图后缀）；下载失败分类与受控重试（鉴权/权限/取消不重试，取消向上传播）。
-- 验证：逐文件运行测试共 75 项全部通过（feed-columns 4、novel-export 4、novel-export-integrity 6、novel-immersive-episode-guard 4、novel-series-integrity 6、novel-series-reader-regression 21、novel-translation 26、search-advanced-date-range 4）；`npm test` 退出码 0（本机 iSH 下 node 测试运行器无法稳定创建 worker 线程，聚合计数会波动，故以逐文件结果为准）。新增测试在修复前代码上失败（3/4、11/12），修复后通过；`bash scripts/build-release.sh` + `bash scripts/verify-release-package.sh` 通过（188 个文件逐字节一致、包内元数据校验通过），并对人为改包做了负向验证（能检出字节差异）。
-- 发布：分支尖端 `cd7b169`（功能提交 `0cc07c0`，基线 `abfaae4`）；提交 `0cc07c0` 打标签 `v1.7.13.4-pixivreader`，独立 Release（prerelease）https://github.com/beckyeeky/Scripting/releases/tag/v1.7.13.4-pixivreader 附 `Pix-Scripting.1.7.13.4.scripting`（754,817 字节）与同名 `.sha256`；包 sha256 `3669dfbce3272701e5e40a248411579b01e95659f46a32dea29ad0607231ef76`，与分支 raw 地址下载结果一致。未合并 `main` / `feature/pixivreader-port`，未 force push。
-- 未验证：无 iOS/iPadOS 真机与 Scripting App 宿主验收（阅读器跨篇交互、WebView 消息、缺章缺图 EPUB 在第三方阅读器中的打开效果、分享、小组件）；未运行 `npx tsc --noEmit`（仓库无 tsconfig，不构成有效类型检查）；未做真实网络下的重试/鉴权失败端到端复现（仅单元级替身）。
-- 下一步：真机核验跨篇阅读进度/书签归属与缺章缺图 EPUB 的实际效果；如获授权再将修复合入功能分支。
-
-## 当前快照
-
-- 分支：`feature/pixivreader-port`；本次文档工作基于 `10ad006`。
-- 源码、README 与现有安装包元数据版本均为 `1.7.13.3`，基于上游 `1.7.13`。
-- 远程配置：`origin` 为 `beckyeeky/Scripting`，`upstream` 为 `chaoscard/Scripting`；推送前已 fetch 功能分支，`HEAD...origin/feature/pixivreader-port` 为 `0 0`。
-- 开始任务时工作区干净；本次仅新增四份协作文档，未修改业务代码、README、依赖或发布包。
-
-## 已完成与现有能力
-
-- 阅读目录、README、依赖/打包配置、主入口、存储/账号边界、小说翻译/阅读/导出路径及五个测试文件，建立长期规则、架构说明和决策记录。
-- 当前源码具有原位正文翻译、摘要与术语、目标语言缓存、暂停/继续、失败块重试、原文/译文单篇导出及系列 EPUB 导出。
-- 最近本地提交统一系列页工具栏、底部操作栏和追更菜单的原文/译文下载选择；前一提交涉及系列译文导出与沉浸阅读空白修复。提交信息不等于设备验收证据。
+- 分支：`feature/pixivreader-port`（本轮由开发分支 `feat/pixivreader-novel-library-20261013` 快进合入）；基线 `abfaae4`，已吸收 v1.7.13.4 的跨篇归属与导出完整性修复。
+- 版本：源码、`script.json`、`src/config.ts` 回退版本、README 与包内元数据均为 `1.7.13.5`；包内 `remoteResource.url` 指向 `feature/pixivreader-port`，不会被上游或其它分支自动更新覆盖。
+- 新增实现：目录/正文检索面板与「返回原位置」锚点（`novelAnchor`/`novelOutline`/`novelSearch`/`NovelOutlineSearchSheet`/`novelReaderRuntime`）；离线书库（`novelOfflineLibrary`）与正文插图字节落盘（`novelOfflineImages`/`novelOfflineCapture`）；系列离线保存（`novelSeriesOffline` + `seriesView` 入口）；译文台账（`novelTranslationLedger`）与失效段落不复用导出；译文状态面板显示术语与供应商发送范围。
+- 关键行为：插图字节复制进书库（不是记录缓存路径），按账号隔离，断网/重启后仍可读；保存时未取到字节的插图记为 `missing`/`pending`，阅读时补全，UI 不谎称完整；容量淘汰只删书库正文与插图，进度与批注保留；详情或换篇网络失败时按离线优先回退并标注来源；存在 `stale` 段落时导出被拒。
+- 修复：沉浸阅读器换篇失败提示此前会被 `finally` 立即清除，现改为成功后收起、失败时保留。
 
 ## 本次验证
 
-- `npm test`：59 项通过，0 失败、0 跳过；执行环境 Node `v22.23.2`、npm `10.9.8`，使用已有依赖。
-- `unzip -tq Release/Pix-Scripting.scripting`：现有包压缩数据完整；包内 `script.json` 版本及更新地址与源码一致。
-- 文档本地相对链接、引用路径和 `git diff --no-index --check /dev/null <新增文件>` 检查通过。
-- 用户已授权将四份文档提交并推送到 `origin/feature/pixivreader-port`；推送后以远程分支提交哈希核验结果。
-- 本次未运行 `npm ci`、未重新打包、未创建标签/Release、未核验线上 Release，也未进行设备验证；纯文档推送不触发发版。
+- 逐文件运行测试共 **154** 项，全部通过、0 失败（`novel-translation` 26、`novel-series-reader-regression` 21、`novel-translation-ledger` 15、`novel-offline-library` 11、`novel-anchor` 9、`novel-outline-search` 9、`novel-reader-runtime` 9、`novel-offline-images` 9、`novel-translation-ui-wiring` 8、`novel-export-integrity` 6、`novel-progress` 6、`novel-series-integrity` 6、`feed-columns` 4、`novel-export` 4、`novel-immersive-episode-guard` 4、`search-advanced-date-range` 4、`novel-offline-wiring` 3）。`npm test` 在 iSH 下 node 测试运行器无法稳定创建 worker 线程，聚合计数会波动，因此以逐文件结果为准。
+- 新测试使用真实实现，只替换宿主与网络边界：宿主 `FileManager` 用真实文件系统，网络用注入的 `loadBytes`/`resolveIllustUrl`/`novelDetail`/`novelViewerData` 替身。离线字节、路径表、补全判定、容量淘汰、目录/检索、锚点、台账与导出闸门均为真实代码路径。
+- 逐文件语法诊断：`node scripts/syntax-check.cjs` 检查 `Pix-Scripting/` 全部 197 个 `.ts/.tsx`，语法错误 0。仓库无 `tsconfig.json`，因此这不是类型检查。
+- 打包：`bash scripts/build-release.sh --target-branch feature/pixivreader-port` 通过（198 个文件逐字节一致、包内元数据校验通过）；负向验证：`--target-branch main` 报「与目标分支 main 不一致」并退出码 1；人为篡改包内 `index.tsx` 后校验报「内容不一致」并退出码 1。
 
-## 阻碍与待确定
+## 发布
 
-- 文档任务无阻碍，当前桌面回归没有失败项。
-- iPhone/iPad 验收待确定：两个阅读方向、翻译原位切换、退后台/最小化后恢复、账号切换、系列三个下载入口及缺章错误提示、EPUB 实际打开与分享。
-- Scripting App、iOS/iPadOS 与 Node 的最低支持版本，CLI 同步配置和完整类型检查方案待确定；仓库没有相应配置或声明。
-- 锁文件中的 TypeScript 下载地址为 `http://mirrors.tencentyun.com`；本次未验证新环境安装连通性。
-- 功能分支远程状态已在推送前核对；上游最新提交、标签与 Release 附件状态待确定。
+- 开发分支 `feat/pixivreader-novel-library-20261013` 已提交并推送：`45dba4a`（实现）、`cb14bd4`（测试）、`8155e8b`（发版与校验脚本）、handoff 提交；随后普通快进合并进 `feature/pixivreader-port`。
+- 标签 `v1.7.13.5-pixivreader` 打在 `feature/pixivreader-port` 的功能提交上，Release（prerelease）附 `Pix-Scripting.1.7.13.5.scripting` 与同名 `.sha256`。
+- **实际结果（版本 / tag / hash / 合并 / Release 链接 / 安装包路径 / 测试 / 限制）以本轮任务回传为准**，本文不预写未完成的值；如与回传不一致，以回传为准并修订单行。
+- 未合入 `main`，未 force push，未改动上游仓库。
+
+## 未验证（需要真机）
+
+- 无 iOS/iPadOS 真机与 Scripting App 宿主验收：目录/检索面板的跳转与命中高亮实际效果、返回原位置的手势与滚动位置、离线插图在 WebView 中的显示与断网重启后的可读性、系列离线保存长时间运行的进度与停止行为、系统回收后的继续、EPUB 在第三方阅读器中的实际打开与分享、小组件与灵动岛。
+- 未做真实网络下的失败回退端到端复现（仅在测试里注入网络失败），未验证不同账号切换时的实际目录隔离表现。
+- 未运行 `npx tsc --noEmit`（仓库无 tsconfig，不构成有效类型检查）。
+- 离线书库不承诺 iOS 后台常驻：页面被系统回收后需重新进入继续。
 
 ## 下一步
 
-1. 后续任务先读 `AGENTS.md` 与此文件，根据用户任务推进；尚无新的业务功能排期。
-2. 有设备条件时补齐上述验收，记录宿主版本、路径、结果与失败现象；无需因验收待确定而重复桌面测试。
-3. 新环境先执行 `npm ci`、`npm test`；如安装失败，记录实际错误后处理依赖来源。
-4. 若要求同步或发布，先核验当前分支与远程差异，再按长期规则完成指定范围的同步/完整发版。
+1. 有设备条件时按上面「未验证」清单逐项验收，记录宿主版本、路径、结果与失败现象。
+2. 真机确认无误后，再决定是否将 `feature/pixivreader-port` 合入 `main`（当前未授权）。
+3. 若离线书库占用或性能在真机上有问题，优先检查 `images/` 目录体积与 `offlineImagePathMap` 的读取频率（当前在阅读器挂载与换篇时各读一次）。
