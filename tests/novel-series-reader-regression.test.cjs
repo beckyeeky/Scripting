@@ -25,6 +25,16 @@ const reader = evaluate(readerSource.slice(readerSource.indexOf("export function
   readerSource.indexOf("function getLocalImageDataUrl")), readerFile)
 const novelExport = load("Pix-Scripting/src/store/novelExport.ts")
 
+// 真实下载辅助实现：失败分类与受控重试属于被测逻辑，不能用替身打桩，只替换网络边界与定时器
+const downloadHelper = load("Pix-Scripting/src/downloader/downloadHelper.ts", {
+  "../api/client": {
+    downloadBinary: async () => null,
+    downloadBinaryDetailed: async () => ({ data: null, status: 500, failure: "http", message: "HTTP 500" }),
+  },
+  "../image/imageLoader": {},
+  "../store/settings": {},
+}, { setTimeout: (fn) => { fn(); return 0 }, clearTimeout() {} })
+
 function immersiveHarness(direction) {
   const effects = [], loaded = [], closes = [], translations = []
   const controller = {
@@ -97,7 +107,7 @@ function seriesHarness({ incompleteId, fetchFailureId, missingTextId, accountCha
     "../api/session": { session: { call: fn => fn("fixture-token") } },
     "../image/imageLoader": {}, "../store/settings": {}, "./cbzExporter": {},
     "./epubExporter": { exportNovelToEpub: async options => { exported.push(options); return "/fixture.epub" } },
-    "./downloadHelper": { yieldToMainThread: async () => {} },
+    "./downloadHelper": { ...downloadHelper, yieldToMainThread: async () => {} },
     "./StageProgressPipeline": { StageProgressPipeline: class {
       reportPrepare() {} reportDownload() {} reportPack() {} reportComplete() {}
     } },
