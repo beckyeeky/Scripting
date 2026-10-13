@@ -1848,6 +1848,8 @@ export function NovelReaderView(props: {
     onReady,
     onProgressChange,
     onChunkVisible,
+    readingAnchor,
+    controllerSink,
     translation,
   } = props
 

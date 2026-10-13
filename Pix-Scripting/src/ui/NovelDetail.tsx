@@ -205,6 +205,8 @@ export function NovelDetailView(props: { novelID: number }) {
   const cachedNovel = useMemo(() => getCachedNovel(novelID), [novelID])
   const [novel, setNovel] = useState<PixivNovelDetail | null>(null)
   const [text, setText] = useState("")
+  // 在任何 render 期读取之前初始化，避免 TDZ 白屏；hook 顺序保持稳定。
+  const offlineSeriesRef = useRef<{ id: number; title: string | null; episodeNumber: number | null } | null>(null)
   const [textEmbeddedImages, setTextEmbeddedImages] = useState<Record<string, TextEmbeddedImage> | undefined>(undefined)
   const [textError, setTextError] = useState<string | null>(null)
   const [readerReady, setReaderReady] = useState(false)
@@ -1021,8 +1023,6 @@ export function NovelDetailView(props: { novelID: number }) {
   const [showOutlineSearch, setShowOutlineSearch] = useState(false)
   /** 续读/目录检索恢复的说明文案（精确命中不打扰用户） */
   const [anchorNotice, setAnchorNotice] = useState<string | null>(null)
-  /** 离线回退时合成的系列归属（详情接口不可用，无法从 novel 读取） */
-  const offlineSeriesRef = useRef<{ id: number; title: string | null; episodeNumber: number | null } | null>(null)
   /**
    * 正文渲染引擎：竖向排版走 WebView（支持命中片段高亮），
    * 其余为原生 SwiftUI 节点树（只能滚动到段落，不能高亮片段）。
