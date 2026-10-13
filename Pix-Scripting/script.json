@@ -1,9 +1,9 @@
 {
   "contributors": [],
-  "version": "1.7.13.4",
+  "version": "1.7.13.5",
   "remoteResource": {
     "autoUpdateInterval": null,
-    "url": "https://raw.githubusercontent.com/beckyeeky/Scripting/fix/futurereader-novel-integrity-20261013/Release/Pix-Scripting.scripting"
+    "url": "https://raw.githubusercontent.com/beckyeeky/Scripting/feature/pixivreader-port/Release/Pix-Scripting.scripting"
   },
   "name": "Pix-Scripting",
   "author": {

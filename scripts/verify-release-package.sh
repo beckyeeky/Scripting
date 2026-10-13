@@ -6,6 +6,16 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
 
+# 可选显式发布目标分支：--target-branch <分支>（默认不校验分支归属）
+expected_branch=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target-branch) expected_branch="${2:-}"; shift 2 ;;
+    --target-branch=*) expected_branch="${1#*=}"; shift ;;
+    *) echo "未知参数：$1" >&2; exit 1 ;;
+  esac
+done
+
 package="Release/Pix-Scripting.scripting"
 [ -f "$package" ] || { echo "缺少发布包：$package" >&2; exit 1; }
 
@@ -60,7 +70,16 @@ const source = JSON.parse(fs.readFileSync("Pix-Scripting/script.json", "utf8"))
 if (zipped.version !== source.version) throw new Error(`包内版本 ${zipped.version} 与源码 ${source.version} 不一致`)
 if (zipped.remoteResource?.url !== source.remoteResource?.url) throw new Error("包内 remoteResource.url 与源码不一致")
 if (zipped.name !== source.name) throw new Error("包内 name 与源码不一致")
+const expectedBranch = process.argv[2]
+if (expectedBranch) {
+  const prefix = "https://raw.githubusercontent.com/beckyeeky/Scripting/"
+  const suffix = "/Release/Pix-Scripting.scripting"
+  const url = source.remoteResource?.url ?? ""
+  if (!url.startsWith(prefix) || !url.endsWith(suffix)) throw new Error(`发布地址格式不符合本仓库约定：${url}`)
+  const branch = url.slice(prefix.length, url.length - suffix.length)
+  if (branch !== expectedBranch) throw new Error(`remoteResource.url 指向 ${branch}，与目标分支 ${expectedBranch} 不一致`)
+}
 console.log(`发布包元数据校验通过：${source.name} ${source.version} -> ${source.remoteResource.url}`)
-' "$temp_dir/Pix-Scripting/script.json"
+' "$temp_dir/Pix-Scripting/script.json" "$expected_branch"
 
 echo "工作树与打包内容逐字节一致（$file_count 个文件）"

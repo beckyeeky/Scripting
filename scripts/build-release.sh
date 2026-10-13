@@ -23,17 +23,33 @@ if (!/^https:\/\/raw\.githubusercontent\.com\/beckyeeky\/Scripting\/.+\/Release\
 }
 '
 
-# 包内更新地址必须与当前分支一致，避免上游或其它分支的自动更新覆盖本分支发布包
-current_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)"
+# 包内更新地址必须与「本次发布目标分支」一致，避免上游或其它分支的自动更新覆盖发布包。
+# 显式目标：--target-branch <分支> 或环境变量 RELEASE_TARGET_BRANCH；默认取当前分支。
+target_branch=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --target-branch) target_branch="${2:-}"; shift 2 ;;
+    --target-branch=*) target_branch="${1#*=}"; shift ;;
+    *) echo "未知参数：$1" >&2; exit 1 ;;
+  esac
+done
+if [ -z "$target_branch" ]; then
+  target_branch="${RELEASE_TARGET_BRANCH:-$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)}"
+fi
 package_url="$(node -e 'const m=require("./Pix-Scripting/script.json");process.stdout.write(m.remoteResource?.url||"")')"
 prefix="https://raw.githubusercontent.com/beckyeeky/Scripting/"
 suffix="/Release/Pix-Scripting.scripting"
 package_branch="${package_url#"$prefix"}"
 package_branch="${package_branch%"$suffix"}"
-if [ "$current_branch" != "HEAD" ] && [ "$current_branch" != "$package_branch" ]; then
-  echo "remoteResource.url 指向 $package_branch，而当前分支为 $current_branch" >&2
+if [ "$target_branch" = "HEAD" ] || [ -z "$target_branch" ]; then
+  echo "无法确定发布目标分支，请显式传入 --target-branch <分支>" >&2
   exit 1
 fi
+if [ "$target_branch" != "$package_branch" ]; then
+  echo "remoteResource.url 指向 $package_branch，而发布目标分支为 $target_branch" >&2
+  exit 1
+fi
+echo "发布目标分支：$target_branch（remoteResource.url 一致）"
 
 temp_dir="$(mktemp -d "$repo_dir/Release/.build-XXXXXX")"
 trap 'rm -f "$temp_dir/Pix-Scripting.scripting"; rm -rf "$temp_dir/Pix-Scripting"; rmdir "$temp_dir" 2>/dev/null || true' EXIT
@@ -43,4 +59,4 @@ mv -f "$temp_dir/Pix-Scripting.scripting" "$repo_dir/Release/Pix-Scripting.scrip
 echo "已生成 Release/Pix-Scripting.scripting"
 
 # 工作树与打包内容必须逐字节一致
-bash scripts/verify-release-package.sh
+bash scripts/verify-release-package.sh --target-branch "$target_branch"

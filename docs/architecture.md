@@ -22,7 +22,8 @@
 | `src/ui/` | 根视图、导航与 iPad 双栏、列表、详情、阅读、设置、操作反馈；公共外观在 `components/`，环境光在 `ambient/` |
 | `src/api/auth.ts`、`session.ts`、`client.ts`、`pixiv.ts` | PKCE/Keychain 凭证、会话代次与刷新、请求节流/来源控制、Pixiv 业务接口 |
 | `src/api/aiService.ts`、`aiAdapters/` | AI 提示词、翻译校验与上下文生成；协议分发、流式解析及模型思考参数适配 |
-| `src/store/` | 设置、历史、收藏/屏蔽、缓存、阅读进度、账号状态、翻译会话与安全文件写入 |
+| `src/store/` | 设置、历史、收藏/屏蔽、缓存、阅读进度、账号状态、翻译会话与安全文件写入；小说离线书库 `novelOfflineLibrary.ts`、离线插图 `novelOfflineImages.ts`、系列离线 `novelSeriesOffline.ts`、锚点 `novelAnchor.ts`、目录/检索 `novelOutline.ts`/`novelSearch.ts`、译文台账 `novelTranslationLedger.ts` |
+| `src/ui/novelReaderRuntime.ts`、`novelOfflineCapture.ts`、`NovelOutlineSearchSheet.tsx` | 阅读器注入运行时（锚点协议/命中高亮）、正文插图离线任务适配、目录与检索面板 |
 | `src/downloader/` | 任务管理、暂停/恢复/取消、进度、文件目录、单篇/系列与 EPUB/CBZ/TXT 等导出 |
 | `src/image/`、`src/ugoira/`、`src/platform/` | 图片加载/颜色、动图转换、触觉与 Pro 能力适配 |
 
@@ -60,6 +61,18 @@
 - Widget 数据池优先使用 App Group 共享目录，意图与主程序共享数据；下载意图通过 `downloader/TaskSignal.ts` 传递控制信号。
 - 不应假设所有 store 都按账号隔离或都同步 iCloud；改动需核对具体模块路径与写入逻辑。
 
+### 小说离线书库（v1.7.13.5）
+
+- 路径：`store/dataDirectory.ts` 的 `pixivDataPath("NovelOffline", "users", <uid>)`，按账号隔离；正文 `episodes/<novelId>.json`（atomic 写入 + `.bak` 恢复）、索引 `index.json`（损坏时按磁盘重建）、系列清单 `series/<seriesId>.json`、插图字节 `images/<novelId>/<stableHash(chunkId)>.<ext>`。
+- 落盘：`saveOfflineEpisode` 写正文与图片完整性状态；`saveOfflineImageFromFile` 把阅读器缓存里的字节**复制**进书库；`persistOfflineImages`（`novelOfflineImages.ts`）按注入的 `loadBytes` 批量复制并如实汇总 ok/missing/failed/skipped。
+- 读取：`readOfflineEpisode`/`offlineReadResult` 只读磁盘；`offlineImagePathMap` 只返回 `status=ok` 且文件确实存在的块；阅读器（`NovelReader.tsx`、`NovelImmersiveReader.tsx`）取图时离线优先，并在网络取到字节时用 `completePendingOfflineImage` 补全待补块。
+- 回退：详情接口失败时 `synthesizeOfflineNovelDetail` 用离线记录合成最小元数据并在 UI 标注「离线阅读」；沉浸阅读器内部换篇在网络上失败且该话已离线时改读离线正文并标注来源。
+- 容量：`enforceOfflineLibraryCapacity` 按 `lastAccessAt` 淘汰正文与插图字节，只操作书库根目录（`isSafeLibraryPath` 守卫）；阅读进度与批注在 `History/` 下，物理隔离，不会随缓存清理删除。
+
+### 译文台账与发送范围（v1.7.13.5）
+
+`store/novelTranslationLedger.ts` 用「原文块指纹 + 整篇指纹 + 不含密钥的模型/提示词配置指纹」判定段落状态（`done`/`failed`/`unfinished`/`stale`）。`novelExport.ts` 的 `novelTranslationExportIssue` 在存在 `stale` 段落时拒绝导出，`buildTranslatedNovelSource`/`buildBilingualNovelSource` 也要求块状态为 `done`，因此失效译文不会被复用。术语表可编辑并锁定（`glossaryLocked`），系列术语只补缺；`translationSendScopeNotice` 生成「发送范围」文案（供应商类别、标题/简介、章节标题数、正文段落数、术语条数、目标语言，不含端点与密钥），由 `ui/NovelTranslationStatus.tsx` 展开详情时显示。
+
 ## 验证边界
 
 `tests/*.test.cjs` 使用 Node 内置测试器、TypeScript 转译、VM 与宿主/网络替身，覆盖小说链路、日期筛选和列数回归。它们验证选定逻辑与入口调用，不验证真实网络、原生布局、WebView 渲染、系统权限或跨进程宿主集成。构建/ZIP 校验只证明包结构与脚本检查通过；最低宿主版本和完整类型检查方案待确定。
@@ -68,4 +81,11 @@
 
 - 沉浸阅读器 `src/ui/NovelImmersiveReader.tsx` 在内部换章时以自身持有的 `activeNovelId`/`currentPage` 为归属：进度写入当前作品、书签读写当前作品、跳页只在仍停留在进入时的作品才回调父级。正文 HTML/JS 带 `owner` 代际标识，`scriptMessageHandler` 一律先校验代际，切篇后旧文档的迟到消息整体丢弃。
 - 小说导出链路 `seriesDownloader` → `epubExporter` 传递 `expectedChapters`/`missingChapters`，`epubExporter` 只登记真正落盘的插图，并回传 `NovelExportReport`；`downloadHelper`/`client` 提供失败分类与受控重试。
-- 发布包校验：`scripts/verify-release-package.sh` 逐字节比对 `Release/Pix-Scripting.scripting` 与工作树 `Pix-Scripting/`，并校验包内版本与 `remoteResource.url`；`scripts/build-release.sh` 在打包后自动调用它。
+- 发布包校验：`scripts/verify-release-package.sh` 逐字节比对 `Release/Pix-Scripting.scripting` 与工作树 `Pix-Scripting/`，并校验包内版本与 `remoteResource.url`；`scripts/build-release.sh` 在打包后自动调用它。两者均支持显式发布目标分支（`--target-branch <分支>` 或 `RELEASE_TARGET_BRANCH`，见 v1.7.13.5 说明），在开发分支构建、合并到目标分支发布时使用。
+- `scripts/syntax-check.cjs` 对 `Pix-Scripting/` 全部 `.ts/.tsx` 做转译级语法诊断（不含类型检查），用于在没有 tsconfig 的仓库里快速发现语法错误。
+
+## 功能分支附加说明（`feature/pixivreader-port`，v1.7.13.5）
+
+- 离线书库按账号隔离并只读磁盘读取，不承诺 iOS 后台常驻；页面被系统回收后可重新进入继续。
+- 目录/检索跳转记录「返回原位置」锚点（正文版本 + 段内偏移 + 文本锚点），正文或排版变化后按片段安全回退；纵向 WebView 引擎同时高亮命中片段。
+- 系列离线保存（`ui/seriesView.tsx` + `store/novelSeriesOffline.ts`）逐话抓取正文与插图，缺话进入 `missingEpisodeIds`，系列清单不会被标记为完整；可随时停止，已保存的话保留。

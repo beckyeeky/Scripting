@@ -81,3 +81,35 @@
 - 原因：对无效凭据或受限内容反复重试会放大请求、延长失败等待，并可能把取消误当成缺章继续导出。
 - 影响：`downloadBinary` 语义不变（仍返回数据或 null）；新增 `downloadBinaryDetailed`、`fetchImageBinaryWithResult`、`runWithLimitedRetry`、`classifyDownloadError`、`classifyHttpStatus`。
 - 依据：`src/api/client.ts`、`src/downloader/downloadHelper.ts`、`tests/novel-export-integrity.test.cjs`。
+
+## D011：离线阅读必须是「字节真实落盘」，并按账号隔离
+
+- 状态：已实现（功能分支 `feature/pixivreader-port`，v1.7.13.5）。
+- 选择：保存离线时把阅读器缓存中的插图字节**复制**进书库目录（`images/<novelId>/<stableHash(chunkId)>.<ext>`），而不是记录缓存路径；书架路径与读取都不依赖阅读器缓存是否还在。读取只走磁盘（`offlineImagePathMap` 只返回状态为 ok 且文件存在的块），断网或进程重启后仍可读；保存时没拿到字节的插图记为 `missing`（未解析到地址）或 `pending`（超出本次上限/待补），阅读该篇时用真实拿到的字节补全，UI 不得把二者说成完整。
+- 原因：只统计「有 URL」或只记缓存路径时，阅读器 LRU 清理或换设备后会声称图片完整却显示缺图；跨账号混用同一目录又会串数据。
+- 影响：书库目录按 `resolveEffectiveUID` 分账号；`offlineLibraryUsage` 计入插图字节；容量淘汰同时删除正文与插图字节，但绝不触碰 `History/` 下的进度与批注。
+- 依据：`src/store/novelOfflineLibrary.ts`、`src/store/novelOfflineImages.ts`、`src/ui/novelOfflineCapture.ts`、`tests/novel-offline-images.test.cjs`、`tests/novel-offline-library.test.cjs`。
+
+## D012：网络失败必须按「离线优先」回退，并如实标注来源
+
+- 状态：已实现（功能分支 `feature/pixivreader-port`，v1.7.13.5）。
+- 选择：详情接口失败时用离线记录合成最小作品元数据（`synthesizeOfflineNovelDetail`）继续阅读并显示「离线阅读」横幅；沉浸阅读器内部换篇在网络失败且目标话已离线时载入离线正文与插图，并在顶部标注「离线阅读：本话正文来自离线书库」；没有任何离线记录时保持失败并显示可见提示（换篇失败提示不再被立即清除）。
+- 原因：断网时磁盘上正文完整却因缺少元数据落到错误页、或换篇失败提示被 finally 立刻覆盖，用户会以为内容丢失或操作无效。
+- 影响：`NovelImmersiveReaderView` 新增离线标注状态；换篇失败路径修复提示可见性；不改变在线成功路径。
+- 依据：`src/ui/NovelDetail.tsx`、`src/ui/NovelImmersiveReader.tsx`、`tests/novel-offline-wiring.test.cjs`。
+
+## D013：失效译文不得静默复用，发送范围必须在 UI 可见
+
+- 状态：已实现（功能分支 `feature/pixivreader-port`，v1.7.13.5）。
+- 选择：译文段落状态由「原文块指纹 + 整篇指纹 + 不含密钥的模型/提示词配置指纹」决定；存在 `stale` 段落时单语/双语/系列导出一律拒答并要求重译，`buildTranslatedNovelSource` 也只在块状态为 `done` 时输出，形成双重保险。术语表可编辑并锁定；状态面板展开时显示术语条数、系列继承条数与发送范围（供应商类别、标题/简介、章节标题数、正文段落数、术语条数、目标语言），并明确不含账号序列号、令牌或本地凭据。
+- 原因：源文或模型配置变化后复用旧译文会输出与原文不符的内容；用户也无法判断会向哪个服务商发送哪些内容。
+- 影响：新增 `store/novelTranslationLedger.ts`；`NovelTranslationStatus` 详情区新增发送范围与对齐警告；供应商判定只返回类别（`assistant`/`openai`/`anthropic`/`gemini`/`unknown`）。
+- 依据：`src/store/novelTranslationLedger.ts`、`src/store/novelExport.ts`、`src/ui/NovelTranslationStatus.tsx`、`tests/novel-translation-ui-wiring.test.cjs`、`tests/novel-translation-ledger.test.cjs`。
+
+## D014：发布包校验必须显式声明目标分支
+
+- 状态：已实现（功能分支 `feature/pixivreader-port`，v1.7.13.5）。
+- 选择：`scripts/build-release.sh` 与 `scripts/verify-release-package.sh` 支持 `--target-branch <分支>`（等价环境变量 `RELEASE_TARGET_BRANCH`）。未显式给出时构建脚本取当前分支；两者都要求 `remoteResource.url` 指向的目标分支等于声明值，否则失败。这样可在开发分支构建、合并到目标分支后发布，同时保证包内更新地址指向真正的发布分支。
+- 原因：功能开发分支与最终发布分支不同，原校验只接受「当前分支 == URL 分支」，会阻止在开发分支上完成打包与逐字节校验。
+- 影响：`remoteResource.url` 在 v1.7.13.5 指向 `feature/pixivreader-port`；发布流程须显式传入目标分支。
+- 依据：`scripts/build-release.sh`、`scripts/verify-release-package.sh`。
