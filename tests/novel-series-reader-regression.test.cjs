@@ -24,6 +24,8 @@ const readerSource = fs.readFileSync(readerFile, "utf8")
 const reader = evaluate(readerSource.slice(readerSource.indexOf("export function escapeHtml"),
   readerSource.indexOf("function getLocalImageDataUrl")), readerFile)
 const novelExport = load("Pix-Scripting/src/store/novelExport.ts")
+const ledgerModule = load("Pix-Scripting/src/store/novelTranslationLedger.ts",
+  { "./novelAnchor": load("Pix-Scripting/src/store/novelAnchor.ts") })
 
 // 真实下载辅助实现：失败分类与受控重试属于被测逻辑，不能用替身打桩，只替换网络边界与定时器
 const downloadHelper = load("Pix-Scripting/src/downloader/downloadHelper.ts", {
@@ -41,7 +43,40 @@ function immersiveHarness(direction) {
     loadHTML: async html => { loaded.push(html) }, evaluateJavaScript: async () => {},
     addScriptMessageHandler: async () => {}, dispose() {},
   }
-  const globals = { ...reader,
+  // 复用真实锚点与阅读器运行时实现（注入脚本、续读锚点协议）
+  const anchorModule = load("Pix-Scripting/src/store/novelAnchor.ts")
+  const runtimeModule = load("Pix-Scripting/src/ui/novelReaderRuntime.ts", {
+    "../store/novelAnchor": anchorModule,
+  })
+  // 真实离线书库实现（FileManager 为宿主替身：本环境没有离线内容）
+  const offlineFileManager = {
+    documentsDirectory: "/tmp/pix-series-regression",
+    iCloudDocumentsDirectory: "/tmp/pix-series-regression-icloud",
+    appGroupDocumentsDirectory: "/tmp/pix-series-regression-group",
+    isiCloudEnabled: false,
+    existsSync: () => false,
+    createDirectorySync() {},
+    readDirectorySync: () => [],
+    readAsStringSync: () => "",
+    writeAsStringSync() {},
+    statSync: () => ({ size: 0 }),
+    removeSync() {},
+    renameSync() {},
+    isDirectorySync: () => false,
+    copyFileSync() {},
+    readAsDataSync: () => null,
+  }
+  const offlineSafeFile = load("Pix-Scripting/src/store/safeFile.ts", {}, { FileManager: offlineFileManager })
+  const offlineDataDirectory = load("Pix-Scripting/src/store/dataDirectory.ts", {
+    "../api/session": { session: { userID: 1001 } },
+    "./safeFile": offlineSafeFile,
+  }, { FileManager: offlineFileManager })
+  const offlineLibrary = load("Pix-Scripting/src/store/novelOfflineLibrary.ts", {
+    "./dataDirectory": offlineDataDirectory,
+    "./safeFile": offlineSafeFile,
+    "./novelAnchor": anchorModule,
+  }, { FileManager: offlineFileManager })
+  const globals = { ...reader, ...anchorModule, ...runtimeModule, ...offlineLibrary,
     useState: initial => [typeof initial === "function" ? initial() : initial, () => {}],
     useRef: value => ({ current: value }), useMemo: fn => fn(), useCallback: fn => fn,
     useEffect: fn => { effects.push(fn) },
@@ -53,12 +88,16 @@ function immersiveHarness(direction) {
     calculateLineSpacing: () => 6, useSeriesEpisodeNav: () => ({}),
     useNovelTranslation: (...args) => { translations.push(args); return { session: null, snapshot: null } },
     WebViewController: function() { return controller }, Device: { screen: { height: 800 } },
+    // 进度与书签边界：真实函数不在本次范围内，仅替换为可观测替身
+    getNovelProgress: () => undefined, recordNovelProgress: () => {},
+    getCachedNovelMarker: () => null, recordNovelMarker: () => {},
     appCustomTint: () => "systemBlue", appGlass: () => ({}), appInteractiveGlass: () => ({}),
     Animation: { smooth: () => ({}) }, triggerHaptic() {},
     React: { createElement: (type, props, ...children) => ({ type, props: { ...props, children } }) },
   }
   for (const name of ["NavigationStack", "ZStack", "Button", "Image", "WebView", "Rectangle",
-    "VStack", "HStack", "Text", "Spacer", "Menu", "Picker", "NovelTypographySheet"]) globals[name] = name
+    "VStack", "HStack", "Text", "Spacer", "Menu", "Picker", "NovelTypographySheet",
+    "NovelOutlineSearchSheet"]) globals[name] = name
   const file = "Pix-Scripting/src/ui/NovelImmersiveReader.tsx"
   const source = fs.readFileSync(file, "utf8")
   const mod = evaluate(source.slice(source.indexOf("function isVirtualNode")), file, {}, globals)
@@ -83,7 +122,10 @@ for (const direction of ["horizontal", "vertical"]) {
     for (const script of harness.loaded[0].matchAll(/<script>([\s\S]*?)<\/script>/g)) new vm.Script(script[1])
     assert.equal(harness.translations[0][2], "简介")
     zstack.props.toolbar.topBarLeading[0].props.action()
-    assert.deepEqual(harness.closes, [[null, 1, 1]])
+    // 关闭回传：作品、页码与原作品兼容；可选续读锚点为新增能力，不改变既有前三位契约
+    assert.equal(harness.closes.length, 1)
+    assert.deepEqual(harness.closes[0].slice(0, 3), [null, 1, 1])
+    assert.equal(harness.closes[0][3], undefined)
   })
 }
 
@@ -133,6 +175,7 @@ function seriesHarness({ incompleteId, fetchFailureId, missingTextId, accountCha
   let translationCalls = 0
   if (realStore) {
     mocks["../store/novelTranslation"] = load("Pix-Scripting/src/store/novelTranslation.ts", {
+      "./novelTranslationLedger": ledgerModule,
       scripting: { AbortController },
       "../api/aiService": { isAIAvailable: () => true, getNovelTranslationThinkingNotice: () => "",
         translateNovelPassage: async text => { translationCalls++; return text === "原章" ? "译章" : "译文正文" },

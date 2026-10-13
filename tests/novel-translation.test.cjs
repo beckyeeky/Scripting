@@ -33,6 +33,8 @@ function loadExportedFunction(file, name, globals = {}) {
   return vm.runInNewContext(`${js}\n${name}`, globals)
 }
 
+const ledgerModule = loadModule("Pix-Scripting/src/store/novelTranslationLedger.ts",
+  { "./novelAnchor": loadModule("Pix-Scripting/src/store/novelAnchor.ts") })
 const thinkingPath = "Pix-Scripting/src/api/aiAdapters/translationThinking.ts"
 const thinking = loadModule(thinkingPath, {
   "../../store/customAI": { getEffectiveGeneralEndpoint: (config) => config.endpoint },
@@ -350,6 +352,7 @@ function createStoreFixture(options = {}) {
   const config = () => ({ general: { protocol: "openai-chat", endpoint: "https://api.deepseek.com",
     model, apiKey: key, temperature: 0.3 } })
   const module = loadModule("Pix-Scripting/src/store/novelTranslation.ts", {
+    "./novelTranslationLedger": ledgerModule,
     scripting: { AbortController },
     "../api/aiService": {
       isAIAvailable: () => true, translateNovelPassage: passage,

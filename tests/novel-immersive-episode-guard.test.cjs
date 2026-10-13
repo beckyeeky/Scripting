@@ -24,6 +24,65 @@ vm.runInNewContext(readerJs, {
 }, { filename: NOVEL_READER_FILE })
 const readerExports = readerModule.exports
 
+// 复用真实锚点与阅读器运行时实现：续读锚点、跳转协议与目录/检索面板都必须是真实代码
+function loadTsModule(file, mocks = {}, globals = {}) {
+  const source = fs.readFileSync(file, "utf8")
+  const js = ts.transpileModule(source, {
+    fileName: file,
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React },
+  }).outputText
+  const module = { exports: {} }
+  vm.runInNewContext(js, {
+    module, exports: module.exports,
+    console: { log() {}, warn() {} },
+    JSON, Date, Math, Number, String, Boolean, Array, Object, Set, Map, RegExp, Error, Promise,
+    require(id) { if (!(id in mocks)) throw new Error(`缺少测试替身：${id}`); return mocks[id] },
+    ...globals,
+  }, { filename: file })
+  return module.exports
+}
+
+const anchorExports = loadTsModule("Pix-Scripting/src/store/novelAnchor.ts")
+const runtimeExports = loadTsModule("Pix-Scripting/src/ui/novelReaderRuntime.ts", {
+  "../store/novelAnchor": anchorExports,
+})
+
+// 真实离线书库实现（FileManager 为宿主替身：本测试环境没有任何离线内容）
+const offlineFileManagerStub = {
+  documentsDirectory: "/tmp/pix-novel-offline-guard",
+  iCloudDocumentsDirectory: "/tmp/pix-novel-offline-guard-icloud",
+  appGroupDocumentsDirectory: "/tmp/pix-novel-offline-guard-group",
+  isiCloudEnabled: false,
+  existsSync: () => false,
+  createDirectorySync() {},
+  readDirectorySync: () => [],
+  readAsStringSync: () => "",
+  writeAsStringSync() {},
+  statSync: () => ({ size: 0 }),
+  removeSync() {},
+  renameSync() {},
+  isDirectorySync: () => false,
+  copyFileSync() {},
+  readAsDataSync: () => null,
+}
+const offlineSafeFile = loadTsModule("Pix-Scripting/src/store/safeFile.ts", {}, {
+  FileManager: offlineFileManagerStub,
+})
+const offlineDataDirectory = loadTsModule(
+  "Pix-Scripting/src/store/dataDirectory.ts",
+  { "../api/session": { session: { userID: 1001 } }, "./safeFile": offlineSafeFile },
+  { FileManager: offlineFileManagerStub }
+)
+const offlineLibraryExports = loadTsModule(
+  "Pix-Scripting/src/store/novelOfflineLibrary.ts",
+  {
+    "./dataDirectory": offlineDataDirectory,
+    "./safeFile": offlineSafeFile,
+    "./novelAnchor": anchorExports,
+  },
+  { FileManager: offlineFileManagerStub }
+)
+
 /* ------------------------------------------------------------------ *
  * 极简 hooks 运行时：支持重渲染与依赖变更后的副作用重跑，
  * 用于验证「沉浸阅读器内部换章」这一真实交互路径。
@@ -141,6 +200,9 @@ function createHarness() {
 
   const globals = {
     ...readerExports,
+    ...anchorExports,
+    ...runtimeExports,
+    ...offlineLibraryExports,
     console: { log() {}, warn() {} },
     setTimeout: (fn) => { return 0 },
     clearTimeout() {},
@@ -198,7 +260,7 @@ function createHarness() {
   }
   for (const name of ["NavigationStack", "ZStack", "VStack", "HStack", "Button", "Image", "WebView",
     "Rectangle", "Text", "Spacer", "Menu", "Picker", "ProgressView", "Group", "Divider", "ScrollView",
-    "NovelTypographySheet"]) {
+    "NovelTypographySheet", "NovelOutlineSearchSheet"]) {
     globals[name] = name
   }
 
@@ -320,8 +382,16 @@ test("内部换章后，旧文档的迟到进度不会写到新作品", async ()
   assert.equal(harness.progressCalls.length, 0, "旧文档进度不得写入任何作品")
 
   // 当前文档的进度：写到当前作品（2），而不是原作品（1）
-  harness.handlers.onProgressChange({ owner: newGeneration, page: 3, chunkId: "new-chunk" })
-  assert.deepEqual(harness.progressCalls, [[2, 3, "new-chunk"]])
+  harness.handlers.onProgressChange({
+    owner: newGeneration, page: 3, chunkId: "new-chunk", offset: 4, quote: "新正文二",
+  })
+  assert.equal(harness.progressCalls.length, 1, "只有当前文档的进度写入当前作品")
+  const call = harness.progressCalls[0]
+  assert.deepEqual(call.slice(0, 3), [2, 3, "new-chunk"], "进度必须归属换章后的新作品")
+  // 新增锚点：正文版本 + 段内偏移 + 文本锚点，供正文/排版变化后安全恢复
+  assert.equal(typeof call[4]?.contentVersion, "string")
+  assert.equal(call[4].offset, 0)
+  assert.equal(typeof call[4].quote, "string")
 })
 
 test("换章后跳页与书签归属新作品，绝不回写原作品", async () => {
@@ -397,5 +467,12 @@ test("关闭沉浸阅读器时回传最终作品 ID 与页码，保持正确的�
     hasDescendantImage(node, /^xmark$/))
   assert.ok(closeButton)
   closeButton.props.action()
-  assert.deepEqual(harness.closes, [["final-chunk", 3, 2]], "关闭时必须回传最终作品、页码与锚点，不带旧文档进度")
+  assert.equal(harness.closes.length, 1)
+  assert.deepEqual(harness.closes[0].slice(0, 3), ["final-chunk", 3, 2],
+    "关闭时必须回传最终作品与页码，不带旧文档进度")
+  // 第四项为可选续读锚点（正文版本 + 偏移 + 文本锚点）：归属必须与 finalNovelId 一致，
+  // 即原作品（1）的锚点绝不能被旧文档或跨篇状态覆盖
+  assert.equal(harness.closes[0][3]?.novelId, 2, "续读锚点必须归属换章后的新作品")
+  assert.equal(harness.closes[0][3]?.chunkId, "final-chunk")
+  assert.equal(typeof harness.closes[0][3]?.contentVersion, "string")
 })
