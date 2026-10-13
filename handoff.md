@@ -20,8 +20,8 @@
 ## 发布（已完成）
 
 - 开发分支 `feat/pixivreader-novel-library-20261013`：已推送到 `origin`（尖端 `2a95818`）。
-- 功能分支 `feature/pixivreader-port`：已推送，尖端 **`c3948fe`**（`45dba4a` 实现 → `cb14bd4` 测试 → `8155e8b` 发版 → `2a95818` handoff → `c3948fe` 在功能分支重建发布包 → `a1c4e3d` 发布脚本 → 本 handoff 提交）。`main` 未改动，未 force push。
-- 标签：`v1.7.13.5-pixivreader`（annotated，指向 `c3948fe`）。
+- 功能分支 `feature/pixivreader-port`：已推送，当前尖端 **`10963b1`**（提交序列：`45dba4a` 实现 → `cb14bd4` 测试 → `8155e8b` 发版与校验脚本 → `2a95818` handoff → `c3948fe` 在功能分支重建发布包 → `e770d34` Release 发布脚本 → `10963b1` 最终 handoff）。`main` 未改动，未 force push。
+- 标签：`v1.7.13.5-pixivreader`（annotated，指向发布包所在的 `c3948fe`；`10963b1` 只增加文档与脚本）。
 - Release（prerelease）：https://github.com/beckyeeky/Scripting/releases/tag/v1.7.13.5-pixivreader，附件 `Pix-Scripting.1.7.13.5.scripting`（813,393 字节）与 `Pix-Scripting.1.7.13.5.scripting.sha256`。
 - **sha256：`4e56096f68e76969ffa29f41db4dc2e2b035ca7df19085a62b8193128e1eb110`** —— 已核验三者一致：本地构建包、Release 附件下载、`raw.githubusercontent.com/.../feature/pixivreader-port/Release/Pix-Scripting.scripting` 分支 raw 地址；包内 `version=1.7.13.5`、`remoteResource.url` 指向本分支。
 - 本地安装包与校验文件另存于 `/var/minis/workspace/release-1.7.13.5/`（`Pix-Scripting.1.7.13.5.scripting`、`Pix-Scripting.1.7.13.5.scripting.sha256`），仓库内只保留 `Release/Pix-Scripting.scripting` 与源码同源的那一份。
