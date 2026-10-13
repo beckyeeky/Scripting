@@ -16,11 +16,22 @@ for tool in unzip node cmp rg; do
   fi
 done
 
-unzip -tq "$package" >/dev/null
+# unzip 在仅有时间戳告警时也会返回 1，因此按输出内容判定压缩数据是否完整
+integrity_output="$(unzip -t "$package" 2>&1 || true)"
+if ! printf '%s\n' "$integrity_output" | rg -q 'No errors detected'; then
+  echo "发布包压缩数据异常：" >&2
+  printf '%s\n' "$integrity_output" >&2
+  exit 1
+fi
 
 temp_dir="$(mktemp -d "$repo_dir/Release/.verify-XXXXXX")"
 trap 'rm -rf "$temp_dir"' EXIT
-unzip -q "$package" -d "$temp_dir"
+# 同上：容忍时间戳告警，只要求解压出预期的源码树
+unzip -q "$package" -d "$temp_dir" >/dev/null 2>&1 || true
+if [ ! -f "$temp_dir/Pix-Scripting/script.json" ] || [ ! -f "$temp_dir/Pix-Scripting/index.tsx" ]; then
+  echo "发布包解压结果缺少必要文件" >&2
+  exit 1
+fi
 
 worktree_list="$(rg --files Pix-Scripting | sort)"
 packaged_list="$(cd "$temp_dir" && rg --files Pix-Scripting | sort)"
