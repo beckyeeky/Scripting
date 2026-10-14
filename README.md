@@ -6,7 +6,7 @@
 
 | 项目名称 | 类型 / 简介 | 当前版本 | 快速跳转 |
 | :--- | :--- | :---: | :---: |
-| **Pix-Scripting** | 液态玻璃风格 Pixiv 客户端，含 PixivReader 正文翻译移植 | `v1.7.13.6` | [查看介绍 & 安装](#pix-scripting) |
+| **Pix-Scripting** | 液态玻璃风格 Pixiv 客户端，含 PixivReader 正文翻译移植 | `v1.7.13.7` | [查看介绍 & 安装](#pix-scripting) |
 | *（更多项目）* | 更多高品质脚本持续孵化中... | `Planning` | - |
 
 ---
@@ -29,7 +29,7 @@
 #### 📥 快速安装
 
 1. 安装 **[Scripting](https://apps.apple.com/app/scripting/id6477833076)** App；
-2. 下载并导入 [`Release/Pix-Scripting.scripting`](https://raw.githubusercontent.com/beckyeeky/Scripting/feature/pixivreader-port/Release/Pix-Scripting.scripting)；也可从 [v1.7.13.6 发布页](https://github.com/beckyeeky/Scripting/releases/tag/v1.7.13.6-pixivreader) 下载附件。该包为 `feature/pixivreader-port` 分支的移植版（prerelease），未合入 `main`；包内 `remoteResource.url` 指向本功能分支，不会被上游自动更新覆盖；
+2. 下载并导入 [`Release/Pix-Scripting.scripting`](https://raw.githubusercontent.com/beckyeeky/Scripting/feature/pixivreader-port/Release/Pix-Scripting.scripting)；也可从 [v1.7.13.7 发布页](https://github.com/beckyeeky/Scripting/releases/tag/v1.7.13.7-pixivreader) 下载附件。该包为 `feature/pixivreader-port` 分支的移植版（prerelease），未合入 `main`；包内 `remoteResource.url` 指向本功能分支，不会被上游自动更新覆盖；
 3. 在小说详情或沉浸阅读器中打开「正文翻译」，选择翻译、暂停/继续或原文/译文切换；在小说系列页可分批翻译当前已加载的章节。先在「设置 → 智能助手」配置模型，或使用可用的 Scripting 原生助手。
 
 正文上方有常驻翻译进度条，可直接看已完成段数、摘要与术语状态、暂停/继续、原文/译文切换；展开「摘要与术语」可查看内容、系列继承的术语数及失败段落的单块重试。沉浸阅读时也显示浮动进度条。故事摘要先生成，术语表随后整理，最后最多两个正文请求并发；上下文失败时会显示状态并继续翻译正文。长篇摘要和术语表会抽取开头、中段、结尾各约 3000 字，避免只看到开头；超长正文块优先在换行或句末拆分，保留接缝空行与 Pixiv 链接。
@@ -40,10 +40,12 @@
 
 小说系列页工具栏、底部操作栏「下载」以及追更卡片菜单「下载整本小说」均可选择原文 EPUB 或当前目标语言的译文 EPUB。译文导出复用已完成的翻译，包含各话的译名、简介和正文，并保留分页、章节与插图标记；任一话未完成翻译、正文获取失败或账号切换时，会停止导出并提示原因。译文文件名带目标语言和「译文」，便于与原文区分。
 
-#### 🧪 v1.7.13.6（功能分支 feature/pixivreader-port）
+#### 🧪 v1.7.13.7（功能分支 feature/pixivreader-port）
 
-- 修复小说详情页首次渲染读取离线系列 ref 的 TDZ 白屏；补齐竖排阅读器续读锚点/控制器 props 解构及书库 VStack、Spacer 宿主导入。
-- 新增真实源码组件首次渲染回归测试与目标作用域语义扫描。
+- 本轮仅删除 NovelDetail.tsx 嵌套 Menu 后的逗号文本节点；保留工具栏数组中合法的 `</Menu>,` 分隔，不重构布局或接口。
+- 新增全项目 Menu 子节点 TypeScript AST 回归：旧提交 131107a 检出一个非法逗号，新源码通过；真实源码渲染 harness 同时拒绝 Menu 的非空字符串与数字子节点。
+- 逐文件测试 164 项通过（19 个测试文件），197 个 TS/TSX 语法检查通过；本轮未重启真机验收，用户删除逗号后仅确认诊断消失，不能宣称白屏已经彻底验收。
+- 继承上一版小说详情 TDZ、竖排续读锚点与控制器、书库宿主导入修复。
 
 > 在 `feature/pixivreader-port` 分支发布，包含小说离线书库、目录与正文检索、译文台账，以及此前的跨篇归属与导出完整性修复。
 
@@ -59,7 +61,7 @@
 
 这个分支的发布包由仓库内可直接编辑的 [`Pix-Scripting/`](Pix-Scripting/) 源码构建，不需要修改 `.scripting` 压缩包。小说翻译的主要修改点是 [`src/store/novelTranslation.ts`](Pix-Scripting/src/store/novelTranslation.ts)（任务和缓存）、[`src/api/aiService.ts`](Pix-Scripting/src/api/aiService.ts)（模型提示词）、[`src/api/aiAdapters/translationThinking.ts`](Pix-Scripting/src/api/aiAdapters/translationThinking.ts)（各模型关闭思考参数）、[`src/ui/NovelReader.tsx`](Pix-Scripting/src/ui/NovelReader.tsx)（原位显示）、[`src/ui/NovelTranslationStatus.tsx`](Pix-Scripting/src/ui/NovelTranslationStatus.tsx)（进度与重试）、[`src/ui/NovelDetail.tsx`](Pix-Scripting/src/ui/NovelDetail.tsx)（单篇入口）和 [`src/ui/seriesView.tsx`](Pix-Scripting/src/ui/seriesView.tsx)（系列入口）。直接在这些文件里改即可。
 
-在仓库根目录运行 `npm ci && npm test` 可执行翻译链路回归测试；运行 `bash scripts/build-release.sh` 会检查版本号一致性并重建 `Release/Pix-Scripting.scripting`。构建只需要 `zip`、`unzip` 和 `node`；完成后将源码与发布包一起提交到对应发布分支（本次为 `feature/pixivreader-port`）。`bash scripts/verify-release-package.sh` 会逐字节核对发布包与工作树 `Pix-Scripting/`、并校验包内版本与更新地址。当前版本 `1.7.13.6` 表示基于上游 `1.7.13` 的第 5 个移植小版本（功能分支）；下次发布同步修改 [`script.json`](Pix-Scripting/script.json) 的 `version` 和 [`src/config.ts`](Pix-Scripting/src/config.ts) 的回退版本，再重新构建。此分支的 `remoteResource.url` 指向分支发布包，不会误更新到上游 `main`。
+在仓库根目录运行 `npm ci && npm test` 可执行翻译链路回归测试；运行 `bash scripts/build-release.sh` 会检查版本号一致性并重建 `Release/Pix-Scripting.scripting`。构建只需要 `zip`、`unzip` 和 `node`；完成后将源码与发布包一起提交到对应发布分支（本次为 `feature/pixivreader-port`）。`bash scripts/verify-release-package.sh` 会逐字节核对发布包与工作树 `Pix-Scripting/`、并校验包内版本与更新地址。当前版本 `1.7.13.7` 表示基于上游 `1.7.13` 的第 7 个移植小版本（功能分支）；下次发布同步修改 [`script.json`](Pix-Scripting/script.json) 的 `version` 和 [`src/config.ts`](Pix-Scripting/src/config.ts) 的回退版本，再重新构建。此分支的 `remoteResource.url` 指向分支发布包，不会误更新到上游 `main`。
 
 ---
 

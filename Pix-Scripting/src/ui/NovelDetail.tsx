@@ -2140,7 +2140,7 @@ export function NovelDetailView(props: { novelID: number }) {
                   setShowOutlineSearch(true)
                 }}
               />
-            </Menu>,
+            </Menu>
             <Menu title="信息" systemImage="info.circle">
               <Button
                 title={`作者：${current.user.name}`}

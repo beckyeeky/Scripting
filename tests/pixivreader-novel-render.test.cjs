@@ -44,7 +44,16 @@ function transpile(file, source) {
 
 /** JSX 转译目标：轻量 createElement，渲染树即普通对象，便于断言。 */
 const JSX_RUNTIME = {
-  createElement: (type, props, ...children) => ({ type, props: { ...(props ?? {}), children } }),
+  createElement: (type, props, ...children) => {
+    if (type === "Menu") {
+      for (const child of children.flat(Infinity)) {
+        if ((typeof child === "string" && child.trim()) || typeof child === "number") {
+          throw new Error(`Native Menu rejects text child: ${JSON.stringify(child)}`)
+        }
+      }
+    }
+    return { type, props: { ...(props ?? {}), children } }
+  },
 }
 
 /** 真实源码 + 宿主替身加载（与既有回归测试一致的装载方式）。 */

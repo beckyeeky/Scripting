@@ -1,5 +1,18 @@
 # 项目交接
 
+## 当前发布：v1.7.13.7（2026-10-14）
+
+- 从远端 feature/pixivreader-port 的 131107a 创建 fix/pixivreader-menu-text-1.7.13.7；正常快进合入并推送功能分支，不改 main，不 force push，不移动旧 tag；.diagnostics/ 保留且不提交。
+- 运行源码只修改 NovelDetail.tsx:2143：删除嵌套 Menu 后的一个逗号；2186 工具栏数组分隔逗号保留。全部实际 TSX 的 Menu children AST 扫描未发现其它非空 JsxText。
+- 新增 scripting-menu-text 回归 4 项（实际源码、旧提交失败/新通过、标点/空白/数组对照、合法分隔保留），真实渲染 harness 拒绝 Menu 非空字符串与数字子节点；现有真实渲染 6 项通过。
+- 全量逐文件测试 19 个文件、164 项通过、0 失败；iSH 的聚合运行 worker 创建和统计不可靠，以逐文件 TAP 真实项数为准。197 个 TS/TSX 语法检查通过；无 tsconfig，本轮不是完整类型检查。
+- script.json、config.ts、README、包内版本均为 1.7.13.7；remoteResource 指向 feature/pixivreader-port。构建与验证均显式指定该目标分支，198 个包内文件与工作树逐字节一致。
+- 包 SHA-256：9aad0c898e2b20fc10a398fa634e2cc358a7af3444925359f4c86d5b9bab48c3。
+- 最终发布提交由 annotated tag v1.7.13.7-pixivreader 标识（避免文档自引用提交号）；GitHub prerelease：https://github.com/beckyeeky/Scripting/releases/tag/v1.7.13.7-pixivreader，附件 Pix-Scripting.1.7.13.7.scripting 及其 .sha256；本地副本 /var/minis/workspace/release-1.7.13.7/。
+- 本轮未重启真机验收。用户删除逗号后仅确认诊断消失，不能称白屏彻底已验收；仍需导入新包、彻底退出并重开 Scripting、进入小说详情核验。
+
+以下为 v1.7.13.5 历史交接记录，并非当前版本状态。
+
 更新日期：2026-10-14。此文件记录当前状态；长期规则见 [AGENTS.md](AGENTS.md)。
 
 ## 功能分支快照（v1.7.13.5，2026-10-14）
