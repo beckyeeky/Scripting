@@ -2,12 +2,12 @@ import {
   Navigation,
   Rectangle,
   useCallback,
-  useColorScheme,
   useEffect,
   useMemo,
   useRef,
   useState,
 } from "scripting"
+import { useEffectiveIsDark } from "../Hooks"
 import {
   addBookmark,
   bookmarkDetail,
@@ -56,6 +56,7 @@ import {
   updateHistoryBookmark,
 } from "../../store/history"
 import {
+  getEffectiveFollowState,
   getUserFollowRestrict,
   isUserFollowed,
   notifyUserFollowChanged,
@@ -114,8 +115,7 @@ export function useIllustDetailState(illustID: number): {
   state: IllustDetailState
   actions: IllustDetailActions
 } {
-  const colorScheme = useColorScheme()
-  const isDark = colorScheme === "dark"
+  const isDark = useEffectiveIsDark()
   const [illust, setIllust] = useState<PixivIllustration | null>(() => {
     const cached = getCachedIllust(illustID)
     if (cached) {
@@ -175,14 +175,14 @@ export function useIllustDetailState(illustID: number): {
   const [followed, setFollowed] = useState(() => {
     const cachedUser = getCachedIllust(illustID)?.user
     if (cachedUser?.id != null) {
-      return isUserFollowed(cachedUser.id) ?? cachedUser.is_followed ?? false
+      return getEffectiveFollowState(cachedUser.id, cachedUser.is_followed ?? false).followed
     }
     return cachedUser?.is_followed ?? false
   })
   const [followRestrict, setFollowRestrict] = useState<FollowRestrict | null>(() => {
     const cachedUser = getCachedIllust(illustID)?.user
     if (cachedUser?.id != null) {
-      return getUserFollowRestrict(cachedUser.id) ?? null
+      return getEffectiveFollowState(cachedUser.id, cachedUser.is_followed ?? false).restrict
     }
     return null
   })
@@ -344,26 +344,25 @@ export function useIllustDetailState(illustID: number): {
       seedIllustDetailFromCache(detail, quality)
       setIllust(detail)
       setBookmarked(detail.is_bookmarked)
-      const isFollowed = detail.user?.is_followed ?? false
-      setFollowed(isFollowed)
-      if (isFollowed && detail.user?.id) {
+      const effectiveFollow = detail.user?.id
+        ? getEffectiveFollowState(detail.user.id, detail.user.is_followed ?? false)
+        : { followed: detail.user?.is_followed ?? false, restrict: null }
+      setFollowed(effectiveFollow.followed)
+      if (effectiveFollow.restrict) {
+        setFollowRestrict(effectiveFollow.restrict)
+      } else if (!effectiveFollow.followed) {
+        setFollowRestrict(null)
+      }
+      if (effectiveFollow.followed && detail.user?.id) {
         session
           .call((token) => followDetail(detail.user.id, token))
           .then((d) => {
             if (g.isCurrent()) {
               setFollowed(d.is_followed)
-              if (d.is_followed) {
-                const rest = d.restrict ?? "public"
-                setFollowRestrict(rest)
-                recordUserFollowed(detail.user.id, true, rest)
-              } else {
-                setFollowRestrict(null)
-              }
+              setFollowRestrict(d.is_followed ? (d.restrict ?? "public") : null)
             }
           })
           .catch(() => {})
-      } else if (!isFollowed) {
-        setFollowRestrict(null)
       }
       if (recordedIDRef.current !== detail.id) {
         recordedIDRef.current = detail.id
@@ -418,7 +417,7 @@ export function useIllustDetailState(illustID: number): {
 
   useEffect(() => {
     return onUserFollowChanged((changedUserID, nextFollowed, nextRestrict) => {
-      if (changedUserID === illustRef.current?.user.id) {
+      if (changedUserID === illustRef.current?.user?.id) {
         setFollowed(nextFollowed)
         setFollowRestrict(nextFollowed ? (nextRestrict ?? "public") : null)
       }

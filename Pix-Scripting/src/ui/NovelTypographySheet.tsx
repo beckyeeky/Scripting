@@ -338,7 +338,14 @@ export function NovelTypographySheet(props: { onClose?: () => void }) {
 
               {/* 第三行：字重（纤细，标准，加粗） */}
               <HStack alignment="center" padding={{ horizontal: 16, vertical: 13 }} frame={{ maxWidth: "infinity" }}>
-                <Text font="body">字重</Text>
+                <VStack alignment="leading" spacing={3}>
+                  <Text font="body">字重</Text>
+                  {settings.fontId === "custom" ? (
+                    <Text font="caption2" foregroundStyle="secondaryLabel">
+                      受系统限制，字重对自定义字体不生效
+                    </Text>
+                  ) : null}
+                </VStack>
                 <Spacer />
                 <Menu
                   label={

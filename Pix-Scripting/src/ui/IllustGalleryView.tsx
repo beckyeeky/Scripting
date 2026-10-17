@@ -478,6 +478,7 @@ export function IllustGalleryView(props: {
         frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
         background="systemBackground"
         preferredColorScheme={getPreferredColorScheme()}
+        environments={{ colorScheme: getPreferredColorScheme() }}
         navigationBarVisibility="hidden"
         statusBarHidden={!isNavVisible}
         toolbarVisibility={{

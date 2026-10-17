@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, useColorScheme, Rectangle, ZStack } from "scripting"
+import { useEffect, useMemo, useState, Rectangle, ZStack } from "scripting"
+import { useEffectiveIsDark } from "../Hooks"
 import { loadSettings, onSettingsChanged, type AmbientIntensity, type AmbientAlgorithm } from "../../store/settings"
 import {
   extractIllustAmbientPalette,
@@ -19,8 +20,7 @@ export interface UserAmbientState {
 }
 
 export function useUserAmbientPalette(imageUrl: string | null | undefined): UserAmbientState {
-  const colorScheme = useColorScheme()
-  const isDark = colorScheme === "dark"
+  const isDark = useEffectiveIsDark()
   const [ambientEnabled, setAmbientEnabled] = useState(
     () => loadSettings().ambientImmersion
   )

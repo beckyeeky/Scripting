@@ -293,6 +293,7 @@ export function RootView() {
         scrollEdgeEffectStyle={topBarEdge.scrollEdgeEffectStyle}
         scrollEdgeEffectHidden={topBarEdge.scrollEdgeEffectHidden}
         preferredColorScheme={preferredColorScheme}
+        environments={{ colorScheme: preferredColorScheme }}
       >
         <ResponsiveContainer>
           <NavigationStack>
@@ -325,6 +326,7 @@ export function RootView() {
       scrollEdgeEffectStyle={topBarEdge.scrollEdgeEffectStyle}
       scrollEdgeEffectHidden={topBarEdge.scrollEdgeEffectHidden}
       preferredColorScheme={preferredColorScheme}
+      environments={{ colorScheme: preferredColorScheme }}
       sheet={{
         isPresented: activeStartupSheet !== "none",
         onChanged: (val: boolean) => {

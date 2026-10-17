@@ -1,7 +1,6 @@
 import { fetch } from "scripting"
 import {
-  API_BASE_URL,
-  OAUTH_BASE_URL,
+  DEFAULT_API_BASE_URL,
   ACCEPT_LANGUAGE,
   APP_ACCEPT_LANGUAGE,
   APP_OS,
@@ -379,7 +378,7 @@ export async function apiGetAbsolute<T = any>(
   return withTransientRetry(async () => {
     const { status, data } = await rawRequest(url, "GET", {
       headers: { ...standardHeaders(accessToken), ...(extraHeaders ?? {}) },
-      allowedOrigin: [apiOrigin, new URL(API_BASE_URL).origin],
+      allowedOrigin: [apiOrigin, new URL(DEFAULT_API_BASE_URL).origin],
     })
     if (status >= 200 && status < 300) {
       if (!data) throw new PixivError(status, "空响应")
@@ -431,7 +430,7 @@ export async function apiGetText(
         Accept: accept,
         ...(extraHeaders ?? {}),
       },
-      allowedOrigin: [new URL(baseUrl).origin, new URL(API_BASE_URL).origin],
+      allowedOrigin: [new URL(baseUrl).origin, new URL(DEFAULT_API_BASE_URL).origin],
     })
     if (status < 200 || status >= 300) {
       const message = await parseError(data)

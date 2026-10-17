@@ -2238,6 +2238,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
         frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
         background="systemBackground"
         preferredColorScheme={isDark ? "dark" : "light"}
+        environments={{ colorScheme: isDark ? "dark" : "light" }}
         statusBarHidden={!controlsVisible}
         toolbarVisibility={{
           visibility: controlsVisible ? "visible" : "hidden",

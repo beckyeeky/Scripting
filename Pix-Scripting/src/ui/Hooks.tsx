@@ -769,16 +769,24 @@ export function useUserFollow(
   )
 
   useEffect(() => {
+    if (!userID || userID <= 0) {
+      setFollowedState(false)
+      setFollowRestrictState(null)
+      stateRef.current.followed = false
+      stateRef.current.followRestrict = null
+      return
+    }
+
     const cached = isUserFollowed(userID)
-    if (cached !== undefined) {
-      setFollowedState(cached)
-      stateRef.current.followed = cached
-    }
+    const effectiveFollowed = cached !== undefined ? cached : initialFollowed
+    setFollowedState(effectiveFollowed)
+    stateRef.current.followed = effectiveFollowed
+
     const cachedRestrict = getUserFollowRestrict(userID)
-    if (cachedRestrict !== undefined) {
-      setFollowRestrictState(cachedRestrict)
-      stateRef.current.followRestrict = cachedRestrict
-    }
+    const effectiveRestrict = cachedRestrict !== undefined ? cachedRestrict : null
+    setFollowRestrictState(effectiveRestrict)
+    stateRef.current.followRestrict = effectiveRestrict
+
     return onUserFollowChanged((changedID, nextFollowed, nextRestrict) => {
       if (changedID === userID) {
         const resolvedRestrict = nextFollowed ? (nextRestrict ?? "public") : null
@@ -788,7 +796,7 @@ export function useUserFollow(
         setFollowRestrictState(resolvedRestrict)
       }
     })
-  }, [userID])
+  }, [userID, initialFollowed])
 
   return [followed, setFollowed, followRestrict, setFollowRestrict]
 }

@@ -7,11 +7,10 @@ import {
   Text,
   VStack,
   ZStack,
-  useColorScheme,
   useMemo,
 } from "scripting"
 import { appGlass } from "./components/glass"
-import { useLayoutMetrics } from "./Hooks"
+import { useEffectiveIsDark, useLayoutMetrics } from "./Hooks"
 import type { PixivUserDetail, PixivWebUserDetail } from "../types"
 import type { UserAmbientPalette } from "../image/colorExtractor"
 import { AvatarImage, CachedImage, ExpandableIntroduction, useCachedImage } from "./components"
@@ -358,8 +357,7 @@ export function UserProfileHeader(props: {
     [detail, webDetail]
   )
 
-  const colorScheme = useColorScheme()
-  const isDark = colorScheme === "dark"
+  const isDark = useEffectiveIsDark()
 
   const commentHtml =
     webDetail?.commentHtml || webDetail?.comment || user.comment || ""
