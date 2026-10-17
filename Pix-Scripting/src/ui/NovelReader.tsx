@@ -39,69 +39,29 @@ import { getNovelProgress, recordNovelProgress } from "../store/novelProgress"
 import { completePendingOfflineImage, offlineImagePathMap } from "../store/novelOfflineLibrary"
 import type { NovelTranslationSnapshot } from "../store/novelTranslation"
 import { NOVEL_READER_RUNTIME_CSS, NOVEL_READER_RUNTIME_JS } from "./novelReaderRuntime"
+import {
+  buildNovelStyledContent,
+  escapeNovelHtml,
+  formatNovelInlineHtml,
+  formatNovelInlineText,
+} from "./novelInlineMarkup"
 
 export function escapeHtml(text: string): string {
-  if (!text) return ""
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;")
+  return escapeNovelHtml(text)
 }
 
 /**
- * 将 Pixiv 小说注音 [[rb: 汉字 > 假名]] 转换为标准文本 汉字(假名)
+ * 纯文本版行内语法：去掉 [b:] 等装饰标记，注音保留为 汉字(假名)
  */
 export function formatPixivRubyText(rawText: string): string {
-  if (!rawText || !rawText.includes("[[rb:")) return rawText
-  return rawText.replace(
-    /\[\[rb:\s*([^\r\n>]+?)\s*(?:>|&gt;)\s*([^\r\n\]]+?)\s*\]\]/g,
-    (_, kanji: string, ruby: string) => `${kanji.trim()}(${ruby.trim()})`
-  )
+  return formatNovelInlineText(rawText)
 }
 
 /**
- * 将 Pixiv 小说注音与 jumpuri 链接转换为 HTML 标签
+ * 将 Pixiv 小说行内标记（装饰、注音与 jumpuri 链接）转换为 HTML 标签
  */
 export function formatPixivRubyToHtml(rawText: string): string {
-  if (!rawText) return ""
-  // 1. 处理 [[jumpuri: 标题 > url]]
-  let textWithLinks = rawText
-  if (textWithLinks.includes("[[jumpuri:")) {
-    textWithLinks = textWithLinks.replace(
-      /\[\[jumpuri:\s*([^\r\n>]+?)\s*(?:>|&gt;)\s*([^\r\n\]]+?)\s*\]\]/gi,
-      (_, title: string, url: string) => {
-        const safeUrl = url.trim()
-        const safeTitle = title.trim()
-        return `___JUMPURI___${encodeURIComponent(safeUrl)}___${encodeURIComponent(safeTitle)}___`
-      }
-    )
-  }
-
-  // 2. 处理 [[rb: 汉字 > 假名]]
-  const parts = textWithLinks.split(/(\[\[rb:\s*[^>\r\n]+?\s*(?:>|&gt;)\s*[^\]\r\n]+?\s*\]\])/g)
-  let html = parts
-    .map((part) => {
-      const match = part.match(/^\[\[rb:\s*([^>\r\n]+?)\s*(?:>|&gt;)\s*([^\]\r\n]+?)\s*\]\]$/)
-      if (match) {
-        return `<ruby>${escapeHtml(match[1].trim())}<rt>${escapeHtml(match[2].trim())}</rt></ruby>`
-      }
-      return escapeHtml(part)
-    })
-    .join("")
-
-  // 3. 还原 jumpuri 链接
-  html = html.replace(
-    /___JUMPURI___([^_]+)___([^_]+)___/g,
-    (_, encodedUrl: string, encodedTitle: string) => {
-      const url = decodeURIComponent(encodedUrl)
-      const title = decodeURIComponent(encodedTitle)
-      return `<a href="javascript:handleLinkClick(${JSON.stringify(url)})">${escapeHtml(title)}</a>`
-    }
-  )
-
-  return html
+  return formatNovelInlineHtml(rawText)
 }
 
 /** 将译文写回已有 WebView 正文块，保留块 ID、图片和导航节点。 */
@@ -453,6 +413,22 @@ function NovelChunkTextView(props: {
   }, [fontName, settings.fontSize])
 
   const plainFormattedText = useMemo(() => formatPixivRubyText(text), [text])
+  const styledContent = useMemo(() => buildNovelStyledContent(text), [text])
+
+  if (styledContent) {
+    return (
+      <Text
+        font={resolvedFont}
+        fontWeight={settings.fontWeight}
+        lineSpacing={lineSpacing}
+        multilineTextAlignment="leading"
+        textSelection={true}
+        padding={{ horizontal: 16, vertical: 3 }}
+        frame={{ maxWidth: "infinity", alignment: "leading" }}
+        styledText={{ content: styledContent } as any}
+      />
+    )
+  }
 
   return (
     <Text
@@ -1126,6 +1102,14 @@ ${themeCssVars}
   ruby rt {
     font-size: 0.55em;
     color: var(--secondary-text-color);
+  }
+  strong { font-weight: 700; }
+  em { font-style: italic; }
+  .novel-emphasis {
+    text-emphasis-style: filled sesame;
+    -webkit-text-emphasis-style: filled sesame;
+    text-emphasis-position: over right;
+    -webkit-text-emphasis-position: over right;
   }
   a {
     color: var(--accent-color);

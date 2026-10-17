@@ -659,6 +659,14 @@ ${THEME_CSS_VARS}
     font-size: 0.55em;
     color: var(--secondary-text-color);
   }
+  strong { font-weight: 700; }
+  em { font-style: italic; }
+  .novel-emphasis {
+    text-emphasis-style: filled sesame;
+    -webkit-text-emphasis-style: filled sesame;
+    text-emphasis-position: over right;
+    -webkit-text-emphasis-position: over right;
+  }
   a {
     color: var(--accent-color);
     text-decoration: underline;
@@ -1462,6 +1470,14 @@ ${THEME_CSS_VARS}
   ruby rt {
     font-size: 0.55em;
     color: var(--secondary-text-color);
+  }
+  strong { font-weight: 700; }
+  em { font-style: italic; }
+  .novel-emphasis {
+    text-emphasis-style: filled sesame;
+    -webkit-text-emphasis-style: filled sesame;
+    text-emphasis-position: over right;
+    -webkit-text-emphasis-position: over right;
   }
   a {
     color: var(--accent-color);

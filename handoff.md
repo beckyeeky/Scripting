@@ -1,5 +1,16 @@
 # 项目交接
 
+## 行内标记本地渲染（2026-10-18，未发版）
+
+- 背景：正文里的 pixiv 小説記法 `[b:]`、`[i:]`、`[[emphasismark:文字>﹅]]` 之前原样显示。官方语法见 [小説作品の本文内に使えるpixiv小説記法の特殊タグとは？](https://www.pixiv.help/hc/ja/articles/235584168)；`《 》` / `《《 》》` 只是投稿时的记法转换，发布后只剩官方标签（[记法转换说明](https://www.pixiv.help/hc/ja/articles/39197091470105)）。
+- 新增 `Pix-Scripting/src/ui/novelInlineMarkup.ts`：纯函数解析行内标记，提供 `formatNovelInlineHtml`（WebView）、`formatNovelInlineText`（纯文本，注音转 `汉字(假名)`）、`buildNovelStyledContent`（原生 `Text` 的 `styledText` 分段）、`hasNovelInlineMarkup`。
+- 官方行内标签只有 `[b:]`、`[i:]`、`[[rb:]]`、`[[emphasismark:]]`、`[[jumpuri:]]`；`[u:]`、`[s:]`、`[big:]`、`[small:]` 不是官方语法，按普通文本原样输出，避免误吃正文。
+- 接入：`NovelReader.tsx` 的 `escapeHtml` / `formatPixivRubyText` / `formatPixivRubyToHtml` 委托新模块；横向原生排版走 `styledText`（粗体/斜体），竖向 WebView 与 `NovelImmersiveReader` 输出 `<strong>` / `<em>` / `<ruby>` / `.novel-emphasis`；两套 WebView CSS 补 `strong`、`em`、`.novel-emphasis`（字符型标记不支持时回退 `filled sesame`）。
+- 着重号：`[[emphasismark:文字>﹅]]` 的 mark 可为任意单字符；横排显示在文字上方、竖排右侧，与官方文档一致。原生 Text 无 text-emphasis，仅保留文字。
+- 新增 `tests/novel-inline-markup.test.cjs` 15 项。设备 Node 缺少 `node:test`，本轮用等价断言脚本 `verify-inline.cjs` 跑 23 项全过（含两个阅读器 TSX 的转译语法检查）；仓库测试尚需在 iSH/桌面 `node --test` 复跑。
+- 未验证：真机上横排/竖排的实际显示、简体中文着重号位置、译文与译文补丁路径的实际渲染。
+- 版本未变（1.7.13.7），未打包、未发版；`script.json` 未改。
+
 ## 当前发布：v1.7.13.7（2026-10-14）
 
 - 从远端 feature/pixivreader-port 的 131107a 创建 fix/pixivreader-menu-text-1.7.13.7；正常快进合入并推送功能分支，不改 main，不 force push，不移动旧 tag；.diagnostics/ 保留且不提交。
