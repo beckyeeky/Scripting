@@ -8,6 +8,8 @@
 - 全量语法检查：198 个 TS/TSX 文件，0 错误（非类型检查）。
 - 设备无 `bash`/`zip`，本轮用等价 Node ZIP 构建脚本生成发布包；逐条解压与工作树比对 199 个文件字节一致，包内版本与更新地址校验通过。
 - 包：`Release/Pix-Scripting.scripting`，812,564 字节，SHA-256 `a5619aab183f136b9ee1d0a6af2ce81d78bf28d9fbe5f141e3622c2f85e265f2`。
+- 发布：提交 `51f8a95`，标签 `v1.7.13.8-pixivreader`，Release（prerelease）https://github.com/beckyeeky/Scripting/releases/tag/v1.7.13.8-pixivreader ，附件包与 `.sha256` 均已上传并核验（附件 SHA-256 与本地一致；分支 raw 地址已返回 1.7.13.8）。
+- 环境记录：本机无 `bash`/`zip`，`build-release.sh` 不可直接执行；本次用等价 Node ZIP 构建并逐条校验。isomorphic-git 技能自身 Keychain 中是旧的 40 位令牌（无写权限），推送 401；改用脚本工程 Keychain 的 93 位 fine-grained PAT 完成分支与标签推送（临时令牌文件已删除）。
 - 未做真机验收：行内标记横排/竖排显示、译文渲染、真实超时后的自动恢复仍需设备确认。
 
 ## 翻译失败拆分重试（2026-10-18，已包含在 v1.7.13.8）
