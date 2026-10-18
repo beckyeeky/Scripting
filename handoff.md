@@ -7,7 +7,8 @@
 - 测试：`novel-translation` 29 项全过（新增 AbortError 拆分与错误标注）；198 个 TS/TSX 语法检查 0 错误。
 - 版本一致性：`script.json`、`src/config.ts`、README 与包内元数据均为 `1.7.13.9`；打包后逐条解压比对 199 个文件、213 个条目字节一致。
 - 包：`Release/Pix-Scripting.scripting`，812,742 字节，SHA-256 `c717c71a5dd65992b525c05e4cba8d78f1b029678e6b078b011108801cf28fde`。
-- 标签 `v1.7.13.9-pixivreader` 与 GitHub Release（prerelease）在推送后创建；本机无 `bash`/`zip`，仍用等价 Node ZIP 构建，技能 Keychain 的旧 40 位令牌不能推送，临时使用脚本工程的 93 位 PAT（令牌文件已删除）。
+- 发布：提交 `8a7c8c9`，标签 `v1.7.13.9-pixivreader`，Release（prerelease）https://github.com/beckyeeky/Scripting/releases/tag/v1.7.13.9-pixivreader ；附件包与 `.sha256` 已上传，回下载校验哈希一致，分支 raw 已返回 1.7.13.9。
+- 标签为推送后由 isomorphic-git 推送的轻量标签，指向发布提交；不影响安装与更新地址。
 - 未做真机验收：需确认升级后超时段落会重新拆分，且失败文案带「（已拆分重试）」。
 
 ## 上一版：v1.7.13.8（2026-10-18）
