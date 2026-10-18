@@ -25,7 +25,7 @@
 
 - 修复 `validateNovelTranslation` 对源文自带重复的误判（源码证据见下节「翻译运行实证排查」）。
 - 补齐子段实时阶段、拒绝状态解析与错误分类；`novel-translation` 36 项、UI 接线 9 项、台账 15 项均通过，198 个文件语法 0 错误。
-- 包重建：`Release/Pix-Scripting.scripting`，814,385 字节，SHA-256 `e6f03833d764843bde070593d9d8df042a8472d843b8a95851611d287f057321`；发布资产已替换，标签与版本号仍为 `v1.7.13.10-pixivreader`。
+- 包重建：`Release/Pix-Scripting.scripting`，814,385 字节，SHA-256 `e6f03833d764843bde070593d9d8df042a8472d843b8a95851611d287f057321`；发布资产已替换并回下载校验。代码提交 `9a33978`，标签仍为 `v1.7.13.10-pixivreader`（未移动标签）。
 
 ## 上一版：v1.7.13.9（2026-10-18）
 
