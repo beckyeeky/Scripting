@@ -132,6 +132,9 @@ function readStored(path: string): StoredTranslation | null {
   }
 }
 
+/** 拆小也无意义的错误：凭据不对、被限流。403 可能来自内容审查，故不列入。 */
+const NON_SPLIT_ERROR_PATTERN = /401|unauthorized|invalid.?api.?key|api.?key|鉴权|429|rate.?limit|限流/i
+
 function cleanError(error: unknown): string {
   const value = error instanceof Error ? error.message : String(error)
   // 供应商报错偶尔包含请求头，持久化前只保留简短、安全的类别。
@@ -384,7 +387,7 @@ export class NovelTranslationSession {
     this.publish()
   }
 
-  async start(onlyIds?: string[]): Promise<void> {
+  async start(onlyIds?: string[], forceSplit = false): Promise<void> {
     if (this.snapshot.running) return
     if (!isAIAvailable()) {
       this.snapshot = { ...this.snapshot, message: "请先在设置中配置智能助手" }
@@ -436,7 +439,7 @@ export class NovelTranslationSession {
               // 用户暂停/取消已由外层 signal 提前返回；请求自身的超时也会以 AbortError 结束，
               // 因此这里不再排除 abort，只跳过鉴权、限流与过短块。
               const retryable = block.kind === "text" && block.original.length >= 60 &&
-                !/401|403|unauthorized|api.?key|鉴权|429|rate.limit|限流/i.test(errorText)
+                (forceSplit || !NON_SPLIT_ERROR_PATTERN.test(errorText))
               const split = retryable ? splitNovelPassageIntoThree(block.original) : null
               if (!split) throw initialError
               splitAttempted = true
@@ -460,8 +463,12 @@ export class NovelTranslationSession {
             if (run !== this.runId || controller.signal.aborted) return
             block.status = "error"
             const reason = cleanError(error)
-            // 区分「原块失败」与「拆分后仍失败」，便于判断拆分是否真的触发。
-            block.error = splitAttempted ? `${reason}（已拆分重试）` : reason
+            // 区分「原块失败」「拆分后仍失败」「未达拆分条件」，便于判断拆分是否真的触发。
+            const skipped = block.kind !== "text" ? ""
+              : block.original.length < 60 ? "（未拆分：原文过短）"
+              : !forceSplit && NON_SPLIT_ERROR_PATTERN.test(error instanceof Error ? error.message : String(error)) ? "（未拆分：鉴权或限流）"
+              : ""
+            block.error = splitAttempted ? `${reason}（已拆分重试）` : `${reason}${skipped}`
             this.stored.blocks[block.id] = { source: fingerprint(block.original), error: block.error }
           } finally {
             this.controllers.delete(controller)
@@ -484,7 +491,7 @@ export class NovelTranslationSession {
     }
   }
 
-  async retry(blockId: string): Promise<void> { await this.start([blockId]) }
+  async retry(blockId: string): Promise<void> { await this.start([blockId], true) }
 
   private async getContext(signal: { aborted: boolean; addEventListener?: any; removeEventListener?: any }): Promise<{ summary?: string; glossary?: string }> {
     const needsGlossary = this.input.text.length >= 500 || Boolean(this.input.seriesId)

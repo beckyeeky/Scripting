@@ -559,6 +559,43 @@ test("鉴权失败不做无意义的拆分重试", async () => {
   assert.equal(f.getCalls(), 1)
 })
 
+test("内容审查返回 403 时仍会拆分，避免与鉴权失败混淆", async () => {
+  const source = "失敗する長い段落。".repeat(12)
+  let calls = 0
+  const f = createStoreFixture({ translate: async (text) => {
+    calls++
+    if (calls === 1) throw new Error("403 Forbidden: content policy violation")
+    return `译：${text}`
+  } })
+  const session = f.module.getNovelTranslationSession({
+    novelId: 37, title: "审查", caption: "", text: source,
+    targetLanguage: "zh-CN", blocks: [{ id: "a", text: source, kind: "text" }],
+  })
+  await session.start()
+  assert.equal(session.getSnapshot().done, 1)
+  assert.equal(f.getCalls(), 4)
+})
+
+test("手动重试鉴权失败块也会强制拆分", async () => {
+  const source = "失敗する長い段落。".repeat(12)
+  let calls = 0
+  const f = createStoreFixture({ translate: async (text) => {
+    calls++
+    if (calls <= 2) throw new Error("401 Unauthorized")
+    return `译：${text}`
+  } })
+  const input = { novelId: 38, title: "强制拆分", caption: "", text: source,
+    targetLanguage: "zh-CN", blocks: [{ id: "a", text: source, kind: "text" }] }
+  const session = f.module.getNovelTranslationSession(input)
+  await session.start()
+  assert.equal(session.getSnapshot().failed, 1)
+  assert.match(session.getSnapshot().blocks.a.error, /未拆分：鉴权或限流/)
+  assert.equal(f.getCalls(), 1)
+  await session.retry("a")
+  assert.equal(session.getSnapshot().done, 1)
+  assert.equal(f.getCalls(), 5)
+})
+
 test("章节标题参与翻译，目标语言使用独立缓存文件", async () => {
   const kinds = []
   const f = createStoreFixture({ translate: async (text, options) => {

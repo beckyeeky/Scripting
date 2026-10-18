@@ -146,7 +146,7 @@ export function NovelTranslationStatus(props: {
           <Text font="caption" foregroundStyle="secondaryLabel">{snapshot.thinkingNotice}</Text>
           {failures.length && !snapshot.running ? (
             <Button title={`重试全部失败段落（${failures.length}）`}
-              action={() => void session.start(failures.map((block) => block.id))} />
+              action={() => void session.start(failures.map((block) => block.id), true)} />
           ) : null}
           {!snapshot.running ? failures.slice(0, 10).map((block) => (
             <Button key={block.id} title={`重试 ${block.id}：${block.error ?? "翻译失败"}`}
