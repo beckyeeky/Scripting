@@ -1,6 +1,16 @@
 # 项目交接
 
-## 当前发布：v1.7.13.8（2026-10-18）
+## 当前发布：v1.7.13.9（2026-10-18）
+
+- 修复 1.7.13.8 的拆分重试在超时场景失效：Scripting 的请求超时以 `AbortError` 结束，旧正则把 `abort` 当作取消而跳过拆分。用户暂停/取消在进入拆分前已由外层 signal 返回，故现在只跳过鉴权、限流与 <60 字的块；请求自身超时会正常三分重试（子段仍不递归）。
+- 失败块错误文案追加「（已拆分重试）」：出现该后缀说明确已三分且子段仍失败；没有则说明未进入拆分。
+- 测试：`novel-translation` 29 项全过（新增 AbortError 拆分与错误标注）；198 个 TS/TSX 语法检查 0 错误。
+- 版本一致性：`script.json`、`src/config.ts`、README 与包内元数据均为 `1.7.13.9`；打包后逐条解压比对 199 个文件、213 个条目字节一致。
+- 包：`Release/Pix-Scripting.scripting`，812,742 字节，SHA-256 `c717c71a5dd65992b525c05e4cba8d78f1b029678e6b078b011108801cf28fde`。
+- 标签 `v1.7.13.9-pixivreader` 与 GitHub Release（prerelease）在推送后创建；本机无 `bash`/`zip`，仍用等价 Node ZIP 构建，技能 Keychain 的旧 40 位令牌不能推送，临时使用脚本工程的 93 位 PAT（令牌文件已删除）。
+- 未做真机验收：需确认升级后超时段落会重新拆分，且失败文案带「（已拆分重试）」。
+
+## 上一版：v1.7.13.8（2026-10-18）
 
 - 分支 `feature/pixivreader-port`；本版包含两项功能：正文行内标记本地渲染、翻译失败后三分重试补强（参考 pixivReader 提交 `6cf04ee`）。
 - 版本一致性：`Pix-Scripting/script.json`、`src/config.ts`、README 与包内元数据均为 `1.7.13.8`；`remoteResource.url` 指向本分支。

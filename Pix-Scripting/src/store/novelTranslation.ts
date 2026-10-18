@@ -422,6 +422,7 @@ export class NovelTranslationSession {
           this.controllers.add(controller)
           block.status = "running"
           block.error = undefined
+          let splitAttempted = false
           this.publish()
           try {
             const options = { title: this.input.title, summary: context.summary, glossary: context.glossary,
@@ -432,11 +433,13 @@ export class NovelTranslationSession {
             } catch (initialError) {
               if (run !== this.runId || controller.signal.aborted) return
               const errorText = initialError instanceof Error ? initialError.message : String(initialError)
-              // 超时可能由单块过长引起，允许拆分重试；过短块、鉴权、限流与取消不拆。
+              // 用户暂停/取消已由外层 signal 提前返回；请求自身的超时也会以 AbortError 结束，
+              // 因此这里不再排除 abort，只跳过鉴权、限流与过短块。
               const retryable = block.kind === "text" && block.original.length >= 60 &&
-                !/401|403|unauthorized|api.?key|鉴权|429|rate.limit|限流|abort/i.test(errorText)
+                !/401|403|unauthorized|api.?key|鉴权|429|rate.limit|限流/i.test(errorText)
               const split = retryable ? splitNovelPassageIntoThree(block.original) : null
               if (!split) throw initialError
+              splitAttempted = true
               const translatedParts: string[] = []
               for (const part of split.parts) {
                 if (run !== this.runId || controller.signal.aborted) return
@@ -456,7 +459,9 @@ export class NovelTranslationSession {
           } catch (error) {
             if (run !== this.runId || controller.signal.aborted) return
             block.status = "error"
-            block.error = cleanError(error)
+            const reason = cleanError(error)
+            // 区分「原块失败」与「拆分后仍失败」，便于判断拆分是否真的触发。
+            block.error = splitAttempted ? `${reason}（已拆分重试）` : reason
             this.stored.blocks[block.id] = { source: fingerprint(block.original), error: block.error }
           } finally {
             this.controllers.delete(controller)

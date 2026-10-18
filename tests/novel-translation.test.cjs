@@ -488,6 +488,7 @@ test("原块失败后仅三分一次，子段失败不会递归拆分", async ()
   const failed = failure.module.getNovelTranslationSession({ ...input, novelId: 31 })
   await failed.start()
   assert.equal(failed.getSnapshot().failed, 1)
+  assert.match(failed.getSnapshot().blocks.a.error, /已拆分重试/)
   assert.equal(failure.getCalls(), 3)
 })
 
@@ -521,6 +522,27 @@ test("超时失败会拆分重试，过短块不拆分", async () => {
   await shortSession.start()
   assert.equal(shortSession.getSnapshot().failed, 1)
   assert.equal(short.getCalls(), 1)
+})
+
+test("请求自身超时的 AbortError 也会触发拆分，用户暂停不触发", async () => {
+  const source = "失敗する長い段落。".repeat(12)
+  let calls = 0
+  const f = createStoreFixture({ translate: async (text) => {
+    calls++
+    if (calls === 1) {
+      const error = new Error("Aborted")
+      error.name = "AbortError"
+      throw error
+    }
+    return `译：${text}`
+  } })
+  const session = f.module.getNovelTranslationSession({
+    novelId: 36, title: "中止", caption: "", text: source,
+    targetLanguage: "zh-CN", blocks: [{ id: "a", text: source, kind: "text" }],
+  })
+  await session.start()
+  assert.equal(session.getSnapshot().done, 1)
+  assert.equal(f.getCalls(), 4)
 })
 
 test("鉴权失败不做无意义的拆分重试", async () => {
