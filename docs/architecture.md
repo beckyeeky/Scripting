@@ -42,7 +42,7 @@
 `NovelDetail/NovelImmersiveReader/seriesView → useNovelTranslation → NovelReader.parseNovelToChunks → store/novelTranslation → api/aiService → 自定义 AI 协议适配器或 Scripting 原生助手`。
 
 - 保留正文块 ID、章节与结构标记；会话先生成译名/简介/摘要，再整理术语，最后最多两个正文请求并发。
-- 摘要/术语失败显示状态并允许继续正文；符合条件的正文失败块仅三分重试一次，子段不递归拆分。
+- 摘要/术语失败显示状态并允许继续正文；正文失败块仅三分重试一次（超时也重试；鉴权、限流、取消与过短块不拆），子段不递归拆分。
 - 订阅快照更新 `NovelTranslationStatus` 和阅读器；译文写回原正文块，可切换原文，原始文本与阅读进度不被译文覆盖。
 - 自定义模型可持久化；缓存按 UID、小说/系列、目标语言组织，并校验模型配置、正文、标题、简介与块内容指纹，内存复用还检查块布局。模型密钥不写入译文缓存。
 - 原生助手无稳定模型标识，因此只复用当前会话。缓存写入失败保留内存结果并显示提示。

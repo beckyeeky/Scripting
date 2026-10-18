@@ -491,6 +491,52 @@ test("原块失败后仅三分一次，子段失败不会递归拆分", async ()
   assert.equal(failure.getCalls(), 3)
 })
 
+test("超时失败会拆分重试，过短块不拆分", async () => {
+  const longSource = "失敗する長い段落。".repeat(12)
+  let longCalls = 0
+  const timeout = createStoreFixture({ translate: async (text) => {
+    longCalls++
+    if (longCalls === 1) throw new Error("请求超时")
+    return `译：${text}`
+  } })
+  const recovered = timeout.module.getNovelTranslationSession({
+    novelId: 33, title: "超时", caption: "", text: longSource,
+    targetLanguage: "zh-CN", blocks: [{ id: "a", text: longSource, kind: "text" }],
+  })
+  await recovered.start()
+  assert.equal(recovered.getSnapshot().done, 1)
+  assert.equal(timeout.getCalls(), 4)
+
+  const shortSource = "失敗。".repeat(4)
+  let shortCalls = 0
+  const short = createStoreFixture({ translate: async (text) => {
+    shortCalls++
+    if (shortCalls === 1) throw new Error("content rejected")
+    return `译：${text}`
+  } })
+  const shortSession = short.module.getNovelTranslationSession({
+    novelId: 34, title: "短块", caption: "", text: shortSource,
+    targetLanguage: "zh-CN", blocks: [{ id: "a", text: shortSource, kind: "text" }],
+  })
+  await shortSession.start()
+  assert.equal(shortSession.getSnapshot().failed, 1)
+  assert.equal(short.getCalls(), 1)
+})
+
+test("鉴权失败不做无意义的拆分重试", async () => {
+  const source = "失敗する長い段落。".repeat(12)
+  const f = createStoreFixture({ translate: async () => {
+    throw new Error("401 Unauthorized")
+  } })
+  const session = f.module.getNovelTranslationSession({
+    novelId: 35, title: "鉴权", caption: "", text: source,
+    targetLanguage: "zh-CN", blocks: [{ id: "a", text: source, kind: "text" }],
+  })
+  await session.start()
+  assert.equal(session.getSnapshot().failed, 1)
+  assert.equal(f.getCalls(), 1)
+})
+
 test("章节标题参与翻译，目标语言使用独立缓存文件", async () => {
   const kinds = []
   const f = createStoreFixture({ translate: async (text, options) => {

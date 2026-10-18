@@ -432,8 +432,9 @@ export class NovelTranslationSession {
             } catch (initialError) {
               if (run !== this.runId || controller.signal.aborted) return
               const errorText = initialError instanceof Error ? initialError.message : String(initialError)
+              // 超时可能由单块过长引起，允许拆分重试；过短块、鉴权、限流与取消不拆。
               const retryable = block.kind === "text" && block.original.length >= 60 &&
-                !/401|403|unauthorized|api.?key|鉴权|429|rate.limit|限流|timeout|超时|abort/i.test(errorText)
+                !/401|403|unauthorized|api.?key|鉴权|429|rate.limit|限流|abort/i.test(errorText)
               const split = retryable ? splitNovelPassageIntoThree(block.original) : null
               if (!split) throw initialError
               const translatedParts: string[] = []

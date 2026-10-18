@@ -1,6 +1,24 @@
 # 项目交接
 
-## 行内标记本地渲染（2026-10-18，未发版）
+## 当前发布：v1.7.13.8（2026-10-18）
+
+- 分支 `feature/pixivreader-port`；本版包含两项功能：正文行内标记本地渲染、翻译失败后三分重试补强（参考 pixivReader 提交 `6cf04ee`）。
+- 版本一致性：`Pix-Scripting/script.json`、`src/config.ts`、README 与包内元数据均为 `1.7.13.8`；`remoteResource.url` 指向本分支。
+- 测试（设备 Node 无 `node:test`/`node:assert/strict`，用本地替身运行）：`novel-translation` 28、`novel-inline-markup` 15、`novel-translation-ledger` 15、`novel-translation-ui-wiring` 8 全过；`pixivreader-novel-render` 6 项中 1 项因设备 `vm.runInNewContext` 限制失败，属环境限制。桌面/iSH `npm test` 仍需复跑。
+- 全量语法检查：198 个 TS/TSX 文件，0 错误（非类型检查）。
+- 设备无 `bash`/`zip`，本轮用等价 Node ZIP 构建脚本生成发布包；逐条解压与工作树比对 199 个文件字节一致，包内版本与更新地址校验通过。
+- 包：`Release/Pix-Scripting.scripting`，812,564 字节，SHA-256 `a5619aab183f136b9ee1d0a6af2ce81d78bf28d9fbe5f141e3622c2f85e265f2`。
+- 未做真机验收：行内标记横排/竖排显示、译文渲染、真实超时后的自动恢复仍需设备确认。
+
+## 翻译失败拆分重试（2026-10-18，已包含在 v1.7.13.8）
+
+- 背景：参考项目最新提交 `6cf04ee`（Retry failed translation chunks in smaller parts）要求块翻译失败后拆成三段再次提交。移植版的 `splitNovelPassageIntoThree` 与 `novelTranslation.start()` 单次重试此前已实现该结构，但把 `timeout`/`超时` 排除在可重试错误之外，长块超时时不会拆分。
+- 本次：允许超时触发三分重试（长块超时是拆分最可能生效的场景）；继续跳过鉴权/限流/取消，保留原块 ≥60 字的门槛，避免把过短文本拆成无意义碎片。子段仍直接调用单块翻译，不递归拆分。
+- 测试：`tests/novel-translation.test.cjs` 新增「超时触发拆分、过短块不拆」与「鉴权失败不拆」两项，共 28 项全过。设备 Node 缺 `node:test` 与 `node:assert/strict`，本轮用本地替身运行；桌面 `npm test` 仍需复跑。
+- 同步：修改已写入仓库 `Pix-Scripting/src/store/novelTranslation.ts`，并复制到实际脚本工程 `Documents/scripts/Pix-Scripting`；未改版本号、未打包、未发版，`script.json` 未改。
+- 未验证：真机上真实超时后的自动恢复；需要重新导入/运行脚本后验收。
+
+## 行内标记本地渲染（2026-10-18，已包含在 v1.7.13.8）
 
 - 背景：正文里的 pixiv 小説記法 `[b:]`、`[i:]`、`[[emphasismark:文字>﹅]]` 之前原样显示。官方语法见 [小説作品の本文内に使えるpixiv小説記法の特殊タグとは？](https://www.pixiv.help/hc/ja/articles/235584168)；`《 》` / `《《 》》` 只是投稿时的记法转换，发布后只剩官方标签（[记法转换说明](https://www.pixiv.help/hc/ja/articles/39197091470105)）。
 - 新增 `Pix-Scripting/src/ui/novelInlineMarkup.ts`：纯函数解析行内标记，提供 `formatNovelInlineHtml`（WebView）、`formatNovelInlineText`（纯文本，注音转 `汉字(假名)`）、`buildNovelStyledContent`（原生 `Text` 的 `styledText` 分段）、`hasNovelInlineMarkup`。
@@ -9,7 +27,7 @@
 - 着重号：`[[emphasismark:文字>﹅]]` 的 mark 可为任意单字符；横排显示在文字上方、竖排右侧，与官方文档一致。原生 Text 无 text-emphasis，仅保留文字。
 - 新增 `tests/novel-inline-markup.test.cjs` 15 项。设备 Node 缺少 `node:test`，本轮用等价断言脚本 `verify-inline.cjs` 跑 23 项全过（含两个阅读器 TSX 的转译语法检查）；仓库测试尚需在 iSH/桌面 `node --test` 复跑。
 - 未验证：真机上横排/竖排的实际显示、简体中文着重号位置、译文与译文补丁路径的实际渲染。
-- 版本未变（1.7.13.7），未打包、未发版；`script.json` 未改。
+- 版本已随本版升为 1.7.13.8 并打包发布。
 
 ## 当前发布：v1.7.13.7（2026-10-14）
 
