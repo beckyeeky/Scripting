@@ -187,6 +187,52 @@ test("译文质量检查拦截漏译、模型寒暄与重复输出", () => {
   assert.doesNotThrow(() => validate("あ".repeat(100), "这是自然且完整的中文译文。".repeat(5), "zh-CN"))
 })
 
+test("原文已有的重复允许保留，但新增组或次数放大仍拒绝", () => {
+  const validate = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "validateNovelTranslation", {
+    translationQualityError: (reason) => { throw new Error(`译文质量检查失败：${reason}`) },
+  })
+  const original = Array(3).fill("これは元から繰り返される台詞です。").join("\n")
+  const line = "这是一句原文中就已经重复的台词。"
+  assert.doesNotThrow(() => validate(original, Array(3).fill(line).join("\n")))
+  assert.throws(() => validate(original, Array(4).fill(line).join("\n")), /重复内容/)
+  const twoGroups = [...Array(3).fill(line), "这是一条不重复的分隔叙述", ...Array(3).fill("这是模型新增的另一组重复句子。")].join("\n")
+  assert.throws(() => validate(original, twoGroups), /重复内容/)
+  // 不允许先过滤短句后把原本不连续的长句合成重复组。
+  const interleaved = [line, "一", line, "二", line].join("\n")
+  assert.doesNotThrow(() => validate("あ".repeat(100), interleaved))
+  assert.doesNotThrow(() => validate("はい\nはい\nはい", Array(3).fill(line).join("\n")))
+})
+
+test("任务级拒绝不能当译文，人物道歉台词不误拦", () => {
+  const validate = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "validateNovelTranslation", {
+    translationQualityError: (reason) => { throw new Error(`译文质量检查失败：${reason}`) },
+  })
+  assert.throws(() => validate("あ".repeat(100), "抱歉，我无法翻译这段内容。可以提供概述。"), /拒绝翻译/)
+  assert.throws(() => validate("あ".repeat(100), "I cannot translate this passage."), /拒绝翻译/)
+  assert.doesNotThrow(() => validate("あ".repeat(100), "「抱歉，我无法理解你的意思。」他低下了头。她听见道歉后摇了摇头，继续向前走去。"))
+})
+
+test("安全拦截与403不会再被展示成鉴权或网络失败", () => {
+  const clean = loadExportedFunction("Pix-Scripting/src/store/novelTranslation.ts", "cleanError")
+  assert.match(clean(new Error("模型输出被内容安全策略拦截")), /安全策略拦截/)
+  assert.match(clean(new Error("403 Forbidden: content policy violation")), /安全策略拦截/)
+  assert.match(clean(new Error("403 Forbidden")), /权限或内容策略/)
+  assert.match(clean(new Error("401 Unauthorized")), /鉴权失败/)
+})
+
+test("结构化拒绝状态不因部分正文存在而被当成功", () => {
+  const parsers = loadModule("Pix-Scripting/src/api/aiAdapters/responseParsers.ts", {})
+  const chat = parsers.parseOpenAIChatPayload({ choices: [{ message: { content: "已有部分内容" }, finish_reason: "content_filter" }] })
+  assert.match(chat.error, /安全策略/)
+  assert.equal(chat.text, "")
+  assert.equal(parsers.parseOpenAIChatPayload({ choices: [{ message: { content: "正常译文" }, finish_reason: "stop" }] }).error, undefined)
+  const response = { type: "message", content: [{ type: "refusal", refusal: "declined" }] }
+  assert.match(parsers.parseOpenAIResponsesPayload({ status: "completed", output: [response] }).error, /拒绝/)
+  assert.match(parsers.parseOpenAIResponsesPayload({ type: "response.completed", response: { output: [response] } }, { includeTerminalText: false }).error, /拒绝/)
+  assert.match(parsers.parseAnthropicPayload({ type: "message", content: [{ type: "text", text: "已有部分内容" }], stop_reason: "refusal" }).error, /拒绝/)
+  assert.match(parsers.parseAnthropicPayload({ type: "message_delta", delta: { stop_reason: "refusal" } }).error, /拒绝/)
+})
+
 test("失败重试三分时保护 Pixiv 标记并原样保留接缝", () => {
   const tokenizeNovelPassageForSplit = loadExportedFunction(
     "Pix-Scripting/src/api/aiService.ts", "tokenizeNovelPassageForSplit"
@@ -475,9 +521,18 @@ test("原块失败后仅三分一次，子段失败不会递归拆分", async ()
   const input = { novelId: 30, title: "三分重试", caption: "", text: source,
     targetLanguage: "zh-CN", blocks: [{ id: "a", text: source, kind: "text" }] }
   const recovered = success.module.getNovelTranslationSession(input)
+  const stages = []
+  recovered.subscribe((s) => {
+    const attempt = s.blocks.a.attempt
+    if (attempt) stages.push(`${attempt.stage}:${attempt.splitPart}:${attempt.splitCompleted}`)
+  })
   await recovered.start()
   assert.equal(recovered.getSnapshot().done, 1)
   assert.equal(success.getCalls(), 4)
+  assert.ok(stages.includes("split:1:0"))
+  assert.ok(stages.includes("split:2:1"))
+  assert.ok(stages.includes("split:3:2"))
+  assert.ok(stages.includes("merge:3:3"))
 
   let childCalls = 0
   const failure = createStoreFixture({ translate: async (text) => {
@@ -488,8 +543,22 @@ test("原块失败后仅三分一次，子段失败不会递归拆分", async ()
   const failed = failure.module.getNovelTranslationSession({ ...input, novelId: 31 })
   await failed.start()
   assert.equal(failed.getSnapshot().failed, 1)
-  assert.match(failed.getSnapshot().blocks.a.error, /已拆分重试/)
+  assert.match(failed.getSnapshot().blocks.a.error, /已拆分重试：第 2\/3 段失败，完成 1\/3/)
   assert.equal(failure.getCalls(), 3)
+})
+
+test("三段请求均成功但合并校验失败时明确标注阶段", async () => {
+  const source = "これは十分な長さがある原文です。".repeat(12)
+  let calls = 0
+  const f = createStoreFixture({ translate: async (text) => {
+    if (++calls === 1) throw new Error("模拟原块失败")
+    return `译：${text}`
+  }, validateTranslation: () => { throw new Error("译文质量检查失败：模拟合并错误") } })
+  const session = f.module.getNovelTranslationSession({ novelId: 39, title: "阶段", caption: "", text: source,
+    targetLanguage: "zh-CN", blocks: [{ id: "a", text: source, kind: "text" }] })
+  await session.start()
+  assert.equal(f.getCalls(), 4)
+  assert.match(session.getSnapshot().blocks.a.error, /三段完成，合并校验失败/)
 })
 
 test("超时失败会拆分重试，过短块不拆分", async () => {

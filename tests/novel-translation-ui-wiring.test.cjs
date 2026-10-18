@@ -157,6 +157,18 @@ const baseSnapshot = {
   thinkingNotice: "",
 }
 
+test("折叠译文面板实时显示子段进度与合并阶段", () => {
+  const blocks = [{ id: "chunk-1", original: "正文", kind: "text" }]
+  for (const stage of ["split", "merge"]) {
+    const snapshot = { ...baseSnapshot, running: true, done: 0, phase: "translating", blocks: {
+      "chunk-1": { id: "chunk-1", status: "running", attempt: { stage, splitPart: 2, splitCompleted: 1 } },
+    } }
+    const runtime = renderStatus({ session: makeSession("openai", snapshot, blocks), snapshot, compact: true })
+    const tree = JSON.stringify(runtime.tree())
+    assert.match(tree, stage === "split" ? /拆分重试第 2\/3 段，已完成 1\/3/ : /三段已完成，正在合并校验/)
+  }
+})
+
 test("译文面板实际显示术语条数与供应商发送范围（不含端点与密钥）", async () => {
   const blocks = [
     { id: "chapter-1", original: "第一章", kind: "chapter" },

@@ -488,6 +488,12 @@ export function validateNovelTranslation(
 ): void {
   const output = translated.trim()
   if (!output) translationQualityError("模型返回空译文")
+  // 只匹配开头明确针对翻译任务的拒绝，不因小说人物说「无法/抱歉」就拦截。
+  const replyHead = output.slice(0, 400)
+  if (/^(?:(?:很|非常)?抱歉[，,。!！\s]*|对不起[，,。!！\s]*)?(?:我(?:目前|暂时)?(?:无法|不能|不便)|无法|不能)(?:为(?:你|您))?(?:提供|协助|帮助|继续|进行|直接)?(?:对)?(?:这段|该段|上述|所提供的|提供的)?(?:内容|文本|文字|小说)?(?:的)?(?:完整|逐字|直接|全文)?翻译/u.test(replyHead) ||
+    /^(?:(?:i(?:['’]m| am) )?sorry[,!.\s]*)?i (?:cannot|can't|am unable to|won't) (?:translate\b|provide (?:a |the )?(?:full |complete )?translation\b|(?:help|assist)(?: you)? (?:with )?(?:translating|translation|this translation)\b)/i.test(replyHead)) {
+    translationQualityError("模型返回拒绝翻译说明，而非译文")
+  }
   if (/^(?:以下是|这是|翻译结果|译文|translation)\s*[:：]/i.test(output)) {
     translationQualityError("模型输出了额外说明")
   }
@@ -508,12 +514,26 @@ export function validateNovelTranslation(
   if (sourceLength >= 40 && foreignScript.test(original) && original.trim() === output) {
     translationQualityError("译文与外语原文完全相同")
   }
-  const substantialLines = output.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length >= 12)
-  for (let index = 2; index < substantialLines.length; index++) {
-    if (substantialLines[index] === substantialLines[index - 1] &&
-      substantialLines[index] === substantialLines[index - 2]) {
-      translationQualityError("检测到连续重复内容")
+  // 小说本来就可能连续重复台词。按源文重复组的次数预算逐组匹配，
+  // 只拦新增/放大的重复；短句不能先过滤，否则夹在长句之间的短句会被误删。
+  const repeatRuns = (text: string, minLength: number): number[] => {
+    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+    const runs: number[] = []
+    let previous = ""
+    let count = 0
+    const flush = () => { if (count >= 3 && previous.length >= minLength) runs.push(count) }
+    for (const line of lines) {
+      if (line === previous) count++
+      else { flush(); previous = line; count = 1 }
     }
+    flush()
+    return runs.sort((a, b) => a - b)
+  }
+  const sourceRuns = repeatRuns(original, 0)
+  for (const count of repeatRuns(output, 12)) {
+    const match = sourceRuns.findIndex((allowed) => allowed >= count)
+    if (match < 0) translationQualityError("检测到原文不存在或次数增加的连续重复内容")
+    sourceRuns.splice(match, 1)
   }
 }
 

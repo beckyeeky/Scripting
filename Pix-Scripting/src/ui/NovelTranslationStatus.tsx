@@ -83,6 +83,14 @@ export function NovelTranslationStatus(props: {
         </Text>
       </HStack>
       <ProgressView value={snapshot.done} total={Math.max(snapshot.total, 1)} progressViewStyle="linear" />
+      {Object.values(snapshot.blocks).filter((block) => block.status === "running" &&
+        block.attempt && block.attempt.stage !== "original").map((block) => (
+        <Text key={`split-${block.id}`} font="caption" foregroundStyle="secondaryLabel">
+          {block.attempt!.stage === "merge"
+            ? `${block.id}：三段已完成，正在合并校验`
+            : `${block.id}：拆分重试第 ${block.attempt!.splitPart}/3 段，已完成 ${block.attempt!.splitCompleted}/3`}
+        </Text>
+      ))}
       <Text font="caption" foregroundStyle="secondaryLabel">
         {`分段状态：完成 ${snapshot.done} · 未完成 ${Math.max(0, snapshot.total - snapshot.done - snapshot.failed)}${snapshot.failed ? ` · 失败 ${snapshot.failed}` : ""}${snapshot.stale ? ` · 失效 ${snapshot.stale}` : ""}${snapshot.stale ? "（旧译文不会静默复用）" : ""}`}
       </Text>

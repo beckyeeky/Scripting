@@ -35,6 +35,8 @@ export interface TranslationBlock {
   translation?: string
   status: TranslationBlockStatus
   error?: string
+  /** 本轮调用阶段；不包含正文、密钥或供应商原始报错。 */
+  attempt?: { stage: "original" | "split" | "merge"; splitPart: number; splitCompleted: number }
 }
 
 export interface NovelTranslationSnapshot {
@@ -138,7 +140,11 @@ const NON_SPLIT_ERROR_PATTERN = /401|unauthorized|invalid.?api.?key|api.?key|鉴
 function cleanError(error: unknown): string {
   const value = error instanceof Error ? error.message : String(error)
   // 供应商报错偶尔包含请求头，持久化前只保留简短、安全的类别。
-  if (/401|403|unauthorized|api.?key|鉴权/i.test(value)) return "模型鉴权失败，请检查智能助手设置"
+  if (/拒绝翻译|模型拒绝|拒绝了当前请求|内容安全|content.?filter|content.?policy|safety|refusal/i.test(value)) {
+    return "模型拒绝或安全策略拦截，未生成可用译文"
+  }
+  if (/401|unauthorized|api.?key|鉴权/i.test(value)) return "模型鉴权失败，请检查智能助手设置"
+  if (/403/.test(value)) return "服务拒绝请求（403），可能是权限或内容策略限制"
   if (/429|rate.limit|限流/i.test(value)) return "模型限流，请稍后重试"
   if (/timeout|超时|abort/i.test(value)) return "请求超时，请重试"
   if (/译文质量检查失败|链接占位符/.test(value)) return value.slice(0, 160)
@@ -425,6 +431,7 @@ export class NovelTranslationSession {
           this.controllers.add(controller)
           block.status = "running"
           block.error = undefined
+          block.attempt = { stage: "original", splitPart: 0, splitCompleted: 0 }
           let splitAttempted = false
           this.publish()
           try {
@@ -446,9 +453,17 @@ export class NovelTranslationSession {
               const translatedParts: string[] = []
               for (const part of split.parts) {
                 if (run !== this.runId || controller.signal.aborted) return
+                block.attempt = { stage: "split", splitPart: translatedParts.length + 1,
+                  splitCompleted: translatedParts.length }
+                this.publish()
                 // 子段直达单块翻译接口，不再进入本层失败拆分，保证原块最多三分一次。
                 translatedParts.push(await translateNovelPassage(part, options))
+                if (run !== this.runId || controller.signal.aborted) return
+                block.attempt = { stage: "split", splitPart: translatedParts.length,
+                  splitCompleted: translatedParts.length }
               }
+              block.attempt = { stage: "merge", splitPart: 3, splitCompleted: 3 }
+              this.publish()
               translation = translatedParts[0] + split.separators[0] +
                 translatedParts[1] + split.separators[1] + translatedParts[2]
               validateNovelTranslation(block.original, translation,
@@ -468,7 +483,9 @@ export class NovelTranslationSession {
               : block.original.length < 60 ? "（未拆分：原文过短）"
               : !forceSplit && NON_SPLIT_ERROR_PATTERN.test(error instanceof Error ? error.message : String(error)) ? "（未拆分：鉴权或限流）"
               : ""
-            block.error = splitAttempted ? `${reason}（已拆分重试）` : `${reason}${skipped}`
+            const splitDetail = block.attempt?.stage === "merge" ? "三段完成，合并校验失败"
+              : `第 ${block.attempt?.splitPart ?? 1}/3 段失败，完成 ${block.attempt?.splitCompleted ?? 0}/3`
+            block.error = splitAttempted ? `${reason}（已拆分重试：${splitDetail}）` : `${reason}${skipped}`
             this.stored.blocks[block.id] = { source: fingerprint(block.original), error: block.error }
           } finally {
             this.controllers.delete(controller)

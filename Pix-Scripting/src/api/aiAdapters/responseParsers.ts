@@ -70,7 +70,9 @@ function appendContentBlocks(payload: ParsedProviderPayload, content: any): void
   for (const block of content) {
     if (!block || typeof block !== "object") continue
     const type = block.type || ""
-    if ((type === "text" || type === "output_text") && typeof block.text === "string") {
+    if (type === "refusal") {
+      payload.error = "模型拒绝了当前请求"
+    } else if ((type === "text" || type === "output_text") && typeof block.text === "string") {
       payload.text += block.text
     } else if (type === "reasoning" && typeof block.text === "string") {
       payload.reasoning += block.text
@@ -112,7 +114,9 @@ export function parseOpenAIChatPayload(json: any): ParsedProviderPayload {
 
   const finishReason = choice.finish_reason
   payload.done = Boolean(finishReason)
-  if (finishReason === "content_filter" && !payload.text && !payload.images.length) {
+  if (finishReason === "content_filter") {
+    payload.text = ""
+    payload.images = []
     payload.error = "模型输出被内容安全策略拦截"
   } else if (finishReason === "length" || finishReason === "max_tokens") {
     payload.error = "模型输出达到长度上限，翻译结果不完整"
@@ -124,7 +128,12 @@ function appendResponsesOutput(payload: ParsedProviderPayload, output: any, incl
   if (!Array.isArray(output)) return
   for (const item of output) {
     if (!item || typeof item !== "object") continue
-    if (item.type === "message" && includeText) appendContentBlocks(payload, item.content)
+    if (item.type === "message") {
+      if (includeText) appendContentBlocks(payload, item.content)
+      else if (Array.isArray(item.content) && item.content.some((block: any) => block?.type === "refusal")) {
+        payload.error = "模型拒绝了当前请求"
+      }
+    }
     if (item.type === "reasoning" && includeText && Array.isArray(item.summary)) {
       for (const summary of item.summary) {
         if (typeof summary?.text === "string") payload.reasoning += summary.text
@@ -280,6 +289,9 @@ export function parseAnthropicPayload(json: any, eventName?: string): ParsedProv
     payload.done = Boolean(json.stop_reason)
     if (json.stop_reason === "max_tokens") {
       payload.error = "Anthropic 输出达到长度上限，翻译结果不完整"
+    } else if (json.stop_reason === "refusal") {
+      payload.error = "Anthropic 拒绝了当前请求"
+      payload.text = ""
     }
     return payload
   }
@@ -293,6 +305,9 @@ export function parseAnthropicPayload(json: any, eventName?: string): ParsedProv
     const stopReason = json.delta?.stop_reason
     if (stopReason === "max_tokens") {
       payload.error = "Anthropic 输出达到长度上限，翻译结果不完整"
+      payload.done = true
+    } else if (stopReason === "refusal") {
+      payload.error = "Anthropic 拒绝了当前请求"
       payload.done = true
     }
   } else if (type === "message_stop") {
