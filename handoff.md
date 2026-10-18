@@ -8,7 +8,7 @@
 - 测试：`novel-translation` 31 项全过（新增 403 审查拆分、手动强制拆分）；198 个 TS/TSX 语法检查 0 错误。
 - 版本一致性：`script.json`、`src/config.ts`、README 与包内元数据均为 `1.7.13.10`；打包后逐条解压比对 199 个文件、213 个条目字节一致。
 - 包：`Release/Pix-Scripting.scripting`，812,984 字节，SHA-256 `247461d01b5694fefc698bad95c86fbf56eddd290729b0671029786c17a3f270`。
-- 标签 `v1.7.13.10-pixivreader` 与 Release（prerelease）在推送后创建；仍用等价 Node ZIP 构建，推送使用脚本工程的 93 位 PAT（临时令牌文件已删除）。
+- 发布：提交 `a54f913`，标签 `v1.7.13.10-pixivreader`，Release（prerelease）https://github.com/beckyeeky/Scripting/releases/tag/v1.7.13.10-pixivreader ；附件包与 `.sha256` 已上传，回下载校验哈希一致，分支 raw 已返回 1.7.13.10。
 - 未做真机验收：需用内容审查受限的篇目确认 403 会拆成三段，以及手动重试会强制拆分。
 
 ## 上一版：v1.7.13.9（2026-10-18）
