@@ -25,6 +25,7 @@ import {
   ZStack,
 } from "scripting"
 import { appGlass, appInteractiveGlass, appCustomTint } from "./components/glass"
+import { PrivacyShield } from "./components/PrivacyShield"
 import { useLayoutMetrics, useEffectiveIsDark } from "./Hooks"
 import { presentExternalURL, routeForDescriptionLink } from "./components"
 import { requestPixivRoute } from "../store/routeNavigation"
@@ -2420,6 +2421,9 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
           content: <NovelTypographySheet onClose={() => setShowTypography(false)} />,
         }}
       />
+
+      {/* 6. 多任务隐私保护遮罩 */}
+      <PrivacyShield />
     </ZStack>
   </NavigationStack>
 )

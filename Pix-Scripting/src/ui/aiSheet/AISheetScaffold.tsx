@@ -19,6 +19,7 @@ import {
 } from "scripting"
 import { appGlass } from "../components/glass"
 import { sheetDetents, sheetTopBar } from "../components/pageChrome"
+import { SheetScaffold } from "../components/SheetScaffold"
 import { isAIAvailable } from "../../api/aiService"
 import { isScriptingPro } from "../../platform/pro"
 import { ErrorView } from "../components"
@@ -188,10 +189,7 @@ export function AISheetScaffold(props: {
   }, [resultText])
 
   return (
-    <NavigationStack
-      presentationDetents={sheetDetents()}
-      presentationDragIndicator="visible"
-    >
+    <SheetScaffold>
       <ScrollView
         {...sheetTopBar()}
         navigationTitle={title}
@@ -335,6 +333,6 @@ export function AISheetScaffold(props: {
           )}
         </VStack>
       </ScrollView>
-    </NavigationStack>
+    </SheetScaffold>
   )
 }

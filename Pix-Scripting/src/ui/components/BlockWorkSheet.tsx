@@ -13,6 +13,7 @@ import {
 } from "scripting"
 import { appGlass } from "./glass"
 import { sheetDetents, sheetTopBar } from "./pageChrome"
+import { SheetScaffold } from "./SheetScaffold"
 import { AvatarImage } from "./CachedImage"
 import { SelectableTagChip } from "./TagChip"
 import {
@@ -111,10 +112,7 @@ export function BlockWorkSheet(props: {
   const validTags = tags.filter((t) => t && t.name && t.name.trim())
 
   return (
-    <NavigationStack
-      presentationDetents={sheetDetents()}
-      presentationDragIndicator="visible"
-    >
+    <SheetScaffold>
       <VStack
         alignment="leading"
         spacing={0}
@@ -258,6 +256,6 @@ export function BlockWorkSheet(props: {
           </VStack>
         </ScrollView>
       </VStack>
-    </NavigationStack>
+    </SheetScaffold>
   )
 }

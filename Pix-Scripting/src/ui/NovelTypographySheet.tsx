@@ -18,6 +18,7 @@ import {
 } from "scripting"
 import { appGlass } from "./components/glass"
 import { sheetDetents, sheetTopBar } from "./components/pageChrome"
+import { SheetScaffold } from "./components/SheetScaffold"
 import { isScriptingPro } from "../platform/pro"
 import { triggerHaptic } from "../platform/haptics"
 import { loadSettings } from "../store/settings"
@@ -112,11 +113,7 @@ export function NovelTypographySheet(props: { onClose?: () => void }) {
   const accentColor = (customTint ?? "systemBlue") as Color
 
   return (
-    <NavigationStack
-      presentationDetents={sheetDetents([0.65, "large"])}
-      presentationDragIndicator="visible"
-      tint={customTint}
-    >
+    <SheetScaffold detents={sheetDetents([0.65, "large"])} tint={customTint}>
       <ScrollView
         {...sheetTopBar()}
         navigationTitle="版式"
@@ -425,7 +422,7 @@ export function NovelTypographySheet(props: { onClose?: () => void }) {
           </VStack>
         </VStack>
       </ScrollView>
-    </NavigationStack>
+    </SheetScaffold>
   )
 }
 

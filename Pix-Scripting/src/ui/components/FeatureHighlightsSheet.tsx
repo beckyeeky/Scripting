@@ -11,6 +11,7 @@ import {
 } from "scripting"
 import { triggerHaptic } from "../../platform/haptics"
 import { sheetTopBar } from "./pageChrome"
+import { SheetScaffold } from "./SheetScaffold"
 
 interface FeatureItem {
   id: string
@@ -97,10 +98,7 @@ export function FeatureHighlightsSheet(props: { onClose: () => void }) {
   }
 
   return (
-    <NavigationStack
-      presentationDetents={["large"]}
-      presentationDragIndicator="visible"
-    >
+    <SheetScaffold detents={["large"]}>
       <VStack
         spacing={0}
         frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
@@ -232,7 +230,7 @@ export function FeatureHighlightsSheet(props: { onClose: () => void }) {
           </VStack>
         </ScrollView>
       </VStack>
-    </NavigationStack>
+    </SheetScaffold>
   )
 }
 

@@ -20,6 +20,7 @@ import {
 import { compileSearchQuery, stripBookmarkFilterFromWord } from "../api/pixiv"
 import { session } from "../api/session"
 import { sheetTopBar } from "./components/pageChrome"
+import { SheetScaffold } from "./components/SheetScaffold"
 import type {
   AdvancedSearchParams,
   BookmarkThreshold,
@@ -447,7 +448,7 @@ export function SearchAdvancedSheet(props: {
   const isNovel = category === "novel"
 
   return (
-    <NavigationStack>
+    <SheetScaffold>
       <List
         {...sheetTopBar()}
         navigationTitle="高级搜索"
@@ -817,6 +818,6 @@ export function SearchAdvancedSheet(props: {
           ) : null}
         </Section>
       </List>
-    </NavigationStack>
+    </SheetScaffold>
   )
 }

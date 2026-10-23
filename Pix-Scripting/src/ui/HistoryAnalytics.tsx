@@ -29,6 +29,7 @@ import {
   sheetDetents,
   unifiedTopBar,
 } from "./components/pageChrome"
+import { SheetScaffold } from "./components/SheetScaffold"
 import { session } from "../api/session"
 import { loadSettings } from "../store/settings"
 import { useExperimentalAmbientPalette, useLastActiveAmbientImageUrl } from "./ambient"
@@ -1232,12 +1233,9 @@ export function HistoryAnalyticsView(props: HistoryAnalyticsViewProps) {
 
   if (props.onDismiss) {
     return (
-      <NavigationStack
-        presentationDetents={sheetDetents()}
-        presentationDragIndicator="visible"
-      >
+      <SheetScaffold>
         {content}
-      </NavigationStack>
+      </SheetScaffold>
     )
   }
 

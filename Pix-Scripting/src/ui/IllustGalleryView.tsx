@@ -29,6 +29,7 @@ import {
 } from "../image/imageLoader"
 import { sharpenFadeDurationSec } from "./components/CachedImage"
 import { appCustomTint, appInteractiveGlass } from "./components/glass"
+import { PrivacyShield } from "./components/PrivacyShield"
 import {
   downloadIllustToAlbum,
   fetchImageBinaryWithRetry,
@@ -636,6 +637,9 @@ export function IllustGalleryView(props: {
             </HStack>
           </ZStack>
         </VStack>
+
+        {/* 顶层：多任务隐私保护（切后台时毛玻璃遮罩大图） */}
+        <PrivacyShield />
       </ZStack>
     </NavigationStack>
   )

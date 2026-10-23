@@ -24,6 +24,7 @@ import {
 } from "scripting"
 import { appGlass, appThemeColor } from "./components/glass"
 import { sheetDetents, sheetTopBar } from "./components/pageChrome"
+import { SheetScaffold } from "./components/SheetScaffold"
 import {
   comments,
   nextComments,
@@ -407,11 +408,7 @@ export function CommentsSheet(props: {
   const themeColor = appThemeColor("systemBlue") as Color
 
   return (
-    <NavigationStack
-      presentationDetents={sheetDetents()}
-      presentationDragIndicator="visible"
-      tint={customTint}
-    >
+    <SheetScaffold tint={customTint}>
       <VStack
         alignment="leading"
         spacing={0}
@@ -502,7 +499,7 @@ export function CommentsSheet(props: {
           )}
         </ScrollView>
       </VStack>
-    </NavigationStack>
+    </SheetScaffold>
   )
 }
 

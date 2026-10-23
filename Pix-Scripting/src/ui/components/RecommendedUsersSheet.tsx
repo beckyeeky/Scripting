@@ -23,6 +23,7 @@ import {
 import { EmptyView, ErrorView, LoadingView } from "./StatusViews"
 import { LoadMoreTrigger } from "./RefreshableScrollView"
 import { sheetDetents, sheetTopBar } from "./pageChrome"
+import { SheetScaffold } from "./SheetScaffold"
 import { prefetch } from "../../image/imageLoader"
 import { currentBatchSize, usePagedList } from "../Hooks"
 import type { PixivPage, PixivUserPreview } from "../../types"
@@ -68,10 +69,7 @@ export function RecommendedUsersSheet(props: {
   }
 
   return (
-    <NavigationStack
-      presentationDetents={sheetDetents()}
-      presentationDragIndicator="visible"
-    >
+    <SheetScaffold>
       <VStack
         {...sheetTopBar()}
         navigationTitle="推荐创作者"
@@ -145,6 +143,6 @@ export function RecommendedUsersSheet(props: {
           </GeometryReader>
         )}
       </VStack>
-    </NavigationStack>
+    </SheetScaffold>
   )
 }
