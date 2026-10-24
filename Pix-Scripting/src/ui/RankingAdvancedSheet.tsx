@@ -23,6 +23,7 @@ import {
   type RankingOptionDef,
 } from "../store/settings"
 import { sheetTopBar } from "./components/pageChrome"
+import { SheetScaffold } from "./components/SheetScaffold"
 
 export interface AdvancedRankingParams {
   category: "illustration" | "manga" | "novel"
@@ -187,7 +188,7 @@ export function RankingAdvancedSheet(props: {
   const currentDateFormatted = formatDateToPixivDate(selectedTimestamp)
 
   return (
-    <NavigationStack>
+    <SheetScaffold>
       <List
         {...sheetTopBar()}
         navigationTitle="历史排行榜"
@@ -279,6 +280,6 @@ export function RankingAdvancedSheet(props: {
           />
         </Section>
       </List>
-    </NavigationStack>
+    </SheetScaffold>
   )
 }

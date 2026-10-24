@@ -45,6 +45,7 @@ const readerModule = { exports: {} }
 vm.runInNewContext(transpile(NOVEL_READER_FILE, readerSliced), {
   module: readerModule,
   exports: readerModule.exports,
+  ...loadTsModule("Pix-Scripting/src/ui/novelInlineMarkup.ts"),
   console: { log() {}, warn() {} },
   setTimeout: () => 0,
   clearTimeout() {},
@@ -276,7 +277,7 @@ function mountImmersive(input) {
   }
   for (const name of ["NavigationStack", "ZStack", "VStack", "HStack", "Button", "Image", "WebView",
     "Rectangle", "Text", "Spacer", "Menu", "Picker", "ProgressView", "Group", "Divider", "ScrollView",
-    "NovelTypographySheet", "NovelOutlineSearchSheet"]) {
+    "NovelTypographySheet", "NovelOutlineSearchSheet", "PrivacyShield"]) {
     globals[name] = name
   }
 

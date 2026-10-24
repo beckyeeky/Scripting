@@ -40,8 +40,8 @@ import type {
   TextEmbeddedImage,
   UgoiraMetadataResponse,
 } from "../types"
-import { API_BASE_URL, DEFAULT_WEB_BASE_URL } from "../config"
-import { getWebBaseUrl } from "../store/settings"
+import { DEFAULT_WEB_BASE_URL } from "../config"
+import { getApiBaseUrl, getWebBaseUrl } from "../store/settings"
 import { isPixivCookieDomain, clearPixivWebCookies } from "./auth"
 import { session } from "./session"
 import { notifyUserFollowChanged, recordUserFollowed } from "../store/userFollow"
@@ -1262,9 +1262,9 @@ export async function followDetail(
   )
   const detail = json?.follow_detail ?? { is_followed: false }
   if (detail.is_followed) {
-    recordUserFollowed(userID, true, detail.restrict ?? "public")
+    notifyUserFollowChanged(userID, true, detail.restrict ?? "public")
   } else {
-    recordUserFollowed(userID, false)
+    notifyUserFollowChanged(userID, false)
   }
   return detail
 }
@@ -1388,7 +1388,7 @@ export async function novelViewerData(
 ): Promise<NovelViewerData> {
   // 参数与官方 iOS app 8.7.3 抓包一致
   const url =
-    `${API_BASE_URL}/webview/v2/novel?id=${id}` +
+    `${getApiBaseUrl()}/webview/v2/novel?id=${id}` +
     "&font=gothic&font_size=1.0em&line_height=1.8" +
     "&color=%23B7B7B7&background_color=%231F1F1F" +
     "&mode=horizontal&theme=dark&margin_top=60px&margin_bottom=50px" +

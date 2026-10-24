@@ -1,7 +1,7 @@
 /**
  * Pixiv 小说行内标记渲染回归
  *
- * 正文里的 [b:] / [i:] / [u:] / [s:] / [big:] / [small:] 必须本地渲染成样式，
+ * 正文里的官方 [b:] / [i:] 标记必须本地渲染成样式，
  * 不能把标记原样显示给读者；同时不得破坏已有的注音与 jumpuri 链接。
  */
 const test = require("node:test")
@@ -124,7 +124,8 @@ test("纯文本模式去掉标记，保留内容与注音括号", () => {
 
 test("原生富文本拆出带样式的分段", () => {
   const content = buildNovelStyledContent("普通[b:加粗]普通")
-  assert.deepEqual(content, [
+  // VM 数组/对象具有独立原型，转换到当前 realm 后比较实际数据。
+  assert.deepEqual(JSON.parse(JSON.stringify(content)), [
     "普通",
     { content: ["加粗"], bold: true },
     "普通",
@@ -133,5 +134,6 @@ test("原生富文本拆出带样式的分段", () => {
 
 test("相邻同样式片段合并，避免碎片化", () => {
   const content = buildNovelStyledContent("[b:甲][b:乙]")
-  assert.deepEqual(content, [{ content: ["甲乙"], bold: true }])
+  // VM 数组/对象具有独立原型，转换到当前 realm 后比较实际数据。
+  assert.deepEqual(JSON.parse(JSON.stringify(content)), [{ content: ["甲乙"], bold: true }])
 })

@@ -21,6 +21,7 @@ import {
 } from "./ConnectionRow"
 import { EmptyView, ErrorView, LoadingView } from "./StatusViews"
 import { sheetDetents, sheetTopBar } from "./pageChrome"
+import { SheetScaffold } from "./SheetScaffold"
 import type { PixivUserPreview } from "../../types"
 
 export function RelatedUsersSheet(props: {
@@ -73,10 +74,7 @@ export function RelatedUsersSheet(props: {
   }
 
   return (
-    <NavigationStack
-      presentationDetents={sheetDetents()}
-      presentationDragIndicator="visible"
-    >
+    <SheetScaffold>
       <VStack
         {...sheetTopBar()}
         navigationTitle={seedUserName ? `相似于 ${seedUserName}` : "相似创作者"}
@@ -141,6 +139,6 @@ export function RelatedUsersSheet(props: {
           </GeometryReader>
         )}
       </VStack>
-    </NavigationStack>
+    </SheetScaffold>
   )
 }

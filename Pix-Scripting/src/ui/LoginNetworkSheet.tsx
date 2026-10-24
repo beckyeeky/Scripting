@@ -20,6 +20,7 @@ import {
 } from "../store/settings"
 import { triggerHaptic } from "../platform/haptics"
 import { sheetTopBar } from "./components/pageChrome"
+import { SheetScaffold } from "./components/SheetScaffold"
 
 export function LoginNetworkSheet(props: { onClose: () => void }) {
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings())
@@ -44,7 +45,7 @@ export function LoginNetworkSheet(props: { onClose: () => void }) {
   }
 
   return (
-    <NavigationStack>
+    <SheetScaffold>
       <List
         {...sheetTopBar()}
         navigationTitle="网络连接"
@@ -161,6 +162,6 @@ export function LoginNetworkSheet(props: { onClose: () => void }) {
           ) : null}
         </Section>
       </List>
-    </NavigationStack>
+    </SheetScaffold>
   )
 }

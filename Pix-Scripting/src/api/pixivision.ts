@@ -21,7 +21,7 @@ const PIXIVISION_ORIGIN = "https://www.pixivision.net"
 const PIXIVISION_ALLOWED_ORIGINS = ["https://www.pixivision.net", "https://pixivision.net"]
 const PIXIVISION_PAGE_SIZE = 20
 const PIXIVISION_USER_AGENT =
-  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/27.0 PixivIOSApp/8.9.1"
+  "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"
 
 function pixivisionHeaders(referer: string): Record<string, string> {
   return {

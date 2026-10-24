@@ -117,6 +117,7 @@ function loadImmersiveReader() {
     "../store/bookmarkSync": { getCachedNovelMarker: () => null, recordNovelMarker: () => {} },
     "./NovelTypographySheet": { NovelTypographySheet: () => null },
     "./NovelOutlineSearchSheet": { NovelOutlineSearchSheet: () => null },
+    "./components/PrivacyShield": { PrivacyShield: () => null },
     "./NovelReader": novelReaderStub,
     "../store/novelProgress": { getNovelProgress: () => null, recordNovelProgress: () => {} },
     "../store/novelAnchor": anchorModule,

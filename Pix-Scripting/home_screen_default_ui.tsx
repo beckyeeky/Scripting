@@ -1,6 +1,7 @@
-import { useEffect } from "scripting"
+import { useEffect, useState } from "scripting"
 import { Script, ZStack } from "scripting"
 import { RootView } from "./src/ui/appRoot"
+import { getPreferredColorScheme, onSettingsChanged } from "./src/store/settings"
 import {
   bootstrapStorage,
   startBackgroundServices,
@@ -30,6 +31,15 @@ if (startupRoute && typeof startupRoute === "string") {
 
 export default function HomeScreenEntry() {
   const isFull = useIsFullScreen()
+  const [preferredColorScheme, setPreferredColorScheme] = useState(() =>
+    getPreferredColorScheme()
+  )
+
+  useEffect(() => {
+    return onSettingsChanged(() => {
+      setPreferredColorScheme(getPreferredColorScheme())
+    })
+  }, [])
 
   useEffect(() => {
     // 监听 Home Tab 切换事件
@@ -79,6 +89,8 @@ export default function HomeScreenEntry() {
     <ZStack
       frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
       tabBarVisibility={isFull ? "hidden" : "visible"}
+      preferredColorScheme={preferredColorScheme}
+      environments={{ colorScheme: preferredColorScheme }}
     >
       <RootView />
     </ZStack>

@@ -18,6 +18,7 @@ import {
 } from "scripting"
 import { appGlass } from "./components/glass"
 import { sheetDetents, sheetTopBar } from "./components/pageChrome"
+import { SheetScaffold } from "./components/SheetScaffold"
 import { isScriptingPro } from "../platform/pro"
 import { triggerHaptic } from "../platform/haptics"
 import { loadSettings } from "../store/settings"
@@ -114,11 +115,7 @@ export function NovelTypographySheet(props: { onClose?: () => void }) {
   const accentColor = (customTint ?? "systemBlue") as Color
 
   return (
-    <NavigationStack
-      presentationDetents={sheetDetents([0.65, "large"])}
-      presentationDragIndicator="visible"
-      tint={customTint}
-    >
+    <SheetScaffold detents={sheetDetents([0.65, "large"])} tint={customTint}>
       <ScrollView
         {...sheetTopBar()}
         navigationTitle="版式"
@@ -410,7 +407,14 @@ export function NovelTypographySheet(props: { onClose?: () => void }) {
 
               {/* 第三行：字重（纤细，标准，加粗） */}
               <HStack alignment="center" padding={{ horizontal: 16, vertical: 13 }} frame={{ maxWidth: "infinity" }}>
-                <Text font="body">字重</Text>
+                <VStack alignment="leading" spacing={3}>
+                  <Text font="body">字重</Text>
+                  {settings.fontId === "custom" ? (
+                    <Text font="caption2" foregroundStyle="secondaryLabel">
+                      受系统限制，字重对自定义字体不生效
+                    </Text>
+                  ) : null}
+                </VStack>
                 <Spacer />
                 <Menu
                   label={
@@ -490,7 +494,7 @@ export function NovelTypographySheet(props: { onClose?: () => void }) {
           </VStack>
         </VStack>
       </ScrollView>
-    </NavigationStack>
+    </SheetScaffold>
   )
 }
 

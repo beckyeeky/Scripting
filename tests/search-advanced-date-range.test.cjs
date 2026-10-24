@@ -68,6 +68,7 @@ function loadSearchAdvancedSheet(settings = { showR18: true, showR18G: false, sh
         "../api/session": { session: { user: null } },
         "../store/settings": { loadSettings: () => settings },
         "./components/pageChrome": { sheetTopBar: () => ({}) },
+        "./components/SheetScaffold": { SheetScaffold: "SheetScaffold" },
         "../platform/haptics": { triggerHaptic() {} },
       }
       if (!(id in mocks)) throw new Error(`missing test double: ${id}`)

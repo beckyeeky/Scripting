@@ -417,6 +417,7 @@ export function SettingsView() {
     <ZStack
       frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
       preferredColorScheme={preferredColorScheme}
+      environments={{ colorScheme: preferredColorScheme }}
       navigationTitle={isFullScreenPad ? "" : "应用设置"}
       navigationBarTitleDisplayMode="inline"
       toolbarBackground={PAGE_TOOLBAR_BACKGROUND}

@@ -438,6 +438,7 @@ function mountNovelReaderView(options = {}) {
   }
   const translatorCalls = []
   const reader = loadTsModule(NOVEL_READER, {
+    "./novelInlineMarkup": loadTsModule("Pix-Scripting/src/ui/novelInlineMarkup.ts"),
     scripting: {
       ...hostViewStubs([
         "Button", "Divider", "Group", "HStack", "Image", "ProgressView", "Rectangle", "ScrollView",

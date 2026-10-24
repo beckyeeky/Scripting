@@ -58,6 +58,7 @@ import {
   unblockUser,
 } from "../store/blocklist"
 import {
+  getEffectiveFollowState,
   getUserFollowRestrict,
   isUserFollowed,
   notifyUserFollowChanged,
@@ -91,9 +92,9 @@ export function UserDetailView(props: { userID: number }) {
 
   const [detail, setDetail] = useState<PixivUserDetail | null>(null)
   const [webDetail, setWebDetail] = useState<PixivWebUserDetail | null>(null)
-  const [followed, setFollowed] = useState(() => isUserFollowed(userID) ?? false)
+  const [followed, setFollowed] = useState(() => getEffectiveFollowState(userID).followed)
   const [followRestrict, setFollowRestrict] = useState<FollowRestrict | null>(
-    () => getUserFollowRestrict(userID) ?? null
+    () => getEffectiveFollowState(userID).restrict
   )
   const [detailError, setDetailError] = useState<string | null>(null)
   const [followBusy, setFollowBusy] = useState(false)
@@ -209,10 +210,16 @@ export function UserDetailView(props: { userID: number }) {
       if (result.user?.id) {
         recordUserFollowed(result.user.id, isFollowed)
       }
+      const effectiveFollow = getEffectiveFollowState(userID, isFollowed)
       if (followStateVersion === followStateVersionRef.current) {
-        setFollowed(isFollowed)
+        setFollowed(effectiveFollow.followed)
+        if (effectiveFollow.restrict) {
+          setFollowRestrict(effectiveFollow.restrict)
+        } else if (!effectiveFollow.followed) {
+          setFollowRestrict(null)
+        }
       }
-      if (isFollowed && !isOwnProfile) {
+      if (effectiveFollow.followed && !isOwnProfile) {
         session
           .call((token) => followDetail(userID, token))
           .then((followDetail) => {
@@ -221,18 +228,10 @@ export function UserDetailView(props: { userID: number }) {
               followStateVersion === followStateVersionRef.current
             ) {
               setFollowed(followDetail.is_followed)
-              if (followDetail.is_followed) {
-                const rest = followDetail.restrict ?? "public"
-                setFollowRestrict(rest)
-                recordUserFollowed(userID, true, rest)
-              } else {
-                setFollowRestrict(null)
-              }
+              setFollowRestrict(followDetail.is_followed ? (followDetail.restrict ?? "public") : null)
             }
           })
           .catch(() => {})
-      } else if (!isFollowed) {
-        setFollowRestrict(null)
       }
     } catch (error: any) {
       if (g.isCurrent()) setDetailError(error?.message ?? "加载失败")

@@ -17,6 +17,7 @@ import {
 } from "scripting"
 import { appGlass } from "./components/glass"
 import { sheetDetents, sheetTopBar } from "./components/pageChrome"
+import { SheetScaffold } from "./components/SheetScaffold"
 import { session } from "../api/session"
 import type { StoredAccountProfile } from "../api/auth"
 import { AvatarImage } from "./components/CachedImage"
@@ -121,11 +122,7 @@ export function AccountSwitcherSheet(props: {
 
   if (isAddingAccount) {
     return (
-      <NavigationStack
-        {...sheetTopBar()}
-        presentationDetents={["large"]}
-        presentationDragIndicator="visible"
-      >
+      <SheetScaffold detents={["large"]}>
         <LoginView
           isModal={true}
           onClose={() => setIsAddingAccount(false)}
@@ -135,15 +132,12 @@ export function AccountSwitcherSheet(props: {
             onClose()
           }}
         />
-      </NavigationStack>
+      </SheetScaffold>
     )
   }
 
   return (
-    <NavigationStack
-      presentationDetents={sheetDetents()}
-      presentationDragIndicator="visible"
-    >
+    <SheetScaffold>
       <ScrollView
         {...sheetTopBar()}
         navigationTitle="账号管理"
@@ -376,6 +370,6 @@ export function AccountSwitcherSheet(props: {
           </VStack>
         </VStack>
       </ScrollView>
-    </NavigationStack>
+    </SheetScaffold>
   )
 }

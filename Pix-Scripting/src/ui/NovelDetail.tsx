@@ -78,6 +78,7 @@ import {
 } from "../store/novelProgress"
 import { getSeriesByWorkID, recordWorkSeriesAssociation } from "../store/seriesCache"
 import {
+  getEffectiveFollowState,
   getUserFollowRestrict,
   isUserFollowed,
   notifyUserFollowChanged,
@@ -224,14 +225,22 @@ export function NovelDetailView(props: { novelID: number }) {
   })
   const [followed, setFollowed] = useState(() => {
     if (cachedNovel?.user?.id) {
-      return (
-        isUserFollowed(cachedNovel.user.id) ||
-        Boolean(cachedNovel.user.is_followed)
-      )
+      return getEffectiveFollowState(
+        cachedNovel.user.id,
+        cachedNovel.user.is_followed ?? false
+      ).followed
     }
     return false
   })
-  const [followRestrict, setFollowRestrict] = useState<FollowRestrict | null>(null)
+  const [followRestrict, setFollowRestrict] = useState<FollowRestrict | null>(() => {
+    if (cachedNovel?.user?.id) {
+      return getEffectiveFollowState(
+        cachedNovel.user.id,
+        cachedNovel.user.is_followed ?? false
+      ).restrict
+    }
+    return null
+  })
   const [followLoading, setFollowLoading] = useState(false)
   const [showRelatedUsers, setShowRelatedUsers] = useState(false)
   useOpenRelatedUsersListener(novel?.user?.id ?? cachedNovel?.user?.id, () => {
@@ -613,26 +622,25 @@ export function NovelDetailView(props: { novelID: number }) {
 
       setNovel(detail)
       setBookmarked(detail.is_bookmarked)
-      const isFollowed = detail.user?.is_followed ?? false
-      setFollowed(isFollowed)
-      if (isFollowed && detail.user?.id) {
+      const effectiveFollow = detail.user?.id
+        ? getEffectiveFollowState(detail.user.id, detail.user.is_followed ?? false)
+        : { followed: detail.user?.is_followed ?? false, restrict: null }
+      setFollowed(effectiveFollow.followed)
+      if (effectiveFollow.restrict) {
+        setFollowRestrict(effectiveFollow.restrict)
+      } else if (!effectiveFollow.followed) {
+        setFollowRestrict(null)
+      }
+      if (effectiveFollow.followed && detail.user?.id) {
         session
           .call((token) => followDetail(detail.user.id, token))
           .then((d) => {
             if (g.isCurrent()) {
               setFollowed(d.is_followed)
-              if (d.is_followed) {
-                const rest = d.restrict ?? "public"
-                setFollowRestrict(rest)
-                recordUserFollowed(detail.user.id, true, rest)
-              } else {
-                setFollowRestrict(null)
-              }
+              setFollowRestrict(d.is_followed ? (d.restrict ?? "public") : null)
             }
           })
           .catch(() => {})
-      } else if (!isFollowed) {
-        setFollowRestrict(null)
       }
       if (detail.series?.id) {
         recordWorkSeriesAssociation(

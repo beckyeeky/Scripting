@@ -22,7 +22,8 @@ function load(file, mocks = {}, globals = {}) {
 const readerFile = "Pix-Scripting/src/ui/NovelReader.tsx"
 const readerSource = fs.readFileSync(readerFile, "utf8")
 const reader = evaluate(readerSource.slice(readerSource.indexOf("export function escapeHtml"),
-  readerSource.indexOf("function getLocalImageDataUrl")), readerFile)
+  readerSource.indexOf("function getLocalImageDataUrl")), readerFile, {},
+  load("Pix-Scripting/src/ui/novelInlineMarkup.ts"))
 const novelExport = load("Pix-Scripting/src/store/novelExport.ts")
 const ledgerModule = load("Pix-Scripting/src/store/novelTranslationLedger.ts",
   { "./novelAnchor": load("Pix-Scripting/src/store/novelAnchor.ts") })
@@ -97,7 +98,7 @@ function immersiveHarness(direction) {
   }
   for (const name of ["NavigationStack", "ZStack", "Button", "Image", "WebView", "Rectangle",
     "VStack", "HStack", "Text", "Spacer", "Menu", "Picker", "NovelTypographySheet",
-    "NovelOutlineSearchSheet"]) globals[name] = name
+    "NovelOutlineSearchSheet", "PrivacyShield"]) globals[name] = name
   const file = "Pix-Scripting/src/ui/NovelImmersiveReader.tsx"
   const source = fs.readFileSync(file, "utf8")
   const mod = evaluate(source.slice(source.indexOf("function isVirtualNode")), file, {}, globals)
@@ -113,6 +114,11 @@ for (const direction of ["horizontal", "vertical"]) {
     const zstack = tree.props.children[0]
     const webview = zstack.props.children.find(child => child?.type === "WebView")
     assert.ok(webview)
+    assert.ok(zstack.props.children.some(child => child?.type === "PrivacyShield"),
+      "上游隐私遮罩应与本分支阅读功能共同保留")
+    const outlineSheet = zstack.props.children.find(child =>
+      child?.props?.sheet?.content?.type === "NovelOutlineSearchSheet")
+    assert.ok(outlineSheet, "合并不得丢失本分支目录检索面板")
     for (const effect of harness.effects) effect()
     await new Promise(resolve => setImmediate(resolve))
     assert.equal(harness.loaded.length, 1)

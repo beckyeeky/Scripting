@@ -1,6 +1,7 @@
-import { Image, ProgressView, VStack, ZStack, useColorScheme } from "scripting"
+import { Image, ProgressView, VStack, ZStack } from "scripting"
 import { cachedFilePath, loadImage } from "../../image/imageLoader"
 import { loadSettings } from "../../store/settings"
+import { useEffectiveIsDark } from "../Hooks"
 import { CachedImage } from "./CachedImage"
 export function ImmersiveHeaderBanner(props: {
   url?: string | null
@@ -10,8 +11,7 @@ export function ImmersiveHeaderBanner(props: {
   children?: any
 }) {
   const { url, previewUrl, aspectRatioValue = 2.4, placeholderHeight = 160, children } = props
-  const colorScheme = useColorScheme()
-  const isDark = colorScheme === "dark"
+  const isDark = useEffectiveIsDark()
 
   return (
     <ZStack alignment="bottom" frame={{ maxWidth: "infinity" }}>

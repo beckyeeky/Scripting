@@ -25,6 +25,7 @@ import {
   ZStack,
 } from "scripting"
 import { appGlass, appInteractiveGlass, appCustomTint } from "./components/glass"
+import { PrivacyShield } from "./components/PrivacyShield"
 import { useLayoutMetrics, useEffectiveIsDark } from "./Hooks"
 import { presentExternalURL, routeForDescriptionLink } from "./components"
 import { requestPixivRoute } from "../store/routeNavigation"
@@ -2721,6 +2722,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
         frame={{ maxWidth: "infinity", maxHeight: "infinity" }}
         background="systemBackground"
         preferredColorScheme={isDark ? "dark" : "light"}
+        environments={{ colorScheme: isDark ? "dark" : "light" }}
         statusBarHidden={!controlsVisible}
         toolbarVisibility={{
           visibility: controlsVisible ? "visible" : "hidden",
@@ -2982,6 +2984,8 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
           ),
         }}
       />
+      {/* 7. 多任务隐私保护遮罩 */}
+      <PrivacyShield />
     </ZStack>
   </NavigationStack>
 )

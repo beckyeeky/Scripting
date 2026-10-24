@@ -89,3 +89,10 @@
 - 离线书库按账号隔离并只读磁盘读取，不承诺 iOS 后台常驻；页面被系统回收后可重新进入继续。
 - 目录/检索跳转记录「返回原位置」锚点（正文版本 + 段内偏移 + 文本锚点），正文或排版变化后按片段安全回退；纵向 WebView 引擎同时高亮命中片段。
 - 系列离线保存（`ui/seriesView.tsx` + `store/novelSeriesOffline.ts`）逐话抓取正文与插图，缺话进入 `missingEpisodeIds`，系列清单不会被标记为完整；可随时停止，已保存的话保留。
+
+## 上游主题与隐私展示层
+
+- `home_screen_default_ui.tsx` 与 `ui/appRoot.tsx` 同时传入主题偏好与子树 `environments.colorScheme`；环境光 Hook 统一使用 `useEffectiveIsDark()`。
+- `ui/components/PrivacyShield.tsx` 订阅 `AppEvents.scenePhase` 和设置变化，在隐私开关启用且场景 inactive/background 时绘制材质遮罩，卸载时移除订阅；根页面、大图查看器与沉浸阅读器分别挂载。
+- `ui/components/SheetScaffold.tsx` 为上游迁移的 Sheet 统一管理导航容器、自适应展开档位和隐私遮罩。本分支新增的小说专用面板尚未统一迁移，不能视为所有独立弹窗均已具备遮罩。
+- `store/userFollow.ts` 的本地缓存优先于作品详情快照，权威关注详情通过广播更新多处入口。

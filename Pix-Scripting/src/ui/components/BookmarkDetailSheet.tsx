@@ -25,6 +25,7 @@ import {
 } from "scripting"
 import { appGlass, appInteractiveGlass, appThemeColor } from "./glass"
 import { sheetDetents, sheetTopBar } from "./pageChrome"
+import { SheetScaffold } from "./SheetScaffold"
 import {
   addBookmark,
   addNovelBookmark,
@@ -224,10 +225,7 @@ export function BookmarkDetailSheet(props: {
   }
 
   return (
-    <NavigationStack
-      presentationDetents={sheetDetents()}
-      presentationDragIndicator="visible"
-    >
+    <SheetScaffold>
       <VStack
         alignment="leading"
         spacing={0}
@@ -448,7 +446,7 @@ export function BookmarkDetailSheet(props: {
           </ScrollView>
         )}
       </VStack>
-    </NavigationStack>
+    </SheetScaffold>
   )
 }
 

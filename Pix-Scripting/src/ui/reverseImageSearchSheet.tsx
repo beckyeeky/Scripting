@@ -22,6 +22,7 @@ import {
 } from "scripting"
 import { appGlass } from "./components/glass"
 import { sheetDetents, sheetTopBar } from "./components/pageChrome"
+import { SheetScaffold } from "./components/SheetScaffold"
 import { searchImageBySauceNAO, type SauceNAOMatch } from "../api/sauceNao"
 import {
   getSauceNaoApiKeys,
@@ -166,10 +167,7 @@ export function ReverseImageSearchSheet(props: {
   }, [performSearch])
 
   return (
-    <NavigationStack
-      presentationDetents={sheetDetents()}
-      presentationDragIndicator="visible"
-    >
+    <SheetScaffold>
       {showConfig ? (
         <SauceNAOConfigView
           onBack={() => {
@@ -420,7 +418,7 @@ export function ReverseImageSearchSheet(props: {
           </VStack>
         </ScrollView>
       )}
-    </NavigationStack>
+    </SheetScaffold>
   )
 }
 
