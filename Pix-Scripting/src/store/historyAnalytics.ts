@@ -1,6 +1,7 @@
 // 历史记录纯本地数据分析与足迹计算引擎
 // 纯前端单次遍历 O(N) 毫秒级计算，零网络依赖，支持全维度画像与时间范围筛选
 import { getHistory, type HistoryContentKind, type IllustrationHistoryEntry, type NovelHistoryEntry } from "./history"
+import { loadSettings } from "./settings"
 import type { PixivIllustration, PixivNovel } from "../types"
 
 export type AnalyticsTimeRange = "all" | "year" | "quarter" | "month" | "week"
@@ -205,12 +206,13 @@ export function computeHistoryAnalytics(
     HEATMAP_WEEKS_MIN,
     Math.min(HEATMAP_WEEKS_MAX, Math.round(options.heatmapWeeks ?? HEATMAP_WEEKS_DEFAULT))
   )
+  const hideNovels = loadSettings().hideNovels
   const illustList = (scope === "all" || scope === "illustration") ? (getHistory("illustration") as IllustrationHistoryEntry[]) : []
   const mangaList = (scope === "all" || scope === "manga") ? (getHistory("manga") as IllustrationHistoryEntry[]) : []
-  const novelList = (scope === "all" || scope === "novel") ? (getHistory("novel") as NovelHistoryEntry[]) : []
+  const novelList = (!hideNovels && (scope === "all" || scope === "novel")) ? (getHistory("novel") as NovelHistoryEntry[]) : []
 
   // 生成轻量快照指纹作为缓存 Key
-  const cacheKey = `${scope}_${timeRange}_${heatmapWeeksCount}_${illustList.length}_${mangaList.length}_${
+  const cacheKey = `${scope}_${timeRange}_${heatmapWeeksCount}_${hideNovels ? 1 : 0}_${illustList.length}_${mangaList.length}_${
     novelList.length
   }_${illustList[0]?.viewedAt ?? 0}_${mangaList[0]?.viewedAt ?? 0}_${
     novelList[0]?.viewedAt ?? 0
@@ -634,7 +636,7 @@ export function computeHistoryAnalytics(
 
   // 9. 小说专属里程碑
   let novelMilestone: NovelMilestone | null = null
-  if (novelCount > 0 || scope === "novel") {
+  if (!hideNovels && (novelCount > 0 || scope === "novel")) {
     const avg = novelCount > 0 ? Math.round(novelWordCount / novelCount) : 0
     novelMilestone = {
       totalWords: novelWordCount,

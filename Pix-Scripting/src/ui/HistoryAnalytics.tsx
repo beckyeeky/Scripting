@@ -31,7 +31,7 @@ import {
 } from "./components/pageChrome"
 import { SheetScaffold } from "./components/SheetScaffold"
 import { session } from "../api/session"
-import { loadSettings } from "../store/settings"
+import { loadSettings, onSettingsChanged } from "../store/settings"
 import { useExperimentalAmbientPalette, useLastActiveAmbientImageUrl } from "./ambient"
 import {
   computeHistoryAnalytics,
@@ -1119,16 +1119,35 @@ function NovelMilestoneSection(props: {
  * 完整数据与足迹看板核心视图
  */
 export function HistoryAnalyticsView(props: HistoryAnalyticsViewProps) {
-  const [scope, setScope] = useState<AnalyticsScopeKind>(props.initialScope || "all")
+  const [hideNovels, setHideNovels] = useState(() => loadSettings().hideNovels)
+  const [scope, setScope] = useState<AnalyticsScopeKind>(() => {
+    const init = props.initialScope || "all"
+    if (loadSettings().hideNovels && init === "novel") return "all"
+    return init
+  })
   const [timeRange, setTimeRange] = useState<AnalyticsTimeRange>(props.initialTimeRange || "all")
   const { isSplitViewActive, openDetailRoute } = useDualRoute()
+
+  useEffect(() => {
+    return onSettingsChanged(() => {
+      const next = loadSettings().hideNovels
+      setHideNovels(next)
+      if (next) {
+        setScope((prev) => (prev === "novel" ? "all" : prev))
+      }
+    })
+  }, [])
 
   // 当外部传入的分类类型（如插画、漫画、小说）变化时，自动联动切换看板类型
   useEffect(() => {
     if (props.initialScope) {
-      setScope(props.initialScope)
+      if (hideNovels && props.initialScope === "novel") {
+        setScope("all")
+      } else {
+        setScope(props.initialScope)
+      }
     }
-  }, [props.initialScope])
+  }, [props.initialScope, hideNovels])
 
   const handleOpenUserDetail = useCallback(
     (userId: number) => {
@@ -1208,7 +1227,9 @@ export function HistoryAnalyticsView(props: HistoryAnalyticsViewProps) {
               <Label tag="all" title="全部类型" systemImage="square.grid.2x2" />
               <Label tag="illustration" title="插画" systemImage="photo" />
               <Label tag="manga" title="漫画" systemImage="photo.on.rectangle" />
-              <Label tag="novel" title="小说" systemImage="book" />
+              {!hideNovels ? (
+                <Label tag="novel" title="小说" systemImage="book" />
+              ) : null}
             </Picker>
           </Menu>
         ),
@@ -1223,6 +1244,7 @@ export function HistoryAnalyticsView(props: HistoryAnalyticsViewProps) {
         <HistoryAnalyticsBoard
           scope={scope}
           timeRange={timeRange}
+          hideNovels={hideNovels}
           onSelectTag={props.onSelectTag}
           onSelectCreator={props.onSelectCreator}
           onOpenUserDetail={handleOpenUserDetail}
@@ -1250,6 +1272,7 @@ export function HistoryAnalyticsView(props: HistoryAnalyticsViewProps) {
 function HistoryAnalyticsBoard(props: {
   scope: AnalyticsScopeKind
   timeRange: AnalyticsTimeRange
+  hideNovels?: boolean
   onSelectTag?: (tag: string) => void
   onSelectCreator?: (creatorId: number, creatorName: string) => void
   onOpenUserDetail: (userId: number) => void
@@ -1287,7 +1310,7 @@ function HistoryAnalyticsBoard(props: {
         <OverviewMetricsCard summary={data.summary} isWide={isWide} />
 
         {/* 2. 小说专属阅读里程碑（若有） */}
-        {data.novelMilestone && data.novelMilestone.totalWords > 0 ? (
+        {!props.hideNovels && data.novelMilestone && data.novelMilestone.totalWords > 0 ? (
           <NovelMilestoneSection milestone={data.novelMilestone} />
         ) : null}
 

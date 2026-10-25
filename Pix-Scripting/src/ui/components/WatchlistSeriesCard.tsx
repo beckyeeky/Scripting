@@ -231,16 +231,16 @@ export function WatchlistSeriesCard(props: {
       <AppNavigationLink value={targetRoute} buttonStyle="plain">
         <ZStack
           alignment="center"
-          frame={{ width: 30, height: 30 }}
+          frame={{ width: 34, height: 34 }}
           glassEffect={appInteractiveGlass("circle")}
           contentShape="circle"
-          offset={{ x: -6, y: -6 }}
+          offset={{ x: -7, y: -7 }}
           shadow={{ color: "#00000028", radius: 6, y: 2 }}
           zIndex={2}
         >
           <Image
             systemName={isNovel ? "book" : "photo.on.rectangle"}
-            font="body"
+            font="title3"
             foregroundStyle="label"
           />
         </ZStack>

@@ -20,7 +20,6 @@ import {
   MIN_FLOW_IMAGE_RATIO,
   calculateFlowCardWidth,
   calculateHeroCardWidth,
-  type IllustCardAction,
 } from "./IllustCard"
 import type { PixivIllustration } from "../../types"
 
@@ -39,10 +38,6 @@ export interface IllustFlowFeedProps {
   enableHeroFirst?: boolean
   cornerBadgeOf?: (illust: PixivIllustration, index: number) => any
   footerTextOf?: (illust: PixivIllustration, index: number) => string | undefined
-  topTrailingActionOf?: (
-    illust: PixivIllustration,
-    index: number,
-  ) => IllustCardAction | undefined
   contextMenuOf?: (
     illust: PixivIllustration,
     index: number,
@@ -126,7 +121,6 @@ export function IllustFlowFeed(props: IllustFlowFeedProps) {
           isSprint={index === 0}
           cornerBadge={props.cornerBadgeOf?.(illust, index)}
           footerText={props.footerTextOf?.(illust, index)}
-          topTrailingAction={props.topTrailingActionOf?.(illust, index)}
           contextMenu={props.contextMenuOf?.(illust, index)}
         />
       )
@@ -162,7 +156,6 @@ export function IllustFlowFeed(props: IllustFlowFeedProps) {
       props.onLoadMore,
       props.cornerBadgeOf,
       props.footerTextOf,
-      props.topTrailingActionOf,
       props.contextMenuOf,
     ]
   )
@@ -184,7 +177,6 @@ export function IllustFlowFeed(props: IllustFlowFeedProps) {
           isSprint={true}
           cornerBadge={props.cornerBadgeOf?.(heroItem, 0)}
           footerText={props.footerTextOf?.(heroItem, 0)}
-          topTrailingAction={props.topTrailingActionOf?.(heroItem, 0)}
           contextMenu={props.contextMenuOf?.(heroItem, 0)}
         />
       </VStack>
@@ -195,7 +187,6 @@ export function IllustFlowFeed(props: IllustFlowFeedProps) {
     heroCardWidth,
     props.cornerBadgeOf,
     props.footerTextOf,
-    props.topTrailingActionOf,
     props.contextMenuOf,
   ])
 

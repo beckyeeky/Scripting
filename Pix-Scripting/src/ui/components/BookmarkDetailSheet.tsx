@@ -41,7 +41,6 @@ import { useIllustBookmark, useLatest, useNovelBookmark } from "../Hooks"
 import { SelectableTagChip, TagChip } from "./TagChip"
 import { CachedImage } from "./CachedImage"
 import { LoadingView } from "./StatusViews"
-import { CORNER_ICON_SIZE } from "./formatUtils"
 import { triggerHaptic } from "../../platform/haptics"
 import type {
   PixivBookmarkDetail,
@@ -464,14 +463,14 @@ export function BookmarkButton(props: {
   offset?: { x: number; y: number }
 }) {
   const [longPressLocked, setLongPressLocked] = useState(false)
-  const size = props.size ?? (props.hero ? 34 : 30)
-  const offset = props.offset ?? { x: -6, y: -6 }
+  const size = props.size ?? (props.hero ? 38 : 34)
+  const offset = props.offset ?? (props.hero ? { x: -8, y: -8 } : { x: -7, y: -7 })
   const shadow =
     props.shadow ??
     (props.hero
       ? { color: "#00000028", radius: 8, y: 2 }
       : { color: "#00000028", radius: 6, y: 2 })
-  const iconFont = props.hero ? "title3" : "body"
+  const iconFont = props.hero ? "title2" : "title3"
 
   return (
     <ZStack

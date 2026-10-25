@@ -1,10 +1,10 @@
 {
   "contributors": [],
-  "version": "1.8.2",
+  "version": "1.8.3",
   "remoteResource": {
     "autoUpdateInterval": null,
     "url": "https://raw.githubusercontent.com/chaoscard/Scripting/main/Release/Pix-Scripting.scripting",
-    "hash": "a26ac980ee90e19c0993d9c161dc43ae"
+    "hash": "c6aac625d56dce1f1abd649b94eaa0b8"
   },
   "name": "Pix-Scripting",
   "author": {

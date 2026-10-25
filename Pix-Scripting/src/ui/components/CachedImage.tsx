@@ -570,7 +570,7 @@ export function AvatarImage(props: {
 // 网格作品卡片（列表页共用）：玻璃卡片 + 缩略图 + 标题 + 作者/收藏数/浏览数
 // 多页作品在图片左下角显示 rectangle.stack.fill + 纯数字页数。
 // cornerBadge 为图片左上角非交互角标；footerText 用于补充信息。
-// topTrailingAction 只传操作语义，按钮布局与命中区域由统一卡片模板负责。
+// 作品删除/屏蔽等卡片交互已全量收敛至长按呼出的原生上下文菜单（contextMenu）。
 // 注意：属性名不能叫 badge，那是 SwiftUI 保留修饰符名（只接受 string|number），
 // 会导致 JSX 类型检查报错。
 export function ImageNumberBadge(props: { number: number; foregroundStyle?: any; font?: any }) {
