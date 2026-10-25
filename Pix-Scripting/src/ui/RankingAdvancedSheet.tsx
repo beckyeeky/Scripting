@@ -188,7 +188,7 @@ export function RankingAdvancedSheet(props: {
   const currentDateFormatted = formatDateToPixivDate(selectedTimestamp)
 
   return (
-    <SheetScaffold>
+    <SheetScaffold detents={["large"]}>
       <List
         {...sheetTopBar()}
         navigationTitle="历史排行榜"
