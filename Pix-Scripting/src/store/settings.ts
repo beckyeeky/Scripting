@@ -165,6 +165,7 @@ export interface AppSettings {
   splitRatioLandscape: number
   heroFirstFeedCard: boolean
   compactIllustCard: boolean
+  minimizeTabBarOnScroll: boolean
   ambientImmersion: boolean
   ambientIntensity: AmbientIntensity
   ambientAlgorithm: BaseAmbientAlgorithm
@@ -279,6 +280,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   splitRatioLandscape: 38,
   heroFirstFeedCard: true,
   compactIllustCard: true,
+  minimizeTabBarOnScroll: true,
   ambientImmersion: true,
   ambientIntensity: "medium",
   ambientAlgorithm: "classic",
@@ -573,6 +575,10 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
     ),
     heroFirstFeedCard: boolOr(stored?.heroFirstFeedCard, DEFAULT_SETTINGS.heroFirstFeedCard),
     compactIllustCard: boolOr(stored?.compactIllustCard, DEFAULT_SETTINGS.compactIllustCard),
+    minimizeTabBarOnScroll: boolOr(
+      stored?.minimizeTabBarOnScroll,
+      DEFAULT_SETTINGS.minimizeTabBarOnScroll
+    ),
     ambientImmersion: boolOr(stored?.ambientImmersion, DEFAULT_SETTINGS.ambientImmersion),
     ambientIntensity: enumOr(stored?.ambientIntensity, AMBIENT_INTENSITY_VALUES, DEFAULT_SETTINGS.ambientIntensity),
     ambientAlgorithm: enumOr(stored?.ambientAlgorithm, BASE_AMBIENT_ALGORITHM_VALUES, DEFAULT_SETTINGS.ambientAlgorithm),

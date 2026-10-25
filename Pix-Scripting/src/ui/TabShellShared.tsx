@@ -216,7 +216,7 @@ export function MainTabView(props: {
 
   const tabViewProps: any = {
     selection,
-    tabBarMinimizeBehavior: "onScrollDown",
+    tabBarMinimizeBehavior: settings.minimizeTabBarOnScroll ? "onScrollDown" : "never",
     tabViewSearchActivation:
       (props.tabViewStyle ?? "sidebarAdaptable") === "tabBarOnly"
         ? undefined
