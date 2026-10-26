@@ -7,6 +7,7 @@ import {
   Spacer,
   VStack,
   useMemo,
+  useRef,
 } from "scripting"
 import { useLayoutMetrics } from "../Hooks"
 import { cacheIllusts } from "../../store/illustCache"
@@ -77,7 +78,12 @@ function distributeFlowItems(
 }
 
 export function IllustFlowFeed(props: IllustFlowFeedProps) {
-  cacheIllusts(props.items)
+  // 列表状态以新数组发布；同一批数据的加载态变化无需重复合并整个作品缓存。
+  const cachedItemsRef = useRef<PixivIllustration[] | null>(null)
+  if (cachedItemsRef.current !== props.items) {
+    cacheIllusts(props.items)
+    cachedItemsRef.current = props.items
+  }
   const { width: containerWidth } = useLayoutMetrics()
 
   const columnCount = useMemo(() => {
@@ -98,7 +104,10 @@ export function IllustFlowFeed(props: IllustFlowFeedProps) {
   // 3 列及以上（中等大小 / 宽屏）自动保持均等多列网格，首图不跨行。
   const isHeroActive = columnCount <= 2 && Boolean(props.enableHeroFirst && props.items.length > 0)
   const heroItem = isHeroActive ? props.items[0] : null
-  const waterfallItems = isHeroActive ? props.items.slice(1) : props.items
+  const waterfallItems = useMemo(
+    () => isHeroActive ? props.items.slice(1) : props.items,
+    [props.items, isHeroActive]
+  )
   const startIndex = isHeroActive ? 1 : 0
 
   const columns = useMemo(

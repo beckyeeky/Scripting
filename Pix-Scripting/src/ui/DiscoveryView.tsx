@@ -47,7 +47,7 @@ import {
   DockSegmentedBar,
   useRegisterBottomAccessory,
 } from "./bottomAccessory"
-import { useLatest, usePagedList, currentBatchSize, useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
+import { usePagedList, currentBatchSize, useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl } from "./ambient"
 import type {
   PixivIllustration,
@@ -294,18 +294,6 @@ function RecommendedExploreFeed(props: {
       prefetch(pendingItems.slice(0, currentBatchSize()).map(novelThumbUrlOf)).cancel,
   })
 
-  const illustPagedRef = useLatest(illustPaged)
-  const mangaPagedRef = useLatest(mangaPaged)
-  const novelPagedRef = useLatest(novelPaged)
-
-  useEffect(() => {
-    return onSettingsChanged(() => {
-      illustPagedRef.current.reapplyFilter()
-      mangaPagedRef.current.reapplyFilter()
-      novelPagedRef.current.reapplyFilter()
-    })
-  }, [])
-
   const activeRefresh =
     kind === "illustration"
       ? illustPaged.refresh
@@ -454,18 +442,6 @@ function LatestExploreFeed(props: {
     onBatchPublished: (_, pendingItems) =>
       prefetch(pendingItems.slice(0, currentBatchSize()).map(novelThumbUrlOf)).cancel,
   })
-
-  const illustPagedRef = useLatest(illustPaged)
-  const mangaPagedRef = useLatest(mangaPaged)
-  const novelPagedRef = useLatest(novelPaged)
-
-  useEffect(() => {
-    return onSettingsChanged(() => {
-      illustPagedRef.current.reapplyFilter()
-      mangaPagedRef.current.reapplyFilter()
-      novelPagedRef.current.reapplyFilter()
-    })
-  }, [])
 
   const activeRefresh =
     kind === "illustration"

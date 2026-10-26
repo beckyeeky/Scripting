@@ -419,16 +419,16 @@ async function syncSearchHistoryFile(
   const localFile = `${localDir}/${fileName}`
   const cloudFile = `${cloudDir}/${fileName}`
 
+  await prepareCloudFile(cloudFile)
+  // 云端准备期间本地仍可变更；在本分支唯一的 await 之后再取快照。
   const localStore = getFullSearchHistoryStore()
   const localUpdated = typeof localStore.updatedAt === "number" ? localStore.updatedAt : 0
-
-  await prepareCloudFile(cloudFile)
   const cloudRaw = readCloudJson<any>(cloudFile)
   const cloudUpdated = typeof cloudRaw?.updatedAt === "number" ? cloudRaw.updatedAt : 0
 
-  // 云端原始数据归一化（向下兼容旧纯文本数组与新带时间戳词项）
+  // 云端原始数据归一化（旧顶层数组归入 illust，与本地读取规则一致）。
   const cloudStore: SearchHistoryStore = {
-    illust: normalizeHistoryEntries(cloudRaw?.illust, cloudUpdated),
+    illust: normalizeHistoryEntries(Array.isArray(cloudRaw) ? cloudRaw : cloudRaw?.illust, cloudUpdated),
     novel: normalizeHistoryEntries(cloudRaw?.novel, cloudUpdated),
     user: normalizeHistoryEntries(cloudRaw?.user, cloudUpdated),
     updatedAt: cloudUpdated,
@@ -484,26 +484,46 @@ async function syncSearchHistoryFile(
       .slice(0, MAX_SEARCH_HISTORY_ITEMS)
   }
 
-  const mergedStore: SearchHistoryStore = {
-    illust: mergeScopeEntries("illust", localStore.illust, cloudStore.illust),
-    novel: mergeScopeEntries("novel", localStore.novel, cloudStore.novel),
-    user: mergeScopeEntries("user", localStore.user, cloudStore.user),
-    updatedAt: Math.max(localUpdated, cloudUpdated, Date.now()),
+  const scopes: SearchHistoryScope[] = ["illust", "novel", "user"]
+  function sameScopeEntries(left: SearchHistoryEntry[], right: SearchHistoryEntry[]): boolean {
+    return left.length === right.length && left.every((entry, index) =>
+      entry?.query === right[index].query && entry?.searchedAt === right[index].searchedAt
+    )
   }
 
-  const localJson = JSON.stringify(localStore)
-  const cloudJson = JSON.stringify(cloudStore)
-  const mergedJson = JSON.stringify(mergedStore)
+  const mergedUpdated = Math.max(localUpdated, cloudUpdated)
+  const normalizationTime = Math.max(mergedUpdated, Date.now())
+  // 先按原有时间过滤墓碑，再补齐旧数组可能产生的非正时间；确保本地替换再次
+  // normalize 后与云端落盘一致，避免迁移后第二轮因词项时间变化再次同步。
+  const mergedStore: SearchHistoryStore = {
+    illust: normalizeHistoryEntries(mergeScopeEntries("illust", localStore.illust, cloudStore.illust), normalizationTime),
+    novel: normalizeHistoryEntries(mergeScopeEntries("novel", localStore.novel, cloudStore.novel), normalizationTime),
+    user: normalizeHistoryEntries(mergeScopeEntries("user", localStore.user, cloudStore.user), normalizationTime),
+    updatedAt: mergedUpdated,
+  }
 
-  // 1. 若合并结果与本地存在差异，增量刷新本地存储
-  if (localJson !== mergedJson) {
+  // 语义包括分类内词序、query 与 searchedAt，不包括容器 updatedAt。
+  const localChanged = scopes.some((scope) => !sameScopeEntries(localStore[scope], mergedStore[scope]))
+  const cloudChanged = scopes.some((scope) => !sameScopeEntries(cloudStore[scope], mergedStore[scope]))
+  // 不能只比较归一化云对象：缺失/空文件、旧字符串数组、未归一化条目仍须修盘。
+  // updatedAt 在 SearchHistoryStore 中可省略；已存在的合法数值不同不构成迁移。
+  const cloudNeedsMigration = scopes.some((scope) =>
+    !Array.isArray(cloudRaw?.[scope]) || !sameScopeEntries(cloudRaw[scope], cloudStore[scope])
+  ) || (cloudRaw?.updatedAt !== undefined && typeof cloudRaw.updatedAt !== "number")
+
+  if (localChanged || cloudChanged) {
+    mergedStore.updatedAt = normalizationTime
+  }
+
+  // 1. 仅语义变更才替换本地、持久化并广播；不为容器时间戳差异刷新订阅者。
+  if (localChanged) {
     replaceSearchHistoryStore(mergedStore, true)
   }
 
-  // 2. 若合并结果与云端存在差异，安全推送到云端（彻底清除云端被删除的脏条目）
-  if (cloudJson !== mergedJson) {
+  // 2. 内容变更或物理格式待迁移才写云端（包括清除已删除的脏条目）。
+  if (cloudChanged || cloudNeedsMigration) {
     try {
-      writeTextSafely(cloudFile, mergedJson)
+      writeTextSafely(cloudFile, JSON.stringify(mergedStore))
     } catch (e: any) {
       console.warn("write cloud search history error:", e?.message ?? e)
     }

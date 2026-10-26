@@ -748,16 +748,6 @@ function IllustHistoryFeed(props: {
   }, [kind])
 
   useEffect(() => {
-    const handleSettingsChange = () => {
-      pagedRef.current.reapplyFilter()
-    }
-    const unsubscribeSettings = onSettingsChanged(handleSettingsChange)
-    return () => {
-      unsubscribeSettings()
-    }
-  }, [])
-
-  useEffect(() => {
     let url: string | null = null
     if (paged.items[0]) url = cardThumbUrlOf(paged.items[0])
     if (url) {
@@ -845,16 +835,6 @@ function NovelHistoryFeed(props: {
         }
       }
     })
-  }, [])
-
-  useEffect(() => {
-    const handleSettingsChange = () => {
-      pagedRef.current.reapplyFilter()
-    }
-    const unsubscribeSettings = onSettingsChanged(handleSettingsChange)
-    return () => {
-      unsubscribeSettings()
-    }
   }, [])
 
   useEffect(() => {
