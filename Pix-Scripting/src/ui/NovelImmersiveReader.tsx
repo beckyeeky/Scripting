@@ -78,7 +78,6 @@ import { recordNovelHistory } from "../store/history"
 import { useSeriesEpisodeNav, type SeriesEpisodeNavState } from "./SeriesEpisodePager"
 import { triggerHaptic } from "../platform/haptics"
 import { useNovelTranslation } from "./useNovelTranslation"
-import { NovelTranslationStatus } from "./NovelTranslationStatus"
 import { cleanHtmlCaption } from "../api/aiService"
 
 function isVirtualNode(v: unknown): v is VirtualNode {
@@ -2836,13 +2835,6 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
       {/* 1. 核心 WebView 纯净渲染引擎（横竖双引擎无缝调度） */}
       <WebView controller={controller} frame={{ maxWidth: "infinity", maxHeight: "infinity" }} />
 
-
-      {translationSession && translation && (translation.mode === "translated" || translation.running || translation.done > 0 || translation.failed > 0) ? (
-        <VStack frame={{ maxWidth: "infinity", maxHeight: "infinity", alignment: "bottom" }}>
-          <NovelTranslationStatus session={translationSession} snapshot={translation} compact />
-          <VStack frame={{ height: totalPages > 1 ? bottomInset + 52 : bottomInset }} />
-        </VStack>
-      ) : null}
 
       {/* 2b. 离线阅读标注（断网由离线书库载入的篇章，明确不宣称在线） */}
       {offlineEpisodeNotice ? (

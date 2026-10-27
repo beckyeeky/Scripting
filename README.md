@@ -6,7 +6,7 @@
 
 | 项目名称 | 类型 / 简介 | 当前版本 | 快速跳转 |
 | :--- | :--- | :---: | :---: |
-| **Pix-Scripting** | 液态玻璃风格 Pixiv 客户端，含 PixivReader 正文翻译移植 | `v1.8.1.1` | [查看介绍 & 安装](#pix-scripting) |
+| **Pix-Scripting** | 液态玻璃风格 Pixiv 客户端，含 PixivReader 正文翻译移植 | `v1.8.7.2` | [查看介绍 & 安装](#pix-scripting) |
 | *（更多项目）* | 更多高品质脚本持续孵化中... | `Planning` | - |
 
 ---
@@ -29,16 +29,22 @@
 #### 📥 快速安装
 
 1. 安装 **[Scripting](https://apps.apple.com/app/scripting/id6477833076)** App；
-2. 下载并导入 [`Release/Pix-Scripting.scripting`](https://raw.githubusercontent.com/beckyeeky/Scripting/feature/pixivreader-port/Release/Pix-Scripting.scripting)；也可从 [v1.8.7.1 发布页](https://github.com/beckyeeky/Scripting/releases/tag/v1.8.7.1-pixivreader) 下载附件。该包为 `feature/pixivreader-port` 分支的移植版，未合入 `main`；包内 `remoteResource.url` 指向本功能分支，不会被上游自动更新覆盖；
+2. 下载并导入 [`Release/Pix-Scripting.scripting`](https://raw.githubusercontent.com/beckyeeky/Scripting/feature/pixivreader-port/Release/Pix-Scripting.scripting)；也可从 [v1.8.7.2 发布页](https://github.com/beckyeeky/Scripting/releases/tag/v1.8.7.2-pixivreader) 下载附件。该包为 `feature/pixivreader-port` 分支的移植版，未合入 `main`；包内 `remoteResource.url` 指向本功能分支，不会被上游自动更新覆盖；
 3. 在小说详情或沉浸阅读器中打开「正文翻译」，选择翻译、暂停/继续或原文/译文切换；在小说系列页可分批翻译当前已加载的章节。先在「设置 → 智能助手」配置模型，或使用可用的 Scripting 原生助手。
 
-正文上方有常驻翻译进度条，可直接看已完成段数、摘要与术语状态、暂停/继续、原文/译文切换；展开「摘要与术语」可查看内容、系列继承的术语数及失败段落的单块重试。沉浸阅读时也显示浮动进度条。故事摘要先生成，术语表随后整理，最后最多两个正文请求并发；上下文失败时会显示状态并继续翻译正文。长篇摘要和术语表会抽取开头、中段、结尾各约 3000 字，避免只看到开头；超长正文块优先在换行或句末拆分，保留接缝空行与 Pixiv 链接。
+正文上方有常驻翻译进度条，可直接看已完成段数、摘要与术语状态、暂停/继续、原文/译文切换；展开「摘要与术语」可查看内容、系列继承的术语数及失败段落的单块重试。沉浸阅读时可在顶部翻译菜单查看进度、切换原文/译文及暂停或继续翻译；术语表和详细信息在小说详情页查看。故事摘要先生成，术语表随后整理，最后最多两个正文请求并发；上下文失败时会显示状态并继续翻译正文。长篇摘要和术语表会抽取开头、中段、结尾各约 3000 字，避免只看到开头；超长正文块优先在换行或句末拆分，保留接缝空行与 Pixiv 链接。
 
 使用自定义模型时，译文、摘要和术语表仅保存在当前设备的 Pixiv 账号专属目录；原文和阅读进度不被改写。缓存会比对原文块、整篇原文、标题及不含密钥的模型配置指纹，配置或内容变化后失效；内存会话还会校验分块布局，避免解析结果变化时显示旧块。首次升级到本版时，缺少标题指纹的旧译文需重新生成。Scripting 原生助手不暴露当前模型标识，无法可靠校验其缓存，因此译文仅在本次会话复用。系列翻译每批最多约 6 万原文字，模型请求可能收费；脚本退到后台时会暂停，可回到前台继续，若脚本已被系统结束则手动点「继续翻译」。若设备缓存写入失败，已生成译文仍会留在当前会话并提示，退出后可能需要重新翻译。可在「设置 → 缓存」清除当前账号的小说译文。
 
 正文翻译、摘要与术语请求会尽可能向服务商发送关闭思考参数：直连 DeepSeek、支持 `none` 的 OpenAI 模型、Gemini 2.5 Flash，以及可关闭思考的 Claude 模型。Claude Sonnet 5.5 使用 `between_tools` 关闭前置思考（小说翻译不使用工具）；Claude Opus 5.5 等型号无法关闭。OpenRouter 会请求关闭，但是否生效取决于下游模型。不支持关闭的模型或 Scripting 原生助手会在详情中明确提示，不能把“隐藏思考文本”当成已关闭思考。具体支持边界以 [DeepSeek](https://api-docs.deepseek.com/guides/thinking_mode/)、[OpenAI](https://platform.openai.com/docs/api-reference/chat/create)、[Gemini](https://ai.google.dev/gemini-api/docs/generate-content/thinking) 和 [Claude](https://platform.claude.com/docs/en/build-with-claude/thinking) 官方文档为准。
 
 小说系列页工具栏、底部操作栏「下载」以及追更卡片菜单「下载整本小说」均可选择原文 EPUB 或当前目标语言的译文 EPUB。译文导出复用已完成的翻译，包含各话的译名、简介和正文，并保留分页、章节与插图标记；任一话未完成翻译、正文获取失败或账号切换时，会停止导出并提示原因。译文文件名带目标语言和「译文」，便于与原文区分。
+
+#### v1.8.7.2（功能分支 feature/pixivreader-port）
+
+- 移除沉浸阅读正文上的翻译浮动卡片，避免「看原文」「术语表」等控件遮挡阅读内容。
+- 顶部翻译菜单仍提供进度、原文/译文切换、暂停/继续和失败段落重试；术语表和详细进度可在小说详情页查看。
+- 增加横排、竖排及工具栏显示/收起的回归；真机显示和交互仍需验收。
 
 #### v1.8.7.1（功能分支 feature/pixivreader-port）
 
@@ -95,7 +101,7 @@
 
 这个分支的发布包由仓库内可直接编辑的 [`Pix-Scripting/`](Pix-Scripting/) 源码构建，不需要修改 `.scripting` 压缩包。小说翻译的主要修改点是 [`src/store/novelTranslation.ts`](Pix-Scripting/src/store/novelTranslation.ts)（任务和缓存）、[`src/api/aiService.ts`](Pix-Scripting/src/api/aiService.ts)（模型提示词）、[`src/api/aiAdapters/translationThinking.ts`](Pix-Scripting/src/api/aiAdapters/translationThinking.ts)（各模型关闭思考参数）、[`src/ui/NovelReader.tsx`](Pix-Scripting/src/ui/NovelReader.tsx)（原位显示）、[`src/ui/NovelTranslationStatus.tsx`](Pix-Scripting/src/ui/NovelTranslationStatus.tsx)（进度与重试）、[`src/ui/NovelDetail.tsx`](Pix-Scripting/src/ui/NovelDetail.tsx)（单篇入口）和 [`src/ui/seriesView.tsx`](Pix-Scripting/src/ui/seriesView.tsx)（系列入口）。直接在这些文件里改即可。
 
-在仓库根目录运行 `npm ci && npm test` 可执行翻译链路回归测试；运行 `bash scripts/build-release.sh` 会检查版本号一致性并重建 `Release/Pix-Scripting.scripting`。构建只需要 `zip`、`unzip` 和 `node`；完成后将源码与发布包一起提交到对应发布分支（本次为 `feature/pixivreader-port`）。`bash scripts/verify-release-package.sh` 会逐字节核对发布包与工作树 `Pix-Scripting/`、并校验包内版本与更新地址。当前版本 `1.8.7.1` 表示基于上游 `1.8.7` 的第 1 个移植小版本（功能分支）；下次发布同步修改 [`script.json`](Pix-Scripting/script.json) 的 `version` 和 [`src/config.ts`](Pix-Scripting/src/config.ts) 的回退版本，再重新构建。此分支的 `remoteResource.url` 指向分支发布包，不会误更新到上游 `main`。
+在仓库根目录运行 `npm ci && npm test` 可执行翻译链路回归测试；运行 `bash scripts/build-release.sh` 会检查版本号一致性并重建 `Release/Pix-Scripting.scripting`。构建只需要 `zip`、`unzip` 和 `node`；完成后将源码与发布包一起提交到对应发布分支（本次为 `feature/pixivreader-port`）。`bash scripts/verify-release-package.sh` 会逐字节核对发布包与工作树 `Pix-Scripting/`、并校验包内版本与更新地址。当前版本 `1.8.7.2` 表示基于上游 `1.8.7` 的第 2 个移植小版本（功能分支）；下次发布同步修改 [`script.json`](Pix-Scripting/script.json) 的 `version` 和 [`src/config.ts`](Pix-Scripting/src/config.ts) 的回退版本，再重新构建。此分支的 `remoteResource.url` 指向分支发布包，不会误更新到上游 `main`。
 
 ---
 

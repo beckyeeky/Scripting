@@ -254,9 +254,9 @@ function createHarness(options = {}) {
       seriesID: 10, seriesTitle: "系列", episodeNumber: 1,
       hasPrev: true, prevID: 1, hasNext: true, nextID: 3, loading: false,
     }),
-    useNovelTranslation: () => ({ session: null, snapshot: null }),
+    useNovelTranslation: () => options.translation ?? ({ session: null, snapshot: null }),
     loadNovelReaderSettings: () => ({
-      layoutDirection: "horizontal", pageDisplayMode: "continuous",
+      layoutDirection: options.direction ?? "horizontal", pageDisplayMode: "continuous",
       fontSize: 18, fontWeight: "regular", lineSpacingLevel: 1,
     }),
     onNovelReaderSettingsChanged: () => () => {},
@@ -265,7 +265,7 @@ function createHarness(options = {}) {
   }
   for (const name of ["NavigationStack", "ZStack", "VStack", "HStack", "Button", "Image", "WebView",
     "Rectangle", "Text", "Spacer", "Menu", "Picker", "ProgressView", "Group", "Divider", "ScrollView",
-    "NovelTypographySheet", "NovelOutlineSearchSheet", "PrivacyShield"]) {
+    "NovelTypographySheet", "NovelOutlineSearchSheet", "NovelTranslationStatus", "PrivacyShield"]) {
     globals[name] = name
   }
 
@@ -507,3 +507,60 @@ test("旧章节迟到的加载完成不得向新文档补发译文或环境光",
   assert.equal(harness.scripts.slice(baseline).filter(script => script.includes("__novelTranslationOriginals")).length, 1)
   assert.equal(harness.scripts.slice(baseline).filter(script => script.includes("window.updateAmbientBackground")).length, 1)
 })
+
+for (const direction of ["horizontal", "vertical"]) {
+  for (const state of ["running", "completed", "failed"]) {
+    test(`沉浸阅读${direction}翻译${state}不遮挡正文且保留工具栏操作`, async () => {
+      const calls = []
+      const snapshot = { mode: "translated", running: state === "running", done: state === "completed" ? 2 : 1,
+        total: 2, failed: state === "failed" ? 1 : 0, summaryStatus: "ready", glossaryStatus: "ready",
+        blocks: state === "failed" ? { bad: { id: "bad", status: "error" } } : {}, message: "" }
+      const session = { setMode: mode => calls.push(["mode", mode]), pause: () => calls.push(["pause"]),
+        start: (...args) => calls.push(["start", ...args]) }
+      const harness = createHarness({ direction, translation: { session, snapshot } })
+      await harness.runtime.settle()
+      for (const hidden of [false, true]) {
+        const tree = harness.runtime.render()
+        assert.equal(findNode(tree, node => node.type === "NovelTranslationStatus"), null,
+          "沉浸阅读时不能显示翻译浮动卡片")
+        assert.ok(findNode(tree, node => node.type === "WebView"), "正文应继续显示")
+        const reader = findNode(tree, node => node.type === "ZStack" && node.props.toolbarVisibility)
+        assert.equal(reader.props.toolbarVisibility.visibility, hidden ? "hidden" : "visible")
+        const toggle = findNode(tree, node => node.type === "Button" && node.props.title === "显示原文")
+        assert.ok(toggle, "顶部菜单保留原文/译文切换")
+        if (!hidden) {
+          toggle.props.action()
+          assert.equal(calls[0][0], "mode")
+          assert.equal(calls[0][1], "original")
+          if (state === "running") {
+            findNode(tree, node => node.type === "Button" && node.props.title === "暂停翻译").props.action()
+            assert.equal(calls[1][0], "pause")
+          }
+          if (state === "failed") {
+            findNode(tree, node => node.type === "Button" && node.props.title === "重试失败段落（1）").props.action()
+            assert.equal(calls[1][0], "start")
+            assert.deepEqual(Array.from(calls[1][1]), ["bad"])
+          }
+          harness.handlers.onScrollState({ owner: generationOf(harness.loaded[0]), scrolling: true })
+          await harness.runtime.settle()
+        }
+      }
+    })
+  }
+}
+
+for (const direction of ["horizontal", "vertical"]) {
+  test(`沉浸阅读${direction}可从原文切换回译文`, async () => {
+    const calls = []
+    const snapshot = { mode: "original", running: false, done: 1, total: 1, failed: 0,
+      summaryStatus: "ready", glossaryStatus: "ready", blocks: {}, message: "" }
+    const harness = createHarness({ direction, translation: { snapshot, session: { setMode: mode => calls.push(mode) } } })
+    await harness.runtime.settle()
+    const tree = harness.runtime.render()
+    assert.equal(findNode(tree, node => node.type === "NovelTranslationStatus"), null)
+    const toggle = findNode(tree, node => node.type === "Button" && node.props.title === "显示译文")
+    assert.ok(toggle)
+    toggle.props.action()
+    assert.deepEqual(calls, ["translated"])
+  })
+}
