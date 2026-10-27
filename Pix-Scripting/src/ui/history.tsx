@@ -60,7 +60,7 @@ import { cardThumbUrlOf, novelThumbUrlOf, prefetch } from "../image/imageLoader"
 import { currentBatchSize, useLatest, usePagedList, useLayoutMetrics, IPAD_WIDE_MIN_WIDTH } from "./Hooks"
 import { useExperimentalAmbientPalette, getLastActiveAmbientImageUrl, recordActiveAmbientImageUrl } from "./ambient"
 import { useDualRoute } from "./DualRouteContext"
-import { getActiveTabKind, onActiveTabChanged, requestPixivRoute, type PixivTabKind } from "../store/routeNavigation"
+import { getActiveTabKind, onActiveTabChanged, requestPixivRoute, useIsCurrentTab, type PixivTabKind } from "../store/routeNavigation"
 import { HistoryAnalyticsView } from "./HistoryAnalytics"
 import type { PixivIllustration, PixivNovel } from "../types"
 
@@ -77,13 +77,15 @@ export interface HistoryNovelItem extends PixivNovel {
   viewedAt: number
 }
 
+function parseHistoryQuery(query: string): ReadonlyArray<string> {
+  return query.trim().toLowerCase().split(/\s+/).filter(Boolean)
+}
+
 export function matchesHistoryQuery(item: HistoryIllustItem | HistoryNovelItem, query: string): boolean {
-  const trimmed = query.trim()
-  if (!trimmed) return true
+  return matchesHistoryWords(item, parseHistoryQuery(query))
+}
 
-  const words = trimmed.toLowerCase().split(/\s+/).filter(Boolean)
-  if (words.length === 0) return true
-
+function matchesHistoryWords(item: HistoryIllustItem | HistoryNovelItem, words: ReadonlyArray<string>): boolean {
   return words.every((word) => {
     // 1. 作品 ID
     if (String(item.id).includes(word)) return true
@@ -119,7 +121,6 @@ export function loadHistoryIllusts(kind: "illustration" | "manga"): HistoryIllus
   return getHistory(kind)
     .filter((entry): entry is Extract<HistoryEntry, { kind: "illust" }> => entry.kind === "illust")
     .map((entry) => {
-      cacheIllust(entry.illustration)
       return {
         ...entry.illustration,
         viewedAt: entry.viewedAt,
@@ -131,12 +132,30 @@ export function loadHistoryNovels(): HistoryNovelItem[] {
   return getHistory("novel")
     .filter((entry): entry is Extract<HistoryEntry, { kind: "novel" }> => entry.kind === "novel")
     .map((entry) => {
-      cacheNovel(entry.novel)
       return {
         ...entry.novel,
         viewedAt: entry.viewedAt,
       }
     })
+}
+
+// 每个保活流只保留一份展开快照；变更事件仅失效，不驱动列表刷新/重排。
+// 回看、收藏、删除、云端 replace 与账号 clear 都会 emitChanged；再校验原始数组引用，
+// 覆盖冷读/重载。不能使用当前恒为 1 的 getHistoryVersion 充当 revision。
+function useHistorySearchItems<T>(kind: HistoryKind, loader: () => T[]): () => T[] {
+  const loaderRef = useLatest(loader)
+  const snapshotRef = useRef<{ entries: HistoryEntry[]; items: T[] } | null>(null)
+  useEffect(() => onHistoryChanged(() => {
+    snapshotRef.current = null
+  }), [])
+  return useCallback(() => {
+    const entries = getHistory(kind)
+    const snapshot = snapshotRef.current
+    if (snapshot?.entries === entries) return snapshot.items
+    const items = loaderRef.current()
+    snapshotRef.current = { entries, items }
+    return items
+  }, [kind])
 }
 
 export function filterHistoryIllusts(items: HistoryIllustItem[]): HistoryIllustItem[] {
@@ -161,6 +180,7 @@ export function HistoryView() {
   const [hideNovels, setHideNovels] = useState(() => loadSettings().hideNovels)
   const [kind, setKind] = useState<HistoryKind>("illustration")
   const [searchQuery, setSearchQuery] = useState("")
+  const searchWords = useMemo(() => parseHistoryQuery(searchQuery), [searchQuery])
   const [pageLayout, setPageLayout] = useState(() => loadSettings().pageLayout)
   const isAppleMusic = pageLayout === "appleMusic"
   const [visitedKinds, setVisitedKinds] = useState<Set<HistoryKind>>(() => new Set([kind]))
@@ -218,6 +238,7 @@ export function HistoryView() {
   }, [kind])
 
   const initialTab = useRef(getActiveTabKind()).current
+  const isTabActive = useIsCurrentTab(initialTab)
   const tabRef = useRef(initialTab)
 
   useEffect(() => {
@@ -272,17 +293,14 @@ export function HistoryView() {
     return items
   }, [hideNovels])
 
-  useRegisterBottomAccessory(
-    "history",
-    historyItems.length <= 1 ? null : (
-      <DockSegmentedBar
-        items={historyItems}
-        value={kind}
-        onChanged={setKind}
-      />
-    ),
-    isAppleMusic
-  )
+  const historyBottomAccessory = useMemo(() => historyItems.length <= 1 ? null : (
+    <DockSegmentedBar
+      items={historyItems}
+      value={kind}
+      onChanged={setKind}
+    />
+  ), [historyItems, kind])
+  useRegisterBottomAccessory("history", historyBottomAccessory, isAppleMusic)
 
   function clearCurrentKind() {
     clearHistoryKind(kind)
@@ -395,6 +413,8 @@ export function HistoryView() {
           <VStack alignment="leading" spacing={8} frame={{ minHeight: 500, maxWidth: "infinity" }}>
             <HistoryFeed
               kind="illustration"
+              enabled={isTabActive && kind === "illustration"}
+              searchWords={searchWords}
               searchQuery={searchQuery}
               onFirstImageUrlChange={(url) => {
                 if (kind === "illustration") setAmbientImageUrl(url)
@@ -419,6 +439,8 @@ export function HistoryView() {
             <VStack alignment="leading" spacing={8} frame={{ minHeight: 500, maxWidth: "infinity" }}>
               <HistoryFeed
                 kind="manga"
+                enabled={isTabActive && kind === "manga"}
+                searchWords={searchWords}
                 searchQuery={searchQuery}
                 onFirstImageUrlChange={(url) => {
                   if (kind === "manga") setAmbientImageUrl(url)
@@ -444,6 +466,8 @@ export function HistoryView() {
             <VStack alignment="leading" spacing={8} frame={{ minHeight: 500, maxWidth: "infinity" }}>
               <HistoryFeed
                 kind="novel"
+                enabled={isTabActive && kind === "novel" && !hideNovels}
+                searchWords={searchWords}
                 searchQuery={searchQuery}
                 onFirstImageUrlChange={(url) => {
                   if (kind === "novel") setAmbientImageUrl(url)
@@ -687,17 +711,22 @@ function historyKindTitle(kind: HistoryKind): string {
 
 function IllustHistoryFeed(props: {
   kind: "illustration" | "manga"
+  enabled?: boolean
   searchQuery?: string
+  searchWords?: ReadonlyArray<string>
   onFirstImageUrlChange?: (url: string | null) => void
   onRegisterRefresh?: (fn: () => Promise<void>) => void
 }) {
-  const { kind, searchQuery = "", onFirstImageUrlChange, onRegisterRefresh } = props
+  const { kind, enabled = true, searchQuery = "", searchWords, onFirstImageUrlChange, onRegisterRefresh } = props
+  const queryWords = useMemo(() => searchWords ?? parseHistoryQuery(searchQuery), [searchWords, searchQuery])
+  const readItems = useHistorySearchItems(kind, () => loadHistoryIllusts(kind))
 
   const paged = usePagedList<HistoryIllustItem>({
+    enabled,
     first: async () => {
-      const items = loadHistoryIllusts(kind)
-      const filtered = searchQuery.trim()
-        ? items.filter((item) => matchesHistoryQuery(item, searchQuery))
+      const items = readItems()
+      const filtered = queryWords.length > 0
+        ? items.filter((item) => matchesHistoryWords(item, queryWords))
         : items
       return {
         items: filtered,
@@ -711,7 +740,7 @@ function IllustHistoryFeed(props: {
   })
 
   const pagedRef = useLatest(paged)
-  const searchQueryRef = useLatest(searchQuery)
+  const searchWordsRef = useLatest(queryWords)
   const displayedIdsRef = useRef<Set<number>>(new Set())
 
   useEffect(() => {
@@ -728,7 +757,7 @@ function IllustHistoryFeed(props: {
 
       const illust = entry.illustration
       cacheIllust(illust)
-      const currentQuery = searchQueryRef.current.trim()
+      const currentWords = searchWordsRef.current
 
       if (displayedIdsRef.current.has(illust.id)) {
         // 老作品安静回看：数据层已落盘并更新 viewedAt，视图保持不动，标记待重排
@@ -739,23 +768,13 @@ function IllustHistoryFeed(props: {
           ...illust,
           viewedAt: entry.viewedAt,
         }
-        if (!currentQuery || matchesHistoryQuery(item, currentQuery)) {
+        if (matchesHistoryWords(item, currentWords)) {
           displayedIdsRef.current.add(illust.id)
           pagedRef.current.prependItems([item])
         }
       }
     })
   }, [kind])
-
-  useEffect(() => {
-    const handleSettingsChange = () => {
-      pagedRef.current.reapplyFilter()
-    }
-    const unsubscribeSettings = onSettingsChanged(handleSettingsChange)
-    return () => {
-      unsubscribeSettings()
-    }
-  }, [])
 
   useEffect(() => {
     let url: string | null = null
@@ -791,17 +810,22 @@ function IllustHistoryFeed(props: {
 }
 
 function NovelHistoryFeed(props: {
+  enabled?: boolean
   searchQuery?: string
+  searchWords?: ReadonlyArray<string>
   onFirstImageUrlChange?: (url: string | null) => void
   onRegisterRefresh?: (fn: () => Promise<void>) => void
 }) {
-  const { searchQuery = "", onFirstImageUrlChange, onRegisterRefresh } = props
+  const { enabled = true, searchQuery = "", searchWords, onFirstImageUrlChange, onRegisterRefresh } = props
+  const queryWords = useMemo(() => searchWords ?? parseHistoryQuery(searchQuery), [searchWords, searchQuery])
+  const readItems = useHistorySearchItems("novel", loadHistoryNovels)
 
   const paged = usePagedList<HistoryNovelItem>({
+    enabled,
     first: async () => {
-      const items = loadHistoryNovels()
-      const filtered = searchQuery.trim()
-        ? items.filter((item) => matchesHistoryQuery(item, searchQuery))
+      const items = readItems()
+      const filtered = queryWords.length > 0
+        ? items.filter((item) => matchesHistoryWords(item, queryWords))
         : items
       return {
         items: filtered,
@@ -815,7 +839,7 @@ function NovelHistoryFeed(props: {
   })
 
   const pagedRef = useLatest(paged)
-  const searchQueryRef = useLatest(searchQuery)
+  const searchWordsRef = useLatest(queryWords)
   const displayedIdsRef = useRef<Set<number>>(new Set())
 
   useEffect(() => {
@@ -828,7 +852,7 @@ function NovelHistoryFeed(props: {
 
       const novel = entry.novel
       cacheNovel(novel)
-      const currentQuery = searchQueryRef.current.trim()
+      const currentWords = searchWordsRef.current
 
       if (displayedIdsRef.current.has(novel.id)) {
         // 老小说安静回看：数据层已落盘并更新 viewedAt，视图保持不动，标记待重排
@@ -839,22 +863,12 @@ function NovelHistoryFeed(props: {
           ...novel,
           viewedAt: entry.viewedAt,
         }
-        if (!currentQuery || matchesHistoryQuery(item, currentQuery)) {
+        if (matchesHistoryWords(item, currentWords)) {
           displayedIdsRef.current.add(novel.id)
           pagedRef.current.prependItems([item])
         }
       }
     })
-  }, [])
-
-  useEffect(() => {
-    const handleSettingsChange = () => {
-      pagedRef.current.reapplyFilter()
-    }
-    const unsubscribeSettings = onSettingsChanged(handleSettingsChange)
-    return () => {
-      unsubscribeSettings()
-    }
   }, [])
 
   useEffect(() => {
@@ -891,14 +905,18 @@ function NovelHistoryFeed(props: {
 
 function HistoryFeed(props: {
   kind: HistoryKind
+  enabled?: boolean
   searchQuery?: string
+  searchWords?: ReadonlyArray<string>
   onFirstImageUrlChange?: (url: string | null) => void
   onRegisterRefresh?: (fn: () => Promise<void>) => void
 }) {
   if (props.kind === "novel") {
     return (
       <NovelHistoryFeed
+        enabled={props.enabled}
         searchQuery={props.searchQuery}
+        searchWords={props.searchWords}
         onFirstImageUrlChange={props.onFirstImageUrlChange}
         onRegisterRefresh={props.onRegisterRefresh}
       />
@@ -908,7 +926,9 @@ function HistoryFeed(props: {
   return (
     <IllustHistoryFeed
       kind={props.kind}
+      enabled={props.enabled}
       searchQuery={props.searchQuery}
+      searchWords={props.searchWords}
       onFirstImageUrlChange={props.onFirstImageUrlChange}
       onRegisterRefresh={props.onRegisterRefresh}
     />

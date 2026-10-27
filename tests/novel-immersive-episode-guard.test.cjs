@@ -175,9 +175,10 @@ function createHookRuntime() {
   }
 }
 
-function createHarness() {
+function createHarness(options = {}) {
   const handlers = {}
   const loaded = []
+  const scripts = []
   const closes = []
   const jumpCalls = []
   const progressCalls = []
@@ -186,8 +187,11 @@ function createHarness() {
   const deletedMarkers = []
   const holder = {}
   const controller = {
-    loadHTML: async (html) => { loaded.push(html) },
-    evaluateJavaScript: async () => {},
+    loadHTML: async (html) => {
+      loaded.push(html)
+      return options.loadHTML ? options.loadHTML(html) : true
+    },
+    evaluateJavaScript: async (script) => { scripts.push(script) },
     addScriptMessageHandler: async (name, fn) => { handlers[name] = fn },
     dispose() {},
   }
@@ -295,7 +299,7 @@ function createHarness() {
   const runtime = createHookRuntime()
   holder.hooks = runtime.hooks
   const tree = runtime.mount(module.exports.NovelImmersiveReaderView, props)
-  return { runtime, tree, handlers, loaded, closes, jumpCalls, progressCalls, markerCalls, addedMarkers, deletedMarkers }
+  return { runtime, tree, handlers, loaded, scripts, closes, jumpCalls, progressCalls, markerCalls, addedMarkers, deletedMarkers }
 }
 
 /* ---------------------------- 树遍历工具 ---------------------------- */
@@ -476,4 +480,30 @@ test("关闭沉浸阅读器时回传最终作品 ID 与页码，保持正确的�
   assert.equal(harness.closes[0][3]?.novelId, 2, "续读锚点必须归属换章后的新作品")
   assert.equal(harness.closes[0][3]?.chunkId, "final-chunk")
   assert.equal(typeof harness.closes[0][3]?.contentVersion, "string")
+})
+
+
+for (const succeeds of [true, false]) {
+  test(`阅读器加载${succeeds ? "成功" : "取消"}后${succeeds ? "补发" : "不补发"}译文与环境光`, async () => {
+    const harness = createHarness({ loadHTML: async () => succeeds })
+    await harness.runtime.settle(12)
+    assert.equal(harness.scripts.some(script => script.includes("__novelTranslationOriginals")), succeeds)
+    assert.equal(harness.scripts.some(script => script.includes("window.updateAmbientBackground")), succeeds)
+  })
+}
+
+test("旧章节迟到的加载完成不得向新文档补发译文或环境光", async () => {
+  const loads = []
+  const harness = createHarness({ loadHTML: () => new Promise(resolve => loads.push(resolve)) })
+  harness.handlers.onSeriesNav({ action: "next", id: 2, owner: generationOf(harness.loaded[0]) })
+  await harness.runtime.settle(12)
+  assert.equal(loads.length, 2)
+  const baseline = harness.scripts.length
+  loads[0](true)
+  await harness.runtime.settle(12)
+  assert.equal(harness.scripts.length, baseline, "旧文档完成必须整体丢弃")
+  loads[1](true)
+  await harness.runtime.settle(12)
+  assert.equal(harness.scripts.slice(baseline).filter(script => script.includes("__novelTranslationOriginals")).length, 1)
+  assert.equal(harness.scripts.slice(baseline).filter(script => script.includes("window.updateAmbientBackground")).length, 1)
 })

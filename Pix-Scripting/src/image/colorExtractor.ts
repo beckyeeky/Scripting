@@ -50,6 +50,10 @@ const paletteCache = new Map<string, UserAmbientResult>()
 // 内存缓存：URL -> IllustAmbientResult
 const illustPaletteCache = new Map<string, IllustAmbientResult>()
 
+// 按完整 URL 合并在途任务，用户背景与插画取色各自独立。
+const userPaletteInFlight = new Map<string, Promise<UserAmbientResult | null>>()
+const illustPaletteInFlight = new Map<string, Promise<IllustAmbientResult | null>>()
+
 function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
   const max = Math.max(r, g, b)
   const min = Math.min(r, g, b)
@@ -291,22 +295,39 @@ export async function extractUserAmbientPalette(
   if (!url) return null
   const cached = paletteCache.get(url)
   if (cached) return cached
+  const inFlight = userPaletteInFlight.get(url)
+  if (inFlight) return inFlight
 
-  try {
-    let filePath = cachedFilePath(url)
-    if (!filePath) {
-      filePath = await loadImage(url, 0)
+  // 延后启动冷任务，确保任何加载/取色执行前已登记；热色盘仍在上方直接返回。
+  const task = Promise.resolve().then(async (): Promise<UserAmbientResult | null> => {
+    try {
+      // 登记后、任务启动前，同步路径也可能已完成取色。
+      const cachedBeforeLoad = paletteCache.get(url)
+      if (cachedBeforeLoad) return cachedBeforeLoad
+
+      let filePath = cachedFilePath(url)
+      if (!filePath) {
+        filePath = await loadImage(url, 0)
+        const cachedAfterLoad = paletteCache.get(url)
+        if (cachedAfterLoad) return cachedAfterLoad
+      }
+      if (!filePath) return null
+
+      const uiImage = UIImage.fromFile(filePath)
+      if (!uiImage || uiImage.width <= 0 || uiImage.height <= 0) return null
+
+      return processUserAmbientPaletteFromImage(uiImage, url)
+    } catch (err) {
+      console.log("extractUserAmbientPalette error:", err)
+      return null
     }
-    if (!filePath) return null
-
-    const uiImage = UIImage.fromFile(filePath)
-    if (!uiImage || uiImage.width <= 0 || uiImage.height <= 0) return null
-
-    return processUserAmbientPaletteFromImage(uiImage, url)
-  } catch (err) {
-    console.log("extractUserAmbientPalette error:", err)
-    return null
-  }
+  }).finally(() => {
+    if (userPaletteInFlight.get(url) === task) {
+      userPaletteInFlight.delete(url)
+    }
+  })
+  userPaletteInFlight.set(url, task)
+  return task
 }
 
 /**
@@ -800,20 +821,37 @@ export async function extractIllustAmbientPalette(
   if (!url) return null
   const cached = illustPaletteCache.get(url)
   if (cached) return cached
+  const inFlight = illustPaletteInFlight.get(url)
+  if (inFlight) return inFlight
 
-  try {
-    let filePath = cachedFilePath(url)
-    if (!filePath) {
-      filePath = await loadImage(url, 0)
+  // 延后启动冷任务，确保任何加载/取色执行前已登记；热色盘仍在上方直接返回。
+  const task = Promise.resolve().then(async (): Promise<IllustAmbientResult | null> => {
+    try {
+      // 登记后、任务启动前，同步路径也可能已完成取色。
+      const cachedBeforeLoad = illustPaletteCache.get(url)
+      if (cachedBeforeLoad) return cachedBeforeLoad
+
+      let filePath = cachedFilePath(url)
+      if (!filePath) {
+        filePath = await loadImage(url, 0)
+        const cachedAfterLoad = illustPaletteCache.get(url)
+        if (cachedAfterLoad) return cachedAfterLoad
+      }
+      if (!filePath) return null
+
+      const uiImage = UIImage.fromFile(filePath)
+      if (!uiImage || uiImage.width <= 0 || uiImage.height <= 0) return null
+
+      return processIllustPaletteFromImage(uiImage, url)
+    } catch (err) {
+      console.log("extractIllustAmbientPalette error:", err)
+      return null
     }
-    if (!filePath) return null
-
-    const uiImage = UIImage.fromFile(filePath)
-    if (!uiImage || uiImage.width <= 0 || uiImage.height <= 0) return null
-
-    return processIllustPaletteFromImage(uiImage, url)
-  } catch (err) {
-    console.log("extractIllustAmbientPalette error:", err)
-    return null
-  }
+  }).finally(() => {
+    if (illustPaletteInFlight.get(url) === task) {
+      illustPaletteInFlight.delete(url)
+    }
+  })
+  illustPaletteInFlight.set(url, task)
+  return task
 }

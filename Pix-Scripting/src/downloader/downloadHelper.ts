@@ -1,20 +1,5 @@
-import { downloadBinary, downloadBinaryDetailed, type BinaryDownloadOutcome } from "../api/client"
-import { imageUrlOf } from "../image/imageLoader"
-import { getDownloadImageQuality, loadSettings, type DownloadImageQuality } from "../store/settings"
-import type { PixivIllustration } from "../types"
+import { downloadBinaryDetailed, type BinaryDownloadOutcome } from "../api/client"
 import type { TaskControlToken } from "./downloadTaskManager"
-
-/**
- * 获取下载使用的图片 URL（严格遵循设置中的 downloadImageQuality）
- */
-export function getDownloadImageUrl(
-  illust: PixivIllustration,
-  pageIndex = 0,
-  customQuality?: DownloadImageQuality
-): string | null {
-  const quality = customQuality ?? getDownloadImageQuality()
-  return imageUrlOf(illust, pageIndex, quality)
-}
 
 export type DownloadFailureKind =
   | "cancelled"

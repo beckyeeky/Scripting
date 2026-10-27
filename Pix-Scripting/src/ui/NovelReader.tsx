@@ -1136,12 +1136,12 @@ ${NOVEL_READER_RUNTIME_JS}
         if (enabled && bgCss) {
           layer.style.background = bgCss;
           layer.style.opacity = "1";
-          document.documentElement.style.backgroundColor = "transparent";
-          document.body.style.backgroundColor = "transparent";
+          document.documentElement.style.setProperty("background-color", "transparent", "important");
+          document.body.style.setProperty("background-color", "transparent", "important");
         } else {
           layer.style.opacity = "0";
-          document.documentElement.style.backgroundColor = "var(--bg-color)";
-          document.body.style.backgroundColor = "var(--bg-color)";
+          document.documentElement.style.setProperty("background-color", "var(--bg-color)", "important");
+          document.body.style.setProperty("background-color", "var(--bg-color)", "important");
         }
       }
     };
@@ -1549,6 +1549,50 @@ function NovelVerticalReaderView(props: {
     isDark
   )
 
+  // 环境光只更新当前已完成加载的文档；串行发送避免慢 JS 回包造成新旧配色倒序。
+  const readerAliveRef = useRef(true)
+  const htmlGenerationRef = useRef(0)
+  const readyGenerationRef = useRef(0)
+  const ambientSnapshotRef = useRef({ bgCss: ambientBgCss, enabled: ambientActive })
+  ambientSnapshotRef.current = { bgCss: ambientBgCss, enabled: ambientActive }
+  const appliedAmbientRef = useRef<{
+    generation: number
+    bgCss: string
+    enabled: boolean | undefined
+  } | null>(null)
+  const ambientUpdateTailRef = useRef<Promise<void>>(Promise.resolve())
+  const syncAmbient = useCallback(() => {
+    const generation = htmlGenerationRef.current
+    ambientUpdateTailRef.current = ambientUpdateTailRef.current.then(async () => {
+      if (!readerAliveRef.current || !generation ||
+          generation !== htmlGenerationRef.current ||
+          generation !== readyGenerationRef.current) return
+      const ctrl = controllerRef.current
+      if (!ctrl) return
+      const snapshot = ambientSnapshotRef.current
+      const applied = appliedAmbientRef.current
+      if (applied?.generation === generation &&
+          applied.bgCss === snapshot.bgCss && applied.enabled === snapshot.enabled) return
+      const script = `if (window.updateAmbientBackground) { window.updateAmbientBackground(${JSON.stringify(snapshot.bgCss)}, ${JSON.stringify(snapshot.enabled)}); }`
+      await ctrl.evaluateJavaScript(script)
+      if (readerAliveRef.current && generation === htmlGenerationRef.current) {
+        appliedAmbientRef.current = { generation, ...snapshot }
+      }
+    }).catch(() => {})
+  }, [])
+
+  // 仅真正卸载才释放控制器；换作品/重建 HTML 只令旧加载与补发失效。
+  useEffect(() => {
+    return () => {
+      readerAliveRef.current = false
+      htmlGenerationRef.current += 1
+      readyGenerationRef.current = 0
+      try {
+        controllerRef.current?.dispose()
+      } catch {}
+    }
+  }, [])
+
   // 监听容器高度/横竖屏变化：通知 WebKit 重新精准锚定到当前 Chunk ID
   useEffect(() => {
     const ctrl = controllerRef.current
@@ -1561,10 +1605,10 @@ function NovelVerticalReaderView(props: {
     return () => clearTimeout(timer)
   }, [containerHeight])
 
-  // 初始化设置 message handler 并加载 HTML
+  // 同一控制器的 message handler 只注册一次，回调从 ref 读取最新业务状态。
   useEffect(() => {
     const ctrl = controllerRef.current
-    if (!ctrl || chunks.length === 0) return
+    if (!ctrl) return
 
     void ctrl.addScriptMessageHandler("onProgressChange", (data: any) => {
       if (!data) return
@@ -1606,6 +1650,15 @@ function NovelVerticalReaderView(props: {
       }
     }).catch(() => {})
 
+  }, [])
+
+  // 作品/正文变更才重建文档，首帧仍使用本次渲染的环境光快照。
+  useEffect(() => {
+    const generation = ++htmlGenerationRef.current
+    readyGenerationRef.current = 0
+    const ctrl = controllerRef.current
+    if (!ctrl || chunks.length === 0) return
+
     const html = buildVerticalHtml(
       chunks,
       settings,
@@ -1617,18 +1670,22 @@ function NovelVerticalReaderView(props: {
       readingAnchor
     )
 
-    void ctrl.loadHTML(html).then(() => {
+    void (async () => {
+      const loaded = await ctrl.loadHTML(html)
+      // loadHTML 被替代/取消时返回 false；旧代次和卸载后的完成不能开闸。
+      if (!loaded || !readerAliveRef.current || generation !== htmlGenerationRef.current) return
+      readyGenerationRef.current = generation
+      syncAmbient()
       void ctrl.evaluateJavaScript(buildNovelTranslationPatchScript(translationRef.current, currentChunkIdRef.current)).catch(() => {})
-    }).catch(() => {})
+    })().catch(() => {})
 
     return () => {
-      try {
-        ctrl.dispose()
-      } catch {
-        // ignore dispose error
+      if (generation === htmlGenerationRef.current) {
+        htmlGenerationRef.current += 1
+        readyGenerationRef.current = 0
       }
     }
-  }, [novelId, chunks, ambientActive])
+  }, [novelId, chunks])
 
   useEffect(() => {
     const ctrl = controllerRef.current
@@ -1638,15 +1695,7 @@ function NovelVerticalReaderView(props: {
 
   // 当环境光色板异步就绪或设置变更时，动态平滑热更新 WebKit 内部画布
   useEffect(() => {
-    const ctrl = controllerRef.current
-    if (!ctrl) return
-    const bgCss = generateAmbientBackgroundCss(
-      ambientPalette,
-      ambientAlgorithm ?? "classic",
-      isDark
-    )
-    const script = `if (window.updateAmbientBackground) { window.updateAmbientBackground(${JSON.stringify(bgCss)}, ${JSON.stringify(ambientActive)}); }`
-    void ctrl.evaluateJavaScript(script).catch(() => {})
+    syncAmbient()
   }, [ambientPalette, ambientAlgorithm, isDark, ambientActive])
 
   // 实时响应字体、字号、字重、行距变更（0ms 毫秒级即时生效）

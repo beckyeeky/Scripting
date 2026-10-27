@@ -138,6 +138,18 @@ export function getFullSearchHistoryStore(): SearchHistoryStore {
             user: normalizeHistoryEntries(parsed.user, fallback),
             updatedAt: fallback,
           }
+          // 旧词项只在冷读取时迁移一次，将本次归一化的时间固定到磁盘。
+          // 不广播，不改变词项时间与排序；正常格式不会额外写入。
+          const scopes: SearchHistoryScope[] = ["illust", "novel", "user"]
+          const needsMigration = scopes.some((scope) => {
+            const rawEntries = parsed[scope]
+            const entries = cachedSearchHistory![scope]
+            return !Array.isArray(rawEntries) || rawEntries.length !== entries.length ||
+              entries.some((entry, index) =>
+                rawEntries[index]?.query !== entry.query || rawEntries[index]?.searchedAt !== entry.searchedAt
+              )
+          })
+          if (needsMigration) persistSearchHistory(cachedSearchHistory)
           return cachedSearchHistory
         }
         if (Array.isArray(parsed)) {
@@ -148,6 +160,7 @@ export function getFullSearchHistoryStore(): SearchHistoryStore {
             user: [],
             updatedAt: fallback,
           }
+          persistSearchHistory(cachedSearchHistory)
           return cachedSearchHistory
         }
       }

@@ -8,6 +8,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
 } from "scripting"
 import { useLayoutMetrics } from "../Hooks"
 import { cacheIllusts } from "../../store/illustCache"
@@ -22,7 +23,6 @@ import {
   MIN_FLOW_IMAGE_RATIO,
   calculateFlowCardWidth,
   calculateHeroCardWidth,
-  type IllustCardAction,
 } from "./IllustCard"
 import type { PixivIllustration } from "../../types"
 
@@ -41,10 +41,6 @@ export interface IllustFlowFeedProps {
   enableHeroFirst?: boolean
   cornerBadgeOf?: (illust: PixivIllustration, index: number) => any
   footerTextOf?: (illust: PixivIllustration, index: number) => string | undefined
-  topTrailingActionOf?: (
-    illust: PixivIllustration,
-    index: number,
-  ) => IllustCardAction | undefined
   contextMenuOf?: (
     illust: PixivIllustration,
     index: number,
@@ -84,7 +80,12 @@ function distributeFlowItems(
 }
 
 export function IllustFlowFeed(props: IllustFlowFeedProps) {
-  cacheIllusts(props.items)
+  // 列表状态以新数组发布；同一批数据的加载态变化无需重复合并整个作品缓存。
+  const cachedItemsRef = useRef<PixivIllustration[] | null>(null)
+  if (cachedItemsRef.current !== props.items) {
+    cacheIllusts(props.items)
+    cachedItemsRef.current = props.items
+  }
   const { width: containerWidth, isLandscape } = useLayoutMetrics()
   const [columnCaps, setColumnCaps] = useState(() => {
     const settings = loadSettings()
@@ -119,7 +120,10 @@ export function IllustFlowFeed(props: IllustFlowFeedProps) {
   // 3 列及以上（中等大小 / 宽屏）自动保持均等多列网格，首图不跨行。
   const isHeroActive = columnCount <= 2 && Boolean(props.enableHeroFirst && props.items.length > 0)
   const heroItem = isHeroActive ? props.items[0] : null
-  const waterfallItems = isHeroActive ? props.items.slice(1) : props.items
+  const waterfallItems = useMemo(
+    () => isHeroActive ? props.items.slice(1) : props.items,
+    [props.items, isHeroActive]
+  )
   const startIndex = isHeroActive ? 1 : 0
 
   const columns = useMemo(
@@ -142,7 +146,6 @@ export function IllustFlowFeed(props: IllustFlowFeedProps) {
           isSprint={index === 0}
           cornerBadge={props.cornerBadgeOf?.(illust, index)}
           footerText={props.footerTextOf?.(illust, index)}
-          topTrailingAction={props.topTrailingActionOf?.(illust, index)}
           contextMenu={props.contextMenuOf?.(illust, index)}
         />
       )
@@ -178,7 +181,6 @@ export function IllustFlowFeed(props: IllustFlowFeedProps) {
       props.onLoadMore,
       props.cornerBadgeOf,
       props.footerTextOf,
-      props.topTrailingActionOf,
       props.contextMenuOf,
     ]
   )
@@ -200,7 +202,6 @@ export function IllustFlowFeed(props: IllustFlowFeedProps) {
           isSprint={true}
           cornerBadge={props.cornerBadgeOf?.(heroItem, 0)}
           footerText={props.footerTextOf?.(heroItem, 0)}
-          topTrailingAction={props.topTrailingActionOf?.(heroItem, 0)}
           contextMenu={props.contextMenuOf?.(heroItem, 0)}
         />
       </VStack>
@@ -211,7 +212,6 @@ export function IllustFlowFeed(props: IllustFlowFeedProps) {
     heroCardWidth,
     props.cornerBadgeOf,
     props.footerTextOf,
-    props.topTrailingActionOf,
     props.contextMenuOf,
   ])
 

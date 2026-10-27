@@ -210,7 +210,7 @@ function mountImmersive(input) {
   const loadImageCalls = []
   const handlers = {}
   const controller = {
-    loadHTML: async (html) => { loaded.push(html) },
+    loadHTML: async (html) => { loaded.push(html); return true },
     evaluateJavaScript: async (script) => { evaluated.push(script) },
     addScriptMessageHandler: async (name, fn) => { handlers[name] = fn },
     dispose() {},

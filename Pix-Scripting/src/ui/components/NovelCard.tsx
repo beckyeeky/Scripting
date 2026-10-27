@@ -24,7 +24,7 @@ import { useNavigationZoom } from "../NavigationZoomContext"
 import { CachedImage } from "./CachedImage"
 import { BookmarkButton, BookmarkDetailSheet } from "./BookmarkDetailSheet"
 import { BlockWorkSheet } from "./BlockWorkSheet"
-import { CORNER_ICON_SIZE, formatNumber, formatWordCount, type CardAction } from "./formatUtils"
+import { formatNumber, formatWordCount } from "./formatUtils"
 import { useLatest, useNovelBookmark } from "../Hooks"
 import { isUserFollowed, notifyUserFollowChanged } from "../../store/userFollow"
 import { recordNovelMarker } from "../../store/bookmarkSync"
@@ -78,7 +78,6 @@ export function NovelCard(props: {
   markerPage?: number
   showEpisodeNumber?: boolean
   showSeriesTitle?: boolean
-  topTrailingAction?: CardAction
   contextMenu?: any
 }) {
   const {
@@ -90,7 +89,6 @@ export function NovelCard(props: {
     markerPage,
     showEpisodeNumber = true,
     showSeriesTitle = true,
-    topTrailingAction,
     contextMenu,
   } = props
 
@@ -517,7 +515,6 @@ export function NovelCard(props: {
           </HStack>
         </AppNavigationLink>
         <BookmarkButton
-          size={30}
           bookmarked={bookmarked}
           disabled={bookmarkBusy}
           onTap={() => void toggleNovelBookmark()}
@@ -537,25 +534,6 @@ export function NovelCard(props: {
           onSheetChanged={setShowBookmarkDetail}
         />
       </ZStack>
-      {topTrailingAction ? (
-        <Button
-          buttonStyle="plain"
-          action={topTrailingAction.action}
-          frame={{ width: CORNER_ICON_SIZE, height: CORNER_ICON_SIZE }}
-          glassEffect={appGlass("circle")}
-          contentShape="circle"
-          zIndex={1}
-          offset={{ x: -4, y: 4 }}
-          shadow={{ color: "#00000028", radius: 6, y: 2 }}
-        >
-          <Image
-            systemName={topTrailingAction.systemImage}
-            font="body"
-            tint={topTrailingAction.tint}
-            foregroundStyle={topTrailingAction.foregroundStyle}
-          />
-        </Button>
-      ) : null}
     </ZStack>
   )
 }

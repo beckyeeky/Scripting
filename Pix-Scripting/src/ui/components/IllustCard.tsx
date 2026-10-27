@@ -20,7 +20,7 @@ import { CachedImage, PageCountBadge } from "./CachedImage"
 import { BookmarkButton, BookmarkDetailSheet } from "./BookmarkDetailSheet"
 import { BlockWorkSheet } from "./BlockWorkSheet"
 import { appGlass } from "./glass"
-import { CORNER_ICON_SIZE, formatNumber, type CardAction } from "./formatUtils"
+import { formatNumber } from "./formatUtils"
 import { useIllustBookmark, useUserFollow } from "../Hooks"
 import { isUserFollowed, notifyUserFollowChanged } from "../../store/userFollow"
 import { cacheIllust } from "../../store/illustCache"
@@ -54,8 +54,6 @@ export function calculateHeroCardWidth(containerWidth: number = Device.screen.wi
 
 // 流式布局允许最长 1:3 的竖图保留原始比例；更极端的超长竖图受此下限保护并启用顶部等比无损裁切。
 export const MIN_FLOW_IMAGE_RATIO = 1 / 3
-
-export type IllustCardAction = CardAction
 
 function IllustStatItem(props: { icon: string; count: number; hero?: boolean }) {
   const { icon, count, hero } = props
@@ -92,7 +90,6 @@ export function IllustCard(props: {
   isSprint?: boolean
   cornerBadge?: any
   footerText?: string
-  topTrailingAction?: IllustCardAction
   contextMenu?: any
 }) {
   const {
@@ -107,7 +104,6 @@ export function IllustCard(props: {
     isSprint,
     cornerBadge,
     footerText,
-    topTrailingAction,
     contextMenu,
   } = props
   cacheIllust(illust)
@@ -459,28 +455,6 @@ export function IllustCard(props: {
           </>
         ) : null}
       </VStack>
-      {topTrailingAction ? (
-        <Button
-          buttonStyle="plain"
-          action={topTrailingAction.action}
-          frame={{
-            width: hero ? 30 : CORNER_ICON_SIZE,
-            height: hero ? 30 : CORNER_ICON_SIZE,
-          }}
-          glassEffect={appGlass("circle")}
-          contentShape="circle"
-          zIndex={1}
-          offset={hero ? { x: -5, y: 5 } : { x: -4, y: 4 }}
-          shadow={{ color: "#00000028", radius: hero ? 8 : 6, y: 2 }}
-        >
-          <Image
-            systemName={topTrailingAction.systemImage}
-            font={hero ? "title3" : "body"}
-            tint={topTrailingAction.tint}
-            foregroundStyle={topTrailingAction.foregroundStyle}
-          />
-        </Button>
-      ) : null}
     </ZStack>
   )
 }

@@ -41,7 +41,7 @@ const downloadHelper = load("Pix-Scripting/src/downloader/downloadHelper.ts", {
 function immersiveHarness(direction) {
   const effects = [], loaded = [], closes = [], translations = []
   const controller = {
-    loadHTML: async html => { loaded.push(html) }, evaluateJavaScript: async () => {},
+    loadHTML: async html => { loaded.push(html); return true }, evaluateJavaScript: async () => {},
     addScriptMessageHandler: async () => {}, dispose() {},
   }
   // 复用真实锚点与阅读器运行时实现（注入脚本、续读锚点协议）

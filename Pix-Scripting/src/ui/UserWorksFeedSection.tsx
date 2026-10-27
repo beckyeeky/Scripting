@@ -2,8 +2,6 @@ import {
   Button,
   Group,
   LazyVStack,
-  Picker,
-  Text,
   useCallback,
   useEffect,
   VStack,
@@ -478,31 +476,5 @@ export function UserWorksFeedSection(props: {
         onRetry={novelPaged.retryLoadMore}
       />
     </LazyVStack>
-  )
-}
-
-export function UserWorkPicker(props: {
-  availableKinds: UserWorkKind[]
-  kind: UserWorkKind
-  onChanged: (kind: UserWorkKind) => void
-}) {
-  const { availableKinds, kind, onChanged } = props
-  if (availableKinds.length <= 1) return null
-
-  return (
-    <VStack padding={{ horizontal: 8, top: 2, bottom: 6 }}>
-      <Picker
-        title="作品类型"
-        value={kind}
-        onChanged={(value: string) => onChanged(value as UserWorkKind)}
-        pickerStyle="segmented"
-      >
-        {availableKinds.map((k) => (
-          <Text key={k} tag={k}>
-            {k === "illust" ? "插画" : k === "manga" ? "漫画" : "小说"}
-          </Text>
-        ))}
-      </Picker>
-    </VStack>
   )
 }

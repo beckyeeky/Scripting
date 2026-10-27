@@ -145,7 +145,7 @@ export function useCachedImage(
     }
   }, [url, cacheRevision, cachedPath, onLoadedRef, priority, isSprint])
 
-  return { path, isTargetLoaded: Boolean(targetPath), failed, cacheRevision }
+  return { path, isTargetLoaded: Boolean(targetPath), failed, cacheRevision, cachedPath }
 }
 
 function cropUIImage(
@@ -154,7 +154,8 @@ function cropUIImage(
   centerCropAspect?: number,
   cropAnchor: "center" | "top" = "center"
 ): UIImage | null {
-  if (!path) return null
+  // 没有裁剪请求时原本就返回 null，直接保留文件路径显示，避免无效图片读取。
+  if (!path || (!centerCropSquare && !(centerCropAspect != null && centerCropAspect > 0))) return null
   try {
     const image = UIImage.fromFile(path)
     if (!image || image.width <= 0 || image.height <= 0) return null
@@ -247,12 +248,13 @@ export function CachedImage(props: {
     isSprint,
     onTapGesture,
   } = props
-  const { path, isTargetLoaded, failed, cacheRevision } = useCachedImage(url, onLoaded, priority, isSprint)
-  const initialHitRef = useRef<boolean>(Boolean(url && cachedFilePath(url)))
+  const { path, isTargetLoaded, failed, cacheRevision, cachedPath } = useCachedImage(url, onLoaded, priority, isSprint)
+  const initialHitRef = useRef<boolean | null>(null)
   const lastUrlRef = useRef<string | null>(url)
-  if (lastUrlRef.current !== url) {
+  // 复用 Hook 已检查的缓存路径；首帧判据只在初始化或切换 URL 时更新。
+  if (initialHitRef.current == null || lastUrlRef.current !== url) {
     lastUrlRef.current = url
-    initialHitRef.current = Boolean(url && cachedFilePath(url))
+    initialHitRef.current = Boolean(cachedPath)
   }
 
   // 缩略图主动就绪与模糊占位机制：
@@ -570,7 +572,7 @@ export function AvatarImage(props: {
 // 网格作品卡片（列表页共用）：玻璃卡片 + 缩略图 + 标题 + 作者/收藏数/浏览数
 // 多页作品在图片左下角显示 rectangle.stack.fill + 纯数字页数。
 // cornerBadge 为图片左上角非交互角标；footerText 用于补充信息。
-// topTrailingAction 只传操作语义，按钮布局与命中区域由统一卡片模板负责。
+// 作品删除/屏蔽等卡片交互已全量收敛至长按呼出的原生上下文菜单（contextMenu）。
 // 注意：属性名不能叫 badge，那是 SwiftUI 保留修饰符名（只接受 string|number），
 // 会导致 JSX 类型检查报错。
 export function ImageNumberBadge(props: { number: number; foregroundStyle?: any; font?: any }) {

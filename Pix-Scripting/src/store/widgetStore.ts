@@ -369,10 +369,10 @@ export function saveWidgetPool(state: WidgetPoolState, param?: string, family?: 
 
 async function fetchArtworksForSourceWithPage(
   param: string,
-  nextURL?: string | null
+  nextURL: string | null | undefined,
+  snapshot: WidgetPopulateSnapshot
 ): Promise<{ items: PixivIllustration[]; nextURL: string | null }> {
-  const settings = loadSettings()
-  const showAI = settings.showAI
+  const showAI = snapshot.showAI
   let token: string | null = null
   try {
     token = await session.getValidToken()
@@ -384,6 +384,7 @@ async function fetchArtworksForSourceWithPage(
     items: [],
     nextURL: null,
   }
+  if (!isWidgetPopulateSnapshotCurrent(snapshot)) return result
 
   try {
     if (nextURL) {
@@ -432,8 +433,13 @@ function syncToAppImageCache(url: string, sourcePath: string): void {
   } catch {}
 }
 
-async function downloadDirectImage(url: string, prefix: string, id: number): Promise<string | null> {
-  if (!url) return null
+async function downloadDirectImage(
+  url: string,
+  prefix: string,
+  id: number,
+  isCurrent: () => boolean
+): Promise<string | null> {
+  if (!url || !isCurrent()) return null
 
   const targetDir = imagesDir()
   const fileName = `${prefix}_${id}.jpg`
@@ -451,6 +457,7 @@ async function downloadDirectImage(url: string, prefix: string, id: number): Pro
   }
 
   const data = await downloadBinary(url)
+  if (!isCurrent()) return null
   if (data) {
     try {
       writeDataSafely(destPath, data)
@@ -463,11 +470,11 @@ async function downloadDirectImage(url: string, prefix: string, id: number): Pro
   return null
 }
 
-async function downloadArtworkImage(item: PixivIllustration): Promise<string | null> {
+async function downloadArtworkImage(item: PixivIllustration, isCurrent: () => boolean): Promise<string | null> {
   // 坚守 large 高清原图品质
   const url = item.image_urls.large || item.image_urls.medium || item.image_urls.square_medium
   if (!url) return null
-  return downloadDirectImage(url, "widget", item.id)
+  return downloadDirectImage(url, "widget", item.id, isCurrent)
 }
 
 function cleanupOrphanImages(): void {
@@ -507,7 +514,49 @@ function cleanupOrphanImages(): void {
   } catch {}
 }
 
-const activePopulateTasks = new Map<string, Promise<WidgetPoolState>>()
+type WidgetPopulateSnapshot = {
+  generation: number
+  userID: number | null
+  showAI: boolean
+  capacity: number
+}
+
+type WidgetPopulateRequest = {
+  forceNextPage: boolean
+  snapshot: WidgetPopulateSnapshot
+  // 只用于判定需求是否已被在途页覆盖；真正发请求仍重读磁盘。
+  nextCursor?: string | null
+  fetchCursor?: string | null
+}
+
+type WidgetPopulateTask = {
+  promise: Promise<WidgetPoolState>
+  current: WidgetPopulateRequest
+  pending: WidgetPopulateRequest | null
+  running: boolean
+}
+
+function widgetPopulateSnapshot(): WidgetPopulateSnapshot {
+  return {
+    generation: session.currentGeneration,
+    userID: session.userID,
+    showAI: loadSettings().showAI,
+    capacity: getPoolCapacity(),
+  }
+}
+
+function sameWidgetPopulateSnapshot(a: WidgetPopulateSnapshot, b: WidgetPopulateSnapshot): boolean {
+  return a.generation === b.generation && a.userID === b.userID &&
+    a.showAI === b.showAI && a.capacity === b.capacity
+}
+
+function isWidgetPopulateSnapshotCurrent(snapshot: WidgetPopulateSnapshot): boolean {
+  return sameWidgetPopulateSnapshot(snapshot, widgetPopulateSnapshot())
+}
+
+// 仅约束本进程的小组件图片任务；不冒充 App/Widget/AppIntent 之间的跨进程锁。
+const activePopulateTasks = new Map<string, WidgetPopulateTask>()
+let widgetCleanupPending = false
 const firstReadyEmitters = new Map<string, Set<(art: WidgetArtwork) => void>>()
 
 function emitFirstReady(key: string, art: WidgetArtwork): void {
@@ -557,36 +606,102 @@ export async function populateWidgetPool(
   options?: { forceNextPage?: boolean }
 ): Promise<WidgetPoolState> {
   const normalized = normalizeParameter(param, family)
-  const taskKey = `${normalized}_${options?.forceNextPage ? "next" : "normal"}`
-  if (activePopulateTasks.has(taskKey)) {
-    return activePopulateTasks.get(taskKey)!
+  const request: WidgetPopulateRequest = {
+    forceNextPage: Boolean(options?.forceNextPage),
+    snapshot: widgetPopulateSnapshot(),
+    nextCursor: options?.forceNextPage ? loadWidgetPool(normalized, family).nextURL || null : undefined,
+  }
+  const active = activePopulateTasks.get(normalized)
+  if (active) {
+    if (!active.running) {
+      // 尚未执行可以直接升级；配置/账号改变时只保留最新请求。
+      active.current = sameWidgetPopulateSnapshot(active.current.snapshot, request.snapshot)
+        ? { ...request, forceNextPage: active.current.forceNextPage || request.forceNextPage }
+        : request
+    } else {
+      const sameCurrent = sameWidgetPopulateSnapshot(active.current.snapshot, request.snapshot)
+      const covered = sameCurrent && (!request.forceNextPage || (
+        active.current.fetchCursor !== undefined && active.current.fetchCursor === request.nextCursor
+      ))
+      if (active.pending && sameWidgetPopulateSnapshot(active.pending.snapshot, request.snapshot)) {
+        active.pending.forceNextPage = active.pending.forceNextPage || request.forceNextPage
+        if (request.forceNextPage) active.pending.nextCursor = request.nextCursor
+      } else {
+        // next 在途时 normal 直接复用；normal 已拉取同一 cursor 时 next 也复用。
+        // 否则最多一轮尾随，开始时重读磁盘，不使用请求入队时的旧 cursor 发网络。
+        active.pending = covered ? null : request
+      }
+    }
+    return active.promise
   }
 
-  const task = (async () => {
+  const entry: WidgetPopulateTask = {
+    promise: null!, current: request, pending: null, running: false,
+  }
+  // 先注册，再从 microtask 开始执行：同步短路/抛错也不会遗留已完成的假在途任务。
+  activePopulateTasks.set(normalized, entry)
+  entry.promise = Promise.resolve().then(async () => {
     try {
+      while (true) {
+        entry.running = true
+        entry.current.snapshot = widgetPopulateSnapshot()
+        let pool: WidgetPoolState
+        try {
+          pool = await runWidgetPopulate(normalized, family, entry.current)
+        } catch (error) {
+          if (!entry.pending) throw error
+          // 本轮失败不吞掉已登记的新请求；只有这一轮，没有隐式定时重试。
+          entry.current = entry.pending
+          entry.pending = null
+          continue
+        }
+        if (!entry.pending) return pool
+        entry.current = entry.pending
+        entry.pending = null
+      }
+    } finally {
+      if (activePopulateTasks.get(normalized) === entry) activePopulateTasks.delete(normalized)
+      // 图片先落盘、随后才发布池索引；其他源仍在补池时不能把在途文件当孤儿删掉。
+      if (activePopulateTasks.size === 0 && widgetCleanupPending) {
+        widgetCleanupPending = false
+        cleanupOrphanImages()
+      }
+    }
+  })
+  return entry.promise
+}
+
+async function runWidgetPopulate(
+  normalized: string,
+  family: string | undefined,
+  request: WidgetPopulateRequest
+): Promise<WidgetPoolState> {
+      const { snapshot, forceNextPage } = request
+      const isCurrent = () => isWidgetPopulateSnapshotCurrent(snapshot)
       const pool = loadWidgetPool(normalized, family)
-      const maxCapacity = getPoolCapacity()
+      const maxCapacity = snapshot.capacity
       const isPoolFull = pool.artworks.length >= maxCapacity
       const isStale = Date.now() - (pool.lastFetchTime || 0) > POOL_STALE_TTL_MS
 
       // 如果池子已满且未请求拉取下一页、未过期且剩余未看充裕，直接返回
       if (
         isPoolFull &&
-        !options?.forceNextPage &&
+        !forceNextPage &&
         !isStale &&
         pool.artworks.length - pool.currentIndex >= MIN_PREFETCH_COUNT
       ) {
         return pool
       }
 
-      // 标记本次拉取开始时间并存盘加锁
+      // 保留原拉取时间检查点；这不是跨进程互斥锁。
+      widgetCleanupPending = true
       pool.lastFetchStartedAt = Date.now()
       saveWidgetPool(pool, normalized, family)
 
       // 确定拉取的 nextURL 与是否需要循环洗牌
-      const isCycleReset = !pool.nextURL && (Boolean(options?.forceNextPage) || isStale || pool.currentIndex + 1 >= pool.artworks.length)
+      const isCycleReset = !pool.nextURL && (forceNextPage || isStale || pool.currentIndex + 1 >= pool.artworks.length)
       let requestNextURL: string | null = null
-      if (!isCycleReset && options?.forceNextPage) {
+      if (!isCycleReset && forceNextPage) {
         requestNextURL = pool.nextURL || null
       } else if (!isCycleReset && !isStale) {
         requestNextURL = pool.nextURL || null
@@ -602,24 +717,28 @@ export async function populateWidgetPool(
       const newArtworks: WidgetArtwork[] = isCycleReset
         ? (currentArtId ? pool.artworks.filter((a) => a.id === currentArtId) : [])
         : [...pool.artworks]
+      request.fetchCursor = requestNextURL
       let firstSaved = newArtworks.length > 0
       let latestNextURL = pool.nextURL || null
 
       if (normalized === "pixivision") {
         const res = await fetchPixivisionWithPage(requestNextURL)
+        if (!isCurrent()) return loadWidgetPool(normalized, family)
         latestNextURL = res.nextURL
         const candidateArticles = res.items.filter((article) => !existingIds.has(article.id) && article.imageURL)
 
         // 3 路受限并发管道下载大图
         let candidateIdx = 0
         async function pixivisionWorker() {
-          while (candidateIdx < candidateArticles.length) {
+          while (isCurrent() && candidateIdx < candidateArticles.length) {
             const article = candidateArticles[candidateIdx++]
             const localPath = await downloadDirectImage(
               article.imageURL,
               "widget_pixivision",
-              article.id
+              article.id,
+              isCurrent
             )
+            if (!isCurrent()) return
             if (localPath) {
               const art: WidgetArtwork = {
                 id: article.id,
@@ -656,18 +775,24 @@ export async function populateWidgetPool(
           { length: Math.min(DOWNLOAD_CONCURRENCY, candidateArticles.length) },
           () => pixivisionWorker()
         )
-        await Promise.all(workers)
+        // 失败也等全部在途 worker 收束，再释放同源任务与清理文件。
+        const settled = await Promise.allSettled(workers)
+        for (const result of settled) {
+          if (result.status === "rejected") throw result.reason
+        }
       } else {
-        const res = await fetchArtworksForSourceWithPage(normalized, requestNextURL)
+        const res = await fetchArtworksForSourceWithPage(normalized, requestNextURL, snapshot)
+        if (!isCurrent()) return loadWidgetPool(normalized, family)
         latestNextURL = res.nextURL
         const candidateItems = res.items.filter((item) => !existingIds.has(item.id))
 
         // 3 路受限并发管道下载高清大图
         let candidateIdx = 0
         async function illustWorker() {
-          while (candidateIdx < candidateItems.length) {
+          while (isCurrent() && candidateIdx < candidateItems.length) {
             const item = candidateItems[candidateIdx++]
-            const localPath = await downloadArtworkImage(item)
+            const localPath = await downloadArtworkImage(item, isCurrent)
+            if (!isCurrent()) return
             if (localPath) {
               const width = item.width || 1200
               const height = item.height || 1200
@@ -711,8 +836,14 @@ export async function populateWidgetPool(
           { length: Math.min(DOWNLOAD_CONCURRENCY, candidateItems.length) },
           () => illustWorker()
         )
-        await Promise.all(workers)
+        // 失败也等全部在途 worker 收束，再释放同源任务与清理文件。
+        const settled = await Promise.allSettled(workers)
+        for (const result of settled) {
+          if (result.status === "rejected") throw result.reason
+        }
       }
+
+      if (!isCurrent()) return loadWidgetPool(normalized, family)
 
       // 安全容量修剪：超过最大容量时淘汰已看过的旧图，受保护作品（当前正在展示的）永不剔除
       if (newArtworks.length > maxCapacity) {
@@ -763,17 +894,7 @@ export async function populateWidgetPool(
       pool.lastFetchTime = Date.now()
       saveWidgetPool(pool, normalized, family)
 
-      // 异步清理不再被任何池子引用的旧本地大图
-      cleanupOrphanImages()
-
       return pool
-    } finally {
-      activePopulateTasks.delete(taskKey)
-    }
-  })()
-
-  activePopulateTasks.set(taskKey, task)
-  return task
 }
 
 export async function getCurrentWidgetArtwork(param?: string, family?: string): Promise<WidgetArtwork | null> {

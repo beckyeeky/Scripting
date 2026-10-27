@@ -793,12 +793,12 @@ ${NOVEL_READER_RUNTIME_JS}
         if (enabled && bgCss) {
           layer.style.background = bgCss;
           layer.style.opacity = "1";
-          document.documentElement.style.backgroundColor = "transparent";
-          document.body.style.backgroundColor = "transparent";
+          document.documentElement.style.setProperty("background-color", "transparent", "important");
+          document.body.style.setProperty("background-color", "transparent", "important");
         } else {
           layer.style.opacity = "0";
-          document.documentElement.style.backgroundColor = "var(--bg-color)";
-          document.body.style.backgroundColor = "var(--bg-color)";
+          document.documentElement.style.setProperty("background-color", "var(--bg-color)", "important");
+          document.body.style.setProperty("background-color", "var(--bg-color)", "important");
         }
       }
     };
@@ -1636,12 +1636,12 @@ ${NOVEL_READER_RUNTIME_JS}
         if (enabled && bgCss) {
           layer.style.background = bgCss;
           layer.style.opacity = "1";
-          document.documentElement.style.backgroundColor = "transparent";
-          document.body.style.backgroundColor = "transparent";
+          document.documentElement.style.setProperty("background-color", "transparent", "important");
+          document.body.style.setProperty("background-color", "transparent", "important");
         } else {
           layer.style.opacity = "0";
-          document.documentElement.style.backgroundColor = "var(--bg-color)";
-          document.body.style.backgroundColor = "var(--bg-color)";
+          document.documentElement.style.setProperty("background-color", "var(--bg-color)", "important");
+          document.body.style.setProperty("background-color", "var(--bg-color)", "important");
         }
       }
     };
@@ -2085,6 +2085,38 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
   const imageCacheRef = useRef(imageCache)
   imageCacheRef.current = imageCache
 
+  // 环境光只更新当前已完成加载的文档；串行发送避免慢 JS 回包造成新旧配色倒序。
+  const readerAliveRef = useRef(true)
+  const htmlGenerationRef = useRef(0)
+  const readyGenerationRef = useRef(0)
+  const ambientSnapshotRef = useRef({ bgCss: ambientBgCss, enabled: ambientActive })
+  ambientSnapshotRef.current = { bgCss: ambientBgCss, enabled: ambientActive }
+  const appliedAmbientRef = useRef<{
+    generation: number
+    bgCss: string
+    enabled: boolean | undefined
+  } | null>(null)
+  const ambientUpdateTailRef = useRef<Promise<void>>(Promise.resolve())
+  const syncAmbient = useCallback(() => {
+    const generation = htmlGenerationRef.current
+    ambientUpdateTailRef.current = ambientUpdateTailRef.current.then(async () => {
+      if (!readerAliveRef.current || !generation ||
+          generation !== htmlGenerationRef.current ||
+          generation !== readyGenerationRef.current) return
+      const ctrl = controllerRef.current
+      if (!ctrl) return
+      const snapshot = ambientSnapshotRef.current
+      const applied = appliedAmbientRef.current
+      if (applied?.generation === generation &&
+          applied.bgCss === snapshot.bgCss && applied.enabled === snapshot.enabled) return
+      const script = `if (window.updateAmbientBackground) { window.updateAmbientBackground(${JSON.stringify(snapshot.bgCss)}, ${JSON.stringify(snapshot.enabled)}); }`
+      await ctrl.evaluateJavaScript(script)
+      if (readerAliveRef.current && generation === htmlGenerationRef.current) {
+        appliedAmbientRef.current = { generation, ...snapshot }
+      }
+    }).catch(() => {})
+  }, [])
+
   // 页面就绪或重试时向 WebKit 重放所有已有缓存插图，确保零时序打空
   const replayLoadedImages = useCallback(() => {
     const ctrl = controllerRef.current
@@ -2372,6 +2404,9 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
   // 保证 WebViewController 仅在组件彻底卸载（用户退出沉浸全屏）时才 dispose
   useEffect(() => {
     return () => {
+      readerAliveRef.current = false
+      htmlGenerationRef.current += 1
+      readyGenerationRef.current = 0
       try {
         controllerRef.current?.dispose()
       } catch {}
@@ -2465,6 +2500,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
 
     void ctrl.addScriptMessageHandler("readerReady", (data: any) => {
       if (isStaleDocument(data)) return
+      syncAmbient()
       replayLoadedImagesRef.current()
     }).catch(() => {})
 
@@ -2522,10 +2558,12 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     return () => {
       documentGenerationRef.current += 1
     }
-  }, [activeNovelId, displayedChunks, activeTitle, settings.layoutDirection, ambientActive])
+  }, [activeNovelId, displayedChunks, activeTitle, settings.layoutDirection, contentVersion])
 
   // 仅在章节变更、文本分块变更、或横竖排方向切换时载入对应引擎的 HTML
   useEffect(() => {
+    const generation = ++htmlGenerationRef.current
+    readyGenerationRef.current = 0
     const ctrl = controllerRef.current
     if (!ctrl || displayedChunks.length === 0) return
 
@@ -2557,10 +2595,22 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
       ownerGeneration: documentGenerationRef.current,
     })
 
-    void ctrl.loadHTML(html).then(() => {
+    void (async () => {
+      const loaded = await ctrl.loadHTML(html)
+      // loadHTML 被替代/取消时返回 false；旧代次和卸载后的完成不能开闸。
+      if (!loaded || !readerAliveRef.current || generation !== htmlGenerationRef.current) return
+      readyGenerationRef.current = generation
+      syncAmbient()
       void ctrl.evaluateJavaScript(buildNovelTranslationPatchScript(translationRef.current, currentChunkIdRef.current)).catch(() => {})
-    }).catch(() => {})
-  }, [activeNovelId, displayedChunks, activeTitle, settings.layoutDirection, ambientActive, contentVersion])
+    })().catch(() => {})
+
+    return () => {
+      if (generation === htmlGenerationRef.current) {
+        htmlGenerationRef.current += 1
+        readyGenerationRef.current = 0
+      }
+    }
+  }, [activeNovelId, displayedChunks, activeTitle, settings.layoutDirection, contentVersion])
 
   useEffect(() => {
     const ctrl = controllerRef.current
@@ -2570,11 +2620,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
 
   // 当环境光色板异步就绪、换章或设置变更时，动态平滑热更新 WebKit 内部画布（0 重载、0 滚动跳变）
   useEffect(() => {
-    const ctrl = controllerRef.current
-    if (!ctrl) return
-    const bgCss = generateAmbientBackgroundCss(ambientPalette, ambientAlgorithm, isDark)
-    const script = `if (window.updateAmbientBackground) { window.updateAmbientBackground(${JSON.stringify(bgCss)}, ${JSON.stringify(ambientActive)}); }`
-    void ctrl.evaluateJavaScript(script).catch(() => {})
+    syncAmbient()
   }, [ambientPalette, ambientAlgorithm, isDark, ambientActive])
 
   // 当系列导航数据异步就绪时，动态更新 HTML 中的系列翻页器状态

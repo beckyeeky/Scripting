@@ -163,7 +163,7 @@ export function FollowFeedView(props: {
 
   useRegisterBottomAccessory(
     "following",
-    hideNovels || followItems.length <= 1 ? null : (
+    followItems.length === 0 ? null : (
       <DockSegmentedBar
         items={followItems}
         value={segmentedValue}

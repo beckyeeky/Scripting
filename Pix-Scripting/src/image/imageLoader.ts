@@ -21,6 +21,7 @@ let cacheDir: string | null = null
 let cacheGeneration = 0
 let cacheRevision = 0
 let cachedMeta: CacheMeta | null = null
+let cachedTotalBytes = 0
 let metaSaveTimer: number | null = null
 const META_IDLE_SAVE_MS = 3000
 const cacheChangeListeners = new Set<() => void>()
@@ -66,6 +67,7 @@ function loadMeta(): CacheMeta {
   recoverFile(path)
   if (!FileManager.existsSync(path)) {
     cachedMeta = {}
+    cachedTotalBytes = 0
     return cachedMeta
   }
   try {
@@ -74,6 +76,7 @@ function loadMeta(): CacheMeta {
   } catch {
     cachedMeta = {}
   }
+  cachedTotalBytes = Object.values(cachedMeta).reduce((sum, entry) => sum + (entry.size || 0), 0)
   return cachedMeta
 }
 
@@ -229,6 +232,8 @@ export function getLatestCachedArtworkPath(): string | null {
 }
 
 function touch(meta: CacheMeta, key: string, url: string, size: number): void {
+  // 本模块管理的新增、替换与复用种子经此入口；普通命中仅改 lastAccess。
+  cachedTotalBytes += (size || 0) - (meta[key]?.size || 0)
   meta[key] = { url, size, lastAccess: Date.now() }
 }
 
@@ -236,7 +241,7 @@ function touch(meta: CacheMeta, key: string, url: string, size: number): void {
 // 引入滞后双水位线机制（105% 触发淘汰 / 90% 修剪目标），消除缓存满仓时每 3 秒全量排序的振荡卡顿
 export function enforceCacheLimit(): void {
   try {
-    enforceUgoiraCacheLimit()
+    enforceUgoiraCacheLimit(false)
   } catch {}
   const settings = loadSettings()
   if (settings.cacheLimitMB == null) return
@@ -249,14 +254,13 @@ export function enforceCacheLimit(): void {
   const lowWatermarkBytes = Math.round(baseLimitBytes * 0.90)
 
   const meta = loadMeta()
-  const entries = Object.entries(meta)
-  let total = entries.reduce((sum, [, v]) => sum + (v.size || 0), 0)
+  let total = cachedTotalBytes
 
-  // 未达到高水位线，直接零开销退出
+  // 未达到高水位线，不再展开整份元数据；额度与水位保持原样。
   if (total <= highWatermarkBytes) return
 
   // 达到高水位线，执行一次全量 LRU 排序并向下修剪至低水位线
-  const sorted = entries.sort((a, b) => a[1].lastAccess - b[1].lastAccess)
+  const sorted = Object.entries(meta).sort((a, b) => a[1].lastAccess - b[1].lastAccess)
   for (const [key, v] of sorted) {
     if (total <= lowWatermarkBytes) break
     const file = cacheFilePath(v.url)
@@ -265,11 +269,13 @@ export function enforceCacheLimit(): void {
         FileManager.removeSync(file)
       }
     } catch {
-      // ignore
+      // 删除失败仍占用磁盘，不扣减账本；后续维护继续尝试。
+      continue
     }
     delete meta[key]
     total -= v.size || 0
   }
+  cachedTotalBytes = total
   saveMeta(meta)
 }
 
@@ -475,22 +481,6 @@ export async function loadImage(
   return requestImage(url, undefined, priority, isSprint)
 }
 
-/**
- * 动态提升已有或正在排队图片的优先级（用于视口滚动出现时的即时抢占）
- */
-export function boostImagePriority(url: string, priority: number, isSprint?: boolean): void {
-  const task = inflightDownloads.get(url)
-  if (!task || task.generation !== cacheGeneration) return
-  task.foregroundRequested = true
-  if (isSprint) {
-    task.isSprint = true
-    task.priority = Math.min(task.priority, -20000)
-    startSprintWatchdog(task)
-  }
-  updateTaskPriority(task, priority)
-  promoteQueuedDownload(task)
-}
-
 function requestImage(
   url: string,
   prefetchOwner?: PrefetchState,
@@ -649,8 +639,8 @@ export function prefetch(urls: (string | null | undefined)[]): PrefetchHandle {
 
 // 计算缓存占用（字节）
 export function cacheUsageBytes(): number {
-  const meta = loadMeta()
-  return Object.values(meta).reduce((sum, v) => sum + (v.size || 0), 0)
+  loadMeta()
+  return cachedTotalBytes
 }
 
 // 清空缓存
@@ -667,6 +657,7 @@ export function clearCache(): void {
     metaSaveTimer = null
   }
   cachedMeta = null
+  cachedTotalBytes = 0
   const dir = ensureCacheDir()
   try {
     if (FileManager.existsSync(dir)) {

@@ -475,7 +475,7 @@ export function SearchAdvancedSheet(props: {
   const isNovel = category === "novel"
 
   return (
-    <SheetScaffold>
+    <SheetScaffold detents={["large"]}>
       <List
         {...sheetTopBar()}
         navigationTitle="高级搜索"

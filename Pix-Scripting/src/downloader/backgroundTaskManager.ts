@@ -30,6 +30,8 @@ export interface BackgroundTaskHandle {
     statusText: string
     isPaused?: boolean
   }) => void
+  // 仅撤销进度发布；取消入口使用，实际收尾及保活释放仍由 finish 负责。
+  stopProgressUpdates?: () => void
   finish: (options: {
     success: boolean
     summary: string
@@ -111,8 +113,12 @@ export async function beginBackgroundTask(
   let currentTotal = options.total && options.total > 0 ? options.total : 1
   let currentCount = 0
   let isFinished = false
-  let lastUpdateTime = 0
+  let lastUpdateTime: number | null = null
   let isCurrentlyPaused = false
+  let progressStopped = false
+  let progressTimer: ReturnType<typeof setTimeout> | null = null
+  let pendingStatusText: string | null = null
+  let lastPublishedState: TaskLiveActivityState | null = null
 
   if (settings.enableLiveActivity) {
     try {
@@ -152,69 +158,111 @@ export async function beginBackgroundTask(
     }
   }
 
-  // 3. 进度更新函数
+  // 3. 普通进度首发 + 80ms 合并尾发；控制态按有效状态变化立即发布。
+  const clearProgressTimer = () => {
+    if (progressTimer !== null) {
+      clearTimeout(progressTimer)
+      progressTimer = null
+    }
+  }
+
+  const stopProgressUpdates = () => {
+    progressStopped = true
+    clearProgressTimer()
+    pendingStatusText = null
+  }
+
+  const flushProgress = () => {
+    clearProgressTimer()
+    if (isFinished || progressStopped || pendingStatusText === null || !liveActivityInstance) return
+
+    // 尾发时重新检查，不能重放排队前的 false，也不能在取消后重建活动元数据。
+    const pendingSignal = peekTaskSignal(taskId)
+    if (pendingSignal === "cancel") {
+      stopProgressUpdates()
+      return
+    }
+    if (pendingSignal === "pause") isCurrentlyPaused = true
+
+    const state: TaskLiveActivityState = {
+      taskId,
+      title: options.title,
+      subtitle: options.subtitle,
+      statusText: isCurrentlyPaused ? "任务已暂停" : pendingStatusText,
+      progress: Math.max(0, Math.min(1, currentTotal > 0 ? currentCount / currentTotal : 0)),
+      current: currentCount,
+      total: currentTotal,
+      categoryIcon: options.categoryIcon || "square.and.arrow.down.fill",
+      isDone: false,
+      isError: false,
+      isPaused: isCurrentlyPaused,
+    }
+    pendingStatusText = null
+    if (lastPublishedState &&
+      lastPublishedState.current === state.current &&
+      lastPublishedState.total === state.total &&
+      lastPublishedState.statusText === state.statusText &&
+      lastPublishedState.isPaused === state.isPaused) return
+
+    lastUpdateTime = Date.now()
+    lastPublishedState = state
+    try {
+      // update 返回 Promise；只记录失败，不排队重试，避免 finish 后再派发。
+      void liveActivityInstance.update(state).catch((err: any) => {
+        console.log("LiveActivity update error:", err?.message ?? err)
+      })
+      saveActiveTaskActivityMeta({
+        ...state,
+        taskId,
+        activityId: liveActivityInstance.activityId,
+        updatedAt: Date.now(),
+      })
+    } catch (err: any) {
+      console.log("LiveActivity update error:", err?.message ?? err)
+    }
+  }
+
   const updateProgress = (progressOptions: {
     current: number
     total?: number
     statusText: string
     isPaused?: boolean
   }) => {
-    if (isFinished) return
+    if (isFinished || progressStopped) return
+    const wasComplete = currentCount >= currentTotal
     if (progressOptions.total && progressOptions.total > 0) {
       currentTotal = progressOptions.total
     }
     currentCount = Math.max(0, progressOptions.current)
-    const progressVal = Math.max(0, Math.min(1, currentTotal > 0 ? currentCount / currentTotal : 0))
 
-    // 状态熔断保护：若当前已标记为暂停，或外部有尚未消费的 pause 信号，严禁将 isPaused 冲刷为 false！
+    // pending pause 优先于包装层的稳定布尔值；不消费或改写控制信号。
     const pendingSignal = peekTaskSignal(taskId)
+    if (pendingSignal === "cancel") {
+      stopProgressUpdates()
+      return
+    }
     if (pendingSignal === "pause") {
       isCurrentlyPaused = true
     } else if (progressOptions.isPaused !== undefined) {
       isCurrentlyPaused = Boolean(progressOptions.isPaused)
     }
+    if (!liveActivityInstance) return
+    pendingStatusText = progressOptions.statusText
 
     const now = Date.now()
-    // 防抖限频：非状态切换且小于 80ms 时防抖
-    if (progressOptions.isPaused === undefined && now - lastUpdateTime < 80 && currentCount < currentTotal) {
-      return
-    }
-    lastUpdateTime = now
-
-    if (liveActivityInstance) {
-      try {
-        const finalStatus = isCurrentlyPaused ? "任务已暂停" : progressOptions.statusText
-        liveActivityInstance.update({
-          taskId,
-          title: options.title,
-          subtitle: options.subtitle,
-          statusText: finalStatus,
-          progress: progressVal,
-          current: currentCount,
-          total: currentTotal,
-          categoryIcon: options.categoryIcon || "square.and.arrow.down.fill",
-          isDone: false,
-          isError: false,
-          isPaused: isCurrentlyPaused,
-        })
-        saveActiveTaskActivityMeta({
-          taskId,
-          activityId: liveActivityInstance.activityId,
-          title: options.title,
-          subtitle: options.subtitle,
-          statusText: finalStatus,
-          progress: progressVal,
-          current: currentCount,
-          total: currentTotal,
-          categoryIcon: options.categoryIcon || "square.and.arrow.down.fill",
-          isPaused: isCurrentlyPaused,
-          isDone: false,
-          isError: false,
-          updatedAt: Date.now(),
-        })
-      } catch (err: any) {
-        console.log("LiveActivity update error:", err?.message ?? err)
-      }
+    const elapsed = lastUpdateTime === null ? 80 : now - lastUpdateTime
+    const pauseChanged = lastPublishedState !== null && lastPublishedState.isPaused !== isCurrentlyPaused
+    // 100% 只是进度边沿，不是任务终态；重复满值不能持续绕过限频。
+    const completionEdge = currentCount >= currentTotal && !wasComplete
+    if (lastUpdateTime === null || pauseChanged || completionEdge || elapsed >= 80 || elapsed < 0) {
+      flushProgress()
+    } else if (progressTimer === null) {
+      const timer: ReturnType<typeof setTimeout> = setTimeout(() => {
+        if (progressTimer !== timer) return
+        progressTimer = null
+        flushProgress()
+      }, 80 - elapsed)
+      progressTimer = timer
     }
   }
 
@@ -228,6 +276,7 @@ export async function beginBackgroundTask(
   }) => {
     if (isFinished) return
     isFinished = true
+    stopProgressUpdates()
 
     clearActiveTaskActivityMeta()
     clearTaskSignal(taskId)
@@ -298,6 +347,7 @@ export async function beginBackgroundTask(
   return {
     taskId,
     updateProgress,
+    stopProgressUpdates,
     finish,
   }
 }

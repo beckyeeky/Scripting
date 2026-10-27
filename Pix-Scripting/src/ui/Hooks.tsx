@@ -252,6 +252,8 @@ export function usePagedList<T extends { id: number | string }>(
   const activationRef = useRef(0)
   const batchPublishedCleanupRef = useRef<(() => void) | null>(null)
   const consumedTailRef = useRef<string | null>(null)
+  // 隐藏流的显式刷新合并为一次，激活后补做；在途刷新失活时也保留意图。
+  const refreshPendingRef = useRef(false)
 
   const clearBatchPublishedEffects = () => {
     const cleanup = batchPublishedCleanupRef.current
@@ -274,8 +276,8 @@ export function usePagedList<T extends { id: number | string }>(
     setLoadMoreError(null)
     consumedTailRef.current = null
     clearBatchPublishedEffects()
-    // 首次加载尚未完成就离开时，下次激活必须重新请求，不能停在加载中。
-    if (itemsRef.current.length === 0 && initialLoadingRef.current) {
+    // 首屏尚未完成就离开时必须重试；历史事件可能已 prepend，不能以 items 为空判定。
+    if (initialLoadingRef.current) {
       hasLoadedRef.current = false
       setHasLoaded(false)
     }
@@ -311,6 +313,11 @@ export function usePagedList<T extends { id: number | string }>(
   // 核心加载逻辑：clear=true 时清空旧数据并显示全屏加载（首次/参数切换）；
   // clear=false 时保留旧列表后台更新（下拉刷新/设置变更），避免页面闪烁
   const load = useCallback(async (clear: boolean) => {
+    if (!enabledRef.current) {
+      refreshPendingRef.current = true
+      return
+    }
+    refreshPendingRef.current = !clear
     const seq = ++seqRef.current
     const activation = activationRef.current
     // 首屏/刷新具有更高优先级：立即废弃旧翻页锁。旧任务完成时只能
@@ -382,6 +389,7 @@ export function usePagedList<T extends { id: number | string }>(
         }
       }
 
+      refreshPendingRef.current = false
       const published = collected.slice(0, batchSize)
       const pending = collected.slice(batchSize)
       setItems(published)
@@ -399,6 +407,7 @@ export function usePagedList<T extends { id: number | string }>(
         activation !== activationRef.current ||
         !enabledRef.current
       ) return
+      refreshPendingRef.current = false
       setError(err?.message ?? "加载失败")
       notifyLaunchReady()
     } finally {
@@ -578,6 +587,11 @@ export function usePagedList<T extends { id: number | string }>(
       loadedDepsRef.current = deps
       hasLoadedRef.current = true
       load(true)
+    } else if (refreshPendingRef.current) {
+      load(false)
+    } else {
+      // 失活只取消预取；恢复时沿用已有列表/游标/本地缓冲，不重载首屏。
+      notifyBatchPublished(itemsRef.current, pendingItemsRef.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, enabled])

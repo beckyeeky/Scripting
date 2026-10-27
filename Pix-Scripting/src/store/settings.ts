@@ -169,6 +169,7 @@ export interface AppSettings {
   feedColumnCapLandscape: FeedColumnCap
   feedColumnCapPortrait: FeedColumnCap
   compactIllustCard: boolean
+  minimizeTabBarOnScroll: boolean
   ambientImmersion: boolean
   ambientIntensity: AmbientIntensity
   ambientAlgorithm: BaseAmbientAlgorithm
@@ -285,6 +286,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   feedColumnCapLandscape: 0,
   feedColumnCapPortrait: 0,
   compactIllustCard: true,
+  minimizeTabBarOnScroll: true,
   ambientImmersion: true,
   ambientIntensity: "medium",
   ambientAlgorithm: "classic",
@@ -589,6 +591,10 @@ function parseSettings(stored: Partial<AppSettings> & Record<string, unknown>): 
     feedColumnCapLandscape: feedColumnCapOf(stored?.feedColumnCapLandscape),
     feedColumnCapPortrait: feedColumnCapOf(stored?.feedColumnCapPortrait),
     compactIllustCard: boolOr(stored?.compactIllustCard, DEFAULT_SETTINGS.compactIllustCard),
+    minimizeTabBarOnScroll: boolOr(
+      stored?.minimizeTabBarOnScroll,
+      DEFAULT_SETTINGS.minimizeTabBarOnScroll
+    ),
     ambientImmersion: boolOr(stored?.ambientImmersion, DEFAULT_SETTINGS.ambientImmersion),
     ambientIntensity: enumOr(stored?.ambientIntensity, AMBIENT_INTENSITY_VALUES, DEFAULT_SETTINGS.ambientIntensity),
     ambientAlgorithm: enumOr(stored?.ambientAlgorithm, BASE_AMBIENT_ALGORITHM_VALUES, DEFAULT_SETTINGS.ambientAlgorithm),

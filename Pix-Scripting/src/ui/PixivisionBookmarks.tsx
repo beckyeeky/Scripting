@@ -17,7 +17,6 @@ import {
 } from "../store/pixivisionBookmarks"
 import { EmptyView, PixivisionCard, RefreshableScrollView } from "./components"
 import { loadSettings } from "../store/settings"
-import { LibraryView } from "./LibraryView"
 import { triggerHaptic } from "../platform/haptics"
 import type { PixivisionArticle } from "../types"
 
@@ -33,10 +32,6 @@ function bookmarkToArticle(item: PixivisionBookmarkItem): PixivisionArticle {
     category: item.categoryLabel || item.category || "特辑",
     tags: item.tags?.map((name) => ({ id: 0, name })) ?? [],
   }
-}
-
-export function PixivisionBookmarksView() {
-  return <LibraryView initialKind="pixivision" />
 }
 
 export function PixivisionBookmarksContent(props: {

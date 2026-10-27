@@ -1,8 +1,6 @@
 import { Device } from "scripting"
 import { requestPixivRoute } from "../../store/routeNavigation"
 
-export const CORNER_ICON_SIZE = 26
-
 export function formatNumber(n: number | null | undefined): string {
   const value = n ?? 0
   if (value >= 10000) {
@@ -440,13 +438,5 @@ export function estimateVisualLines(text: string): number {
     totalLines += Math.max(1, Math.ceil(visualWeight / charsPerLine))
   }
   return totalLines
-}
-
-export interface CardAction {
-  title: string
-  systemImage: string
-  tint?: any
-  foregroundStyle?: any
-  action: () => void
 }
 
