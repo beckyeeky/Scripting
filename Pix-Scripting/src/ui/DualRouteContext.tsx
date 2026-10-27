@@ -135,32 +135,6 @@ export function useDualRoute(): DualRouteContextValue {
 }
 
 /**
- * 搜索专用导航作用域
- *
- * 在搜索作用域内，由于页面挂载了 searchable 且 Tab 带有 role="search"，
- * 单栏模式下直接点击 NavigationLink 会被系统 UISearchController 内部手势冲突吞掉 push 转场动画。
- * 本组件注入 preferProgrammaticPush=true，使内部的 AppNavigationLink 在单栏模式下
- * 自动走 requestPixivRoute(targetRoute, "search") 状态压栈，完美恢复原生的 120fps Push 转场动画。
- */
-export function SearchNavigationScope(props: { children: any }) {
-  const parent = useDualRoute()
-  const value = useMemo<DualRouteContextValue>(
-    () => ({
-      ...parent,
-      preferProgrammaticPush: true,
-      pushTabKind: "search",
-    }),
-    [parent]
-  )
-
-  return (
-    <DualRouteContext.Provider value={value}>
-      {props.children}
-    </DualRouteContext.Provider>
-  )
-}
-
-/**
  * 统一卡片与列表项路由跳转组件
  *
  * 四种分流：

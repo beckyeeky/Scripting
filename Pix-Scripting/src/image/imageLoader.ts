@@ -481,22 +481,6 @@ export async function loadImage(
   return requestImage(url, undefined, priority, isSprint)
 }
 
-/**
- * 动态提升已有或正在排队图片的优先级（用于视口滚动出现时的即时抢占）
- */
-export function boostImagePriority(url: string, priority: number, isSprint?: boolean): void {
-  const task = inflightDownloads.get(url)
-  if (!task || task.generation !== cacheGeneration) return
-  task.foregroundRequested = true
-  if (isSprint) {
-    task.isSprint = true
-    task.priority = Math.min(task.priority, -20000)
-    startSprintWatchdog(task)
-  }
-  updateTaskPriority(task, priority)
-  promoteQueuedDownload(task)
-}
-
 function requestImage(
   url: string,
   prefetchOwner?: PrefetchState,

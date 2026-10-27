@@ -194,15 +194,12 @@ export function DiscoveryView(props: { onClose: () => void }) {
         onKindChange: setKind,
         onClose: props.onClose,
       })}
-      onAppear={() => {
-        if (!activated) setActivated(true)
-      }}
     >
       {/* 1. 推荐模式（即刻挂载与卸载） */}
       {mode === "recommended" && (
         <RecommendedExploreFeed
           kind={kind}
-          enabled={activated}
+          enabled={activated && isTabActive}
           hideNovels={hideNovels}
           isAppleMusic={isAppleMusic}
           onKindChange={setKind}
@@ -214,7 +211,7 @@ export function DiscoveryView(props: { onClose: () => void }) {
       {mode === "latest" && (
         <LatestExploreFeed
           kind={kind}
-          enabled={activated}
+          enabled={activated && isTabActive}
           hideNovels={hideNovels}
           isAppleMusic={isAppleMusic}
           onKindChange={setKind}
@@ -225,7 +222,7 @@ export function DiscoveryView(props: { onClose: () => void }) {
       {/* 3. 特辑模式（即刻挂载与卸载） */}
       {mode === "pixivision" && (
         <PixivisionExploreFeed
-          enabled={activated}
+          enabled={activated && isTabActive}
           onFirstImageUrlChange={setAmbientImageUrl}
         />
       )}
@@ -267,7 +264,7 @@ function RecommendedExploreFeed(props: {
     more: (nextURL, token) => nextIllustrations(nextURL, token),
     filter: filterIllustItems,
     deps: ["recommended", "illustration"],
-    enabled: enabled && visitedKinds.has("illustration"),
+    enabled: enabled && kind === "illustration",
     onBatchPublished: (_, pendingItems) =>
       prefetch(pendingItems.slice(0, currentBatchSize()).map(cardThumbUrlOf)).cancel,
   })
@@ -278,7 +275,7 @@ function RecommendedExploreFeed(props: {
     more: (nextURL, token) => nextIllustrations(nextURL, token),
     filter: filterIllustItems,
     deps: ["recommended", "manga"],
-    enabled: enabled && visitedKinds.has("manga"),
+    enabled: enabled && kind === "manga",
     onBatchPublished: (_, pendingItems) =>
       prefetch(pendingItems.slice(0, currentBatchSize()).map(cardThumbUrlOf)).cancel,
   })
@@ -289,7 +286,7 @@ function RecommendedExploreFeed(props: {
     more: (nextURL, token) => nextNovels(nextURL, token),
     filter: filterNovelItems,
     deps: ["recommended"],
-    enabled: enabled && visitedKinds.has("novel"),
+    enabled: enabled && kind === "novel" && !hideNovels,
     onBatchPublished: (_, pendingItems) =>
       prefetch(pendingItems.slice(0, currentBatchSize()).map(novelThumbUrlOf)).cancel,
   })
@@ -416,7 +413,7 @@ function LatestExploreFeed(props: {
     more: (nextURL, token) => nextIllustrations(nextURL, token),
     filter: filterIllustItems,
     deps: ["latest", "illustration"],
-    enabled: enabled && visitedKinds.has("illustration"),
+    enabled: enabled && kind === "illustration",
     onBatchPublished: (_, pendingItems) =>
       prefetch(pendingItems.slice(0, currentBatchSize()).map(cardThumbUrlOf)).cancel,
   })
@@ -427,7 +424,7 @@ function LatestExploreFeed(props: {
     more: (nextURL, token) => nextIllustrations(nextURL, token),
     filter: filterIllustItems,
     deps: ["latest", "manga"],
-    enabled: enabled && visitedKinds.has("manga"),
+    enabled: enabled && kind === "manga",
     onBatchPublished: (_, pendingItems) =>
       prefetch(pendingItems.slice(0, currentBatchSize()).map(cardThumbUrlOf)).cancel,
   })
@@ -438,7 +435,7 @@ function LatestExploreFeed(props: {
     more: (nextURL, token) => nextNovels(nextURL, token),
     filter: filterNovelItems,
     deps: ["latest"],
-    enabled: enabled && visitedKinds.has("novel"),
+    enabled: enabled && kind === "novel" && !hideNovels,
     onBatchPublished: (_, pendingItems) =>
       prefetch(pendingItems.slice(0, currentBatchSize()).map(novelThumbUrlOf)).cancel,
   })
