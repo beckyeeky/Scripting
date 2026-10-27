@@ -816,6 +816,8 @@ class DownloadTaskManagerImpl {
     const record = this.tasks.get(targetId)
     if (!record) return false
 
+    // 先撤销进度尾发，再清元数据；runner 收尾及 1.2 秒兜底时序不变。
+    record.bgHandle?.stopProgressUpdates?.()
     clearTaskSignal(targetId)
     clearActiveTaskActivityMeta()
     record.token.cancel()

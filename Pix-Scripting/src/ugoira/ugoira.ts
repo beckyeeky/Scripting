@@ -48,6 +48,10 @@ let baseDir: string | null = null
 let cacheGeneration = 0
 let taskSequence = 0
 let ugoiraMetaSaveTimer: number | null = null
+const UGOIRA_RECONCILE_MS = 60_000
+let lastReconcileTime: number | null = null
+let lastLimitMB: number | null | undefined
+let sizeMaintenancePending = false
 const inflightTasks = new Map<number, Promise<UgoiraFramesResult>>()
 const memoryFramesCache = new Map<number, UgoiraFramesResult>()
 
@@ -68,16 +72,17 @@ function cacheMetaPath(): string {
   return joinPath(ensureBaseDir(), CACHE_META_KEY)
 }
 
-function loadMeta(): UgoiraCacheMeta {
+function loadMeta(strict = false): UgoiraCacheMeta {
   const path = cacheMetaPath()
   recoverFile(path)
   if (!FileManager.existsSync(path)) return {}
   try {
     const parsed = JSON.parse(FileManager.readAsStringSync(path, "utf-8"))
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as UgoiraCacheMeta)
-      : {}
-  } catch {
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as UgoiraCacheMeta
+    if (strict) throw new Error("动图缓存元数据格式错误")
+    return {}
+  } catch (error) {
+    if (strict) throw error
     return {}
   }
 }
@@ -101,37 +106,43 @@ function isUsableFile(path: string): boolean {
   }
 }
 
-function calculateDirSize(dir: string): number {
-  if (!FileManager.existsSync(dir)) return 0
+function tryCalculateDirSize(dir: string): number | null {
   let total = 0
   try {
+    if (!FileManager.existsSync(dir)) return 0
     for (const name of FileManager.readDirectorySync(dir, true)) {
-      try {
-        const full = joinPath(dir, name)
-        if (FileManager.isFileSync(full)) {
-          const s = FileManager.statSync(full).size
-          if (s > 0) total += s
-        }
-      } catch {}
+      const full = joinPath(dir, name)
+      if (FileManager.isFileSync(full)) {
+        const size = FileManager.statSync(full).size
+        if (!Number.isFinite(size) || size < 0) return null
+        total += size
+      }
     }
-  } catch {}
-  return total
+    return total
+  } catch {
+    // 失败或部分扫描不能覆盖上一次完整尺寸。
+    return null
+  }
+}
+
+function calculateDirSize(dir: string): number {
+  return tryCalculateDirSize(dir) ?? 0
 }
 
 const pendingTouches = new Map<string, { lastAccess: number; size?: number }>()
 
-function flushPendingTouches(): void {
-  if (pendingTouches.size === 0) return
+function flushPendingTouches(): boolean {
+  if (pendingTouches.size === 0) return true
   const touches = new Map(pendingTouches)
   pendingTouches.clear()
   try {
-    const meta = loadMeta()
+    const meta = loadMeta(true)
     let changed = false
     for (const [id, touch] of touches) {
       const entry = meta[id]
       if (entry) {
         entry.lastAccess = Math.max(entry.lastAccess || 0, touch.lastAccess)
-        if (touch.size != null && touch.size > 0) {
+        if (touch.size != null && touch.size >= 0) {
           entry.size = touch.size
         }
         changed = true
@@ -140,25 +151,36 @@ function flushPendingTouches(): void {
     if (changed) {
       saveMeta(meta)
     }
-  } catch {}
+    return true
+  } catch {
+    for (const [id, touch] of touches) pendingTouches.set(id, touch)
+    sizeMaintenancePending = true
+    return false
+  }
 }
 
+// 仅目录内容变化时传 workDir 重新计量；普通缓存命中只更新 LRU。
 function touchUgoira(id: string, workDir?: string): void {
   let dirSize: number | undefined
   if (workDir && FileManager.existsSync(workDir)) {
     try {
-      dirSize = calculateDirSize(workDir)
+      dirSize = tryCalculateDirSize(workDir) ?? undefined
+      if (dirSize == null) lastReconcileTime = null
     } catch {}
   }
+  if (dirSize != null) sizeMaintenancePending = true
+  const previous = pendingTouches.get(id)
   pendingTouches.set(id, {
     lastAccess: Date.now(),
-    size: dirSize,
+    size: dirSize ?? previous?.size,
   })
 
   if (ugoiraMetaSaveTimer != null) clearTimeout(ugoiraMetaSaveTimer)
   ugoiraMetaSaveTimer = setTimeout(() => {
     ugoiraMetaSaveTimer = null
     flushPendingTouches()
+    // 只提交尺寸与访问时间；返回给导出消费者的路径不能被新增定时清理删除。
+    // 限额仍由已有静态维护、下一次准备或用户显式维护触发。
   }, 3000)
 }
 
@@ -183,8 +205,9 @@ export function cachedUgoiraFrames(illustID: number): UgoiraFramesResult | null 
   const zipPath = joinPath(workDir, "frames.zip")
 
   // 清理历史遗留的冗余 zip 文件（瘦身优化）
+  let removedZip = false
   if (FileManager.existsSync(zipPath)) {
-    try { FileManager.removeSync(zipPath) } catch {}
+    try { FileManager.removeSync(zipPath); removedZip = true } catch {}
   }
 
   if (entry && Array.isArray(entry.frames) && entry.frames.length > 0 && FileManager.existsSync(framesDir)) {
@@ -192,7 +215,7 @@ export function cachedUgoiraFrames(illustID: number): UgoiraFramesResult | null 
     const firstPath = joinPath(framesDir, entry.frames[0].file)
     const lastPath = joinPath(framesDir, entry.frames[entry.frames.length - 1].file)
     if (isUsableFile(firstPath) && isUsableFile(lastPath)) {
-      touchUgoira(idStr, workDir)
+      touchUgoira(idStr, removedZip ? workDir : undefined)
       const res: UgoiraFramesResult = {
         illustID,
         framesDir,
@@ -299,7 +322,8 @@ async function performPrepare(
     // 移动/发布临时帧图片目录
     publishPreparedFile(tempFramesDir, finalFramesDir)
 
-    const dirSize = calculateDirSize(workDir)
+    const dirSize = tryCalculateDirSize(workDir) ?? undefined
+    if (dirSize == null) lastReconcileTime = null
     const meta = loadMeta()
     meta[String(illustID)] = {
       frames,
@@ -310,7 +334,8 @@ async function performPrepare(
       size: dirSize,
     }
     saveMeta(meta)
-    enforceUgoiraCacheLimit()
+    sizeMaintenancePending = true
+    enforceUgoiraCacheLimit(false)
 
     const result: UgoiraFramesResult = {
       illustID,
@@ -346,7 +371,7 @@ export async function buildUgoira(
   if (format === "gif") {
     const gifPath = joinPath(workDir, `ugoira_${illustID}.gif`)
     if (isUsableFile(gifPath)) {
-      touchUgoira(String(illustID), workDir)
+      touchUgoira(String(illustID))
       return { mp4Path: gifPath, duration }
     }
     if (token?.checkOrWait) await token.checkOrWait()
@@ -357,7 +382,7 @@ export async function buildUgoira(
   } else {
     const mp4Path = joinPath(workDir, `ugoira_${illustID}.mp4`)
     if (isUsableFile(mp4Path)) {
-      touchUgoira(String(illustID), workDir)
+      touchUgoira(String(illustID))
       return { mp4Path, duration }
     }
     if (token?.checkOrWait) await token.checkOrWait()
@@ -464,48 +489,73 @@ async function extractZipEntries(zipPath: string, destDir: string): Promise<void
 /**
  * 按 LRU 清理超出上限的动图缓存
  */
-export function enforceUgoiraCacheLimit(): void {
+export function enforceUgoiraCacheLimit(forceReconcile = true): void {
   const settings = loadSettings()
-  if (settings.cacheLimitMB == null) return
+  if (settings.cacheLimitMB == null) {
+    lastLimitMB = null
+    return
+  }
+  const now = Date.now()
+  const limitChanged = lastLimitMB !== settings.cacheLimitMB
+  const reconcile = forceReconcile || limitChanged || lastReconcileTime == null ||
+    now < lastReconcileTime || now - lastReconcileTime >= UGOIRA_RECONCILE_MS
+  // 静态图片每三秒的维护不再连带读元数据、递归统计全部动图帧。
+  if (!reconcile && !sizeMaintenancePending) return
+  if (!flushPendingTouches()) return
   const limitBytes = Math.round(settings.cacheLimitMB * 1024 * 1024 * 0.15)
-  const meta = loadMeta()
-  const entries = Object.entries(meta)
+  const meta = loadMeta(true)
+  let changed = false
 
-  for (const [id, v] of entries) {
-    const workDir = ugoiraWorkDir(Number(id))
-    if (FileManager.existsSync(workDir)) {
-      // 顺便清理历史残留的 frames.zip
+  let reconcileFailed = false
+  if (reconcile) {
+    for (const [id, v] of Object.entries(meta)) {
+      const workDir = ugoiraWorkDir(Number(id))
+      if (!FileManager.existsSync(workDir)) {
+        delete meta[id]
+        memoryFramesCache.delete(Number(id))
+        changed = true
+        continue
+      }
       const oldZip = joinPath(workDir, "frames.zip")
       if (FileManager.existsSync(oldZip)) {
         try { FileManager.removeSync(oldZip) } catch {}
       }
-      try {
-        v.size = calculateDirSize(workDir)
-      } catch {}
+      const size = tryCalculateDirSize(workDir)
+      if (size == null) { reconcileFailed = true; continue }
+      if (v.size !== size) { v.size = size; changed = true }
+      if (v.lastAccess == null) { v.lastAccess = now; changed = true }
     }
-    if (v.lastAccess == null) {
-      v.lastAccess = Date.now()
-    }
+    lastReconcileTime = reconcileFailed ? null : now
   }
-
+  lastLimitMB = settings.cacheLimitMB
+  sizeMaintenancePending = reconcileFailed
+  const entries = Object.entries(meta)
   let total = entries.reduce((sum, [, v]) => sum + (v.size || 0), 0)
-  if (total <= limitBytes) return
-
-  const sorted = entries.sort((a, b) => (a[1].lastAccess || 0) - (b[1].lastAccess || 0))
-  for (const [id, v] of sorted) {
-    if (total <= limitBytes) break
-    const workDir = ugoiraWorkDir(Number(id))
-    try {
-      if (FileManager.existsSync(workDir)) {
-        FileManager.removeSync(workDir)
+  if (total > limitBytes) {
+    const sorted = entries.sort((a, b) => (a[1].lastAccess || 0) - (b[1].lastAccess || 0))
+    for (const [id, v] of sorted) {
+      if (total <= limitBytes) break
+      const workDir = ugoiraWorkDir(Number(id))
+      try {
+        if (FileManager.existsSync(workDir)) FileManager.removeSync(workDir)
+      } catch {
+        // 删除失败不虚报已释放容量，下一次维护继续尝试。
+        sizeMaintenancePending = true
+        continue
       }
-    } catch {}
-    delete meta[id]
-    total -= v.size || 0
+      delete meta[id]
+      pendingTouches.delete(id)
+      memoryFramesCache.delete(Number(id))
+      total -= v.size || 0
+      changed = true
+    }
   }
-  try {
-    saveMeta(meta)
-  } catch {}
+  if (changed) {
+    try { saveMeta(meta) } catch {
+      lastReconcileTime = null
+      sizeMaintenancePending = true
+    }
+  }
 }
 
 /**
@@ -521,6 +571,9 @@ export function ugoiraCacheUsageBytes(): number {
  */
 export function clearUgoiraCache(): void {
   cacheGeneration += 1
+  lastReconcileTime = null
+  lastLimitMB = undefined
+  sizeMaintenancePending = false
   pendingTouches.clear()
   memoryFramesCache.clear()
   if (ugoiraMetaSaveTimer != null) {

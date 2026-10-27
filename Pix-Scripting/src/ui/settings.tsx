@@ -81,7 +81,7 @@ import {
 } from "../store/customAI"
 import { editAIShowSettings, syncWebCookies } from "../api/pixiv"
 import { session } from "../api/session"
-import { clearUgoiraCache, enforceUgoiraCacheLimit, ugoiraCacheUsageBytes } from "../ugoira/ugoira"
+import { clearUgoiraCache, ugoiraCacheUsageBytes } from "../ugoira/ugoira"
 import { useTimedFlag } from "./Hooks"
 
 declare const Dialog: any
@@ -211,7 +211,7 @@ export function SettingsView() {
     refreshHistoryTotal()
     const unsubscribeSettings = onSettingsChanged(() => {
       setSettings(loadSettings())
-      refreshCacheSize()
+      // 占用在进入设置、修改额度和清空时刷新；外观等无关变更不递归扫描动图。
     })
     const unsubscribeBlocklist = onBlocklistChanged(() => {
       setBlocklist(loadBlocklist())
@@ -1963,7 +1963,6 @@ export function SettingsView() {
             const cacheLimitMB = value === "unlimited" ? null : Number(value)
             update({ cacheLimitMB })
             enforceCacheLimit()
-            enforceUgoiraCacheLimit()
             refreshCacheSize()
           }}>
             {CACHE_LIMIT_OPTIONS.map((limit) => <Text key={limit} tag={String(limit)}>{limit}M</Text>)}

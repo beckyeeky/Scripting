@@ -3,6 +3,7 @@
 import {
   pixivCloudHistoryDirectory,
   pixivHistoryDirectory,
+  resolveEffectiveUID,
 } from "./dataDirectory"
 import { recoverFile, writeTextSafely } from "./safeFile"
 import { session } from "../api/session"
@@ -63,10 +64,28 @@ const AUTO_SYNC_FALLBACK_INTERVAL_MS = 60 * 1000 // 前台轮询兜底周期 60 
 let isSyncing = false
 let hasQueuedSync = false
 let queuedUserId: string | number | null | undefined = undefined
+let activeSyncAccount: { uid: string; generation: number } | null = null
 
+// store 内存属于当前账号；固定目录的同步任务不得跨会话读取或提交。
+function assertSyncAccount(userId?: string | number | null): void {
+  const uid = resolveEffectiveUID()
+  if (
+    resolveEffectiveUID(userId) !== uid ||
+    (activeSyncAccount && (
+      activeSyncAccount.uid !== uid || activeSyncAccount.generation !== session.currentGeneration
+    ))
+  ) {
+    throw new Error("历史同步账号已变更")
+  }
+}
+
+let startupTimer: ReturnType<typeof setTimeout> | null = null
 let schedulerTimer: ReturnType<typeof setTimeout> | null = null
 let idleSyncTimer: ReturnType<typeof setTimeout> | null = null
 let maxWaitTimer: ReturnType<typeof setTimeout> | null = null
+const deferredSyncTimers = new Set<ReturnType<typeof setTimeout>>()
+let schedulerGeneration = 0
+let isSchedulerStopped = false
 let isSchedulerRunning = false
 let pendingMutationCount = 0
 let firstMutationTime = 0
@@ -187,8 +206,8 @@ function resetMutationTracking(): void {
 // 当本地 5 项记录（插画/漫画/小说历史、小说进度、搜索历史）中任意一项发生变更时触发：
 // 采用「15条阈值立即触发 + 10秒空闲防抖 + 30秒最大等待兜底 + 执行中排队尾随」机制
 export function notifyLocalMutation(): void {
-  // 若未启用 iCloud，历史数据纯本地沙盒秒级落盘，彻底跳过云端同步调度器与定时器开销
-  if (!FileManager.isiCloudEnabled) {
+  // 若未启用 iCloud 或调度器已停止，不再创建自动同步任务；本地落盘不受影响。
+  if (!FileManager.isiCloudEnabled || isSchedulerStopped) {
     return
   }
 
@@ -222,20 +241,24 @@ export function notifyLocalMutation(): void {
     clearTimeout(idleSyncTimer)
     idleSyncTimer = null
   }
-  idleSyncTimer = setTimeout(() => {
+  const idleTimer = setTimeout(() => {
+    if (idleSyncTimer !== idleTimer || isSchedulerStopped) return
     idleSyncTimer = null
     resetMutationTracking()
     syncHistoryNow().catch(() => {})
   }, IDLE_SYNC_DELAY_MS)
+  idleSyncTimer = idleTimer
 
   // 维度 4：启动 30 秒最大等待兜底计时器
   if (!maxWaitTimer) {
     const remaining = Math.max(0, MAX_WAIT_THROTTLE_MS - (now - firstMutationTime))
-    maxWaitTimer = setTimeout(() => {
+    const waitTimer = setTimeout(() => {
+      if (maxWaitTimer !== waitTimer || isSchedulerStopped) return
       maxWaitTimer = null
       resetMutationTracking()
       syncHistoryNow().catch(() => {})
     }, remaining)
+    maxWaitTimer = waitTimer
   }
 }
 
@@ -278,6 +301,19 @@ function readCloudJson<T = any>(filePath: string): T | null {
   }
 }
 
+// 合并项直接来自两侧数组；顺序及引用一致时无需再序列化。其它情况仍按原 JSON
+// 完整比较（不省略字段、不改变键序语义），合并 JSON 只在确实需要时生成一次。
+function sameSyncEntries(
+  entries: readonly unknown[],
+  merged: readonly unknown[],
+  mergedJson: () => string
+): boolean {
+  return entries.length === merged.length && (
+    entries.every((entry, index) => entry === merged[index]) ||
+    JSON.stringify(entries) === mergedJson()
+  )
+}
+
 // 1. 同步单个历史分类 (illustration / manga / novel)
 async function syncHistoryCategory(
   kind: HistoryContentKind,
@@ -296,19 +332,20 @@ async function syncHistoryCategory(
   const localFile = `${localDir}/${fileName}`
   const cloudFile = `${cloudDir}/${fileName}`
 
-  // 读取本地已缓存的 entries
+  // 云端准备期间仍可浏览、删除或清空；在本分支唯一的 await 后取最新本地快照和墓碑。
+  await prepareCloudFile(cloudFile)
+  assertSyncAccount(userId)
   const localEntries = loadKindEntries(kind)
   const localStored = localEntries.map(toStoredEntry)
-
-  // 读取云端
-  await prepareCloudFile(cloudFile)
+  const freshState = loadSyncState(userId)
+  pruneTombstones(freshState)
   const cloudRaw = readCloudJson<any[]>(cloudFile)
   const cloudStored: any[] = Array.isArray(cloudRaw) ? cloudRaw : []
 
   // 内存双向合并
   const map = new Map<number, any>()
-  const tombstones = state.tombstones
-  const clearBeforeTs = state.clearBefore[kind] ?? 0
+  const tombstones = { ...state.tombstones, ...freshState.tombstones }
+  const clearBeforeTs = Math.max(state.clearBefore[kind] ?? 0, freshState.clearBefore[kind] ?? 0)
 
   // 放入本地
   for (const entry of localStored) {
@@ -338,20 +375,19 @@ async function syncHistoryCategory(
   const mergedStored = Array.from(map.values())
     .sort((a, b) => b.viewedAt - a.viewedAt)
     .slice(0, maxLimit)
-  const localDecoded = parseRawEntriesForKind(kind, mergedStored)
+  let mergedJson: string | undefined
+  const getMergedJson = () => mergedJson ?? (mergedJson = JSON.stringify(mergedStored))
 
-  // 比对并更新本地
-  const localJson = JSON.stringify(localStored)
-  const mergedJson = JSON.stringify(mergedStored)
-  if (localJson !== mergedJson) {
+  // 只有本地确实变化时才 inflate，避免无变化同步重建全部作品模型。
+  if (!sameSyncEntries(localStored, mergedStored, getMergedJson)) {
+    const localDecoded = parseRawEntriesForKind(kind, mergedStored)
     replaceKindEntries(kind, localDecoded as any, true)
   }
 
-  // 比对并更新云端
-  const cloudJson = JSON.stringify(cloudStored)
-  if (cloudJson !== mergedJson) {
+  // 仍逐轮检查远端，不以本地脏状态跳过他端更新。
+  if (!sameSyncEntries(cloudStored, mergedStored, getMergedJson)) {
     try {
-      writeTextSafely(cloudFile, mergedJson)
+      writeTextSafely(cloudFile, getMergedJson())
     } catch (e: any) {
       console.warn(`write cloud history for ${kind} error:`, e?.message ?? e)
     }
@@ -368,10 +404,11 @@ async function syncNovelProgressFile(
   const localFile = `${localDir}/${fileName}`
   const cloudFile = `${cloudDir}/${fileName}`
 
+  await prepareCloudFile(cloudFile)
+  assertSyncAccount(userId)
+  // 阅读器可在云文件下载期间推进页码，不使用 await 前的旧进度覆盖它。
   const localMap = getAllNovelProgressMap()
   const localList = Array.from(localMap.values())
-
-  await prepareCloudFile(cloudFile)
   const cloudRaw = readCloudJson<NovelReadingProgress[]>(cloudFile)
   const cloudList: NovelReadingProgress[] = Array.isArray(cloudRaw) ? cloudRaw : []
 
@@ -391,17 +428,16 @@ async function syncNovelProgressFile(
   }
 
   const mergedList = Array.from(map.values())
-  const localJson = JSON.stringify(localList)
-  const mergedJson = JSON.stringify(mergedList)
+  let mergedJson: string | undefined
+  const getMergedJson = () => mergedJson ?? (mergedJson = JSON.stringify(mergedList))
 
-  if (localJson !== mergedJson) {
+  if (!sameSyncEntries(localList, mergedList, getMergedJson)) {
     replaceNovelProgressMap(map, true)
   }
 
-  const cloudJson = JSON.stringify(cloudList)
-  if (cloudJson !== mergedJson) {
+  if (!sameSyncEntries(cloudList, mergedList, getMergedJson)) {
     try {
-      writeTextSafely(cloudFile, mergedJson)
+      writeTextSafely(cloudFile, getMergedJson())
     } catch (e: any) {
       console.warn("write cloud novel progress error:", e?.message ?? e)
     }
@@ -420,6 +456,7 @@ async function syncSearchHistoryFile(
   const cloudFile = `${cloudDir}/${fileName}`
 
   await prepareCloudFile(cloudFile)
+  assertSyncAccount(userId)
   // 云端准备期间本地仍可变更；在本分支唯一的 await 之后再取快照。
   const localStore = getFullSearchHistoryStore()
   const localUpdated = typeof localStore.updatedAt === "number" ? localStore.updatedAt : 0
@@ -536,6 +573,10 @@ export async function syncHistoryNow(userId?: string | number | null): Promise<b
     return false
   }
 
+  // 显式 UID 不能借用另一账号的全局 store；在任何目录访问/刷盘前拒绝。
+  const uid = resolveEffectiveUID(userId)
+  if (uid !== resolveEffectiveUID()) return false
+
   // 单飞互斥保护：若当前已经在执行同步，记录排队请求并安全退出，防止在途重入冲突
   if (isSyncing) {
     hasQueuedSync = true
@@ -543,10 +584,11 @@ export async function syncHistoryNow(userId?: string | number | null): Promise<b
     return false
   }
 
-  const cloudDir = pixivCloudHistoryDirectory(userId)
+  const cloudDir = pixivCloudHistoryDirectory(uid)
   if (!cloudDir) return false
 
   isSyncing = true
+  activeSyncAccount = { uid, generation: session.currentGeneration }
   hasQueuedSync = false
   try {
     // 1. 同步前先强制刷盘本地所有未持久化数据
@@ -554,38 +596,48 @@ export async function syncHistoryNow(userId?: string | number | null): Promise<b
     flushNovelProgress()
     flushSearchHistory()
 
-    const localDir = pixivHistoryDirectory(userId)
-    const state = loadSyncState(userId)
+    const localDir = pixivHistoryDirectory(uid)
+    const state = loadSyncState(uid)
     pruneTombstones(state)
 
-    // 2. 依次同步 5 个独立文件
-    await syncHistoryCategory("illustration", localDir, cloudDir, state, userId)
-    await syncHistoryCategory("manga", localDir, cloudDir, state, userId)
-    await syncHistoryCategory("novel", localDir, cloudDir, state, userId)
-    await syncNovelProgressFile(localDir, cloudDir, userId)
-    await syncSearchHistoryFile(localDir, cloudDir, state, userId)
+    // 2. 依次同步 5 个独立文件；目录与 await 后守卫共用入口绑定的账号。
+    await syncHistoryCategory("illustration", localDir, cloudDir, state, uid)
+    await syncHistoryCategory("manga", localDir, cloudDir, state, uid)
+    await syncHistoryCategory("novel", localDir, cloudDir, state, uid)
+    await syncNovelProgressFile(localDir, cloudDir, uid)
+    await syncSearchHistoryFile(localDir, cloudDir, state, uid)
 
     // 3. 更新同步状态：重新从磁盘读取最新状态，防止冲掉同步在途产生的局部修改
-    const latestState = loadSyncState(userId)
+    assertSyncAccount(uid)
+    const latestState = loadSyncState(uid)
     pruneTombstones(latestState)
     latestState.lastSyncTime = Date.now()
-    saveSyncState(latestState, userId)
+    saveSyncState(latestState, uid)
     return true
   } catch (error: any) {
     console.warn("syncHistoryNow error:", error?.message ?? error)
     return false
   } finally {
     isSyncing = false
+    activeSyncAccount = null
     // 4. 尾随排队检测：如果本次同步期间产生了新变更或新的同步请求，无缝自动启动下一轮补跑
     if (hasQueuedSync) {
       hasQueuedSync = false
       const nextUid = queuedUserId
       queuedUserId = undefined
-      setTimeout(() => {
-        syncHistoryNow(nextUid).catch(() => {})
-      }, 50)
+      scheduleDeferredSync(50, nextUid)
     }
   }
+}
+
+// 恢复和尾随任务统一登记；停止时全部撤销，已出队的旧回调也不能在重启后复活。
+function scheduleDeferredSync(delay: number, userId?: string | number | null): void {
+  if (isSchedulerStopped) return
+  const timer = setTimeout(() => {
+    if (!deferredSyncTimers.delete(timer) || isSchedulerStopped) return
+    syncHistoryNow(userId).catch(() => {})
+  }, delay)
+  deferredSyncTimers.add(timer)
 }
 
 // 启动后台低频同步调度器
@@ -595,29 +647,38 @@ export function startHistorySyncScheduler(): () => void {
   }
 
   isSchedulerRunning = true
+  isSchedulerStopped = false
+  const generation = ++schedulerGeneration
 
+  if (startupTimer) {
+    clearTimeout(startupTimer)
+    startupTimer = null
+  }
   if (schedulerTimer) {
     clearTimeout(schedulerTimer)
     schedulerTimer = null
   }
 
   // 启动 2 秒后延迟执行一次静默拉取
-  schedulerTimer = setTimeout(() => {
+  startupTimer = setTimeout(() => {
+    if (!isSchedulerRunning || generation !== schedulerGeneration) return
+    startupTimer = null
     syncHistoryNow().catch(() => {})
   }, STARTUP_DELAY_MS)
 
   // 循环调度：定期检查
   function scheduleNextCheck() {
-    if (!isSchedulerRunning) return
+    if (!isSchedulerRunning || generation !== schedulerGeneration) return
     schedulerTimer = setTimeout(async () => {
-      if (!isSchedulerRunning) return
+      if (!isSchedulerRunning || generation !== schedulerGeneration) return
+      schedulerTimer = null
       try {
         const state = loadSyncState()
         if (pendingMutationCount > 0 || Date.now() - state.lastSyncTime >= AUTO_SYNC_FALLBACK_INTERVAL_MS) {
           await syncHistoryNow()
         }
       } catch {}
-      if (isSchedulerRunning) {
+      if (isSchedulerRunning && generation === schedulerGeneration) {
         scheduleNextCheck()
       }
     }, 15000)
@@ -626,24 +687,34 @@ export function startHistorySyncScheduler(): () => void {
   scheduleNextCheck()
 
   return () => {
+    // 旧启动实例的 cleanup 不得停止后来创建的新实例。
+    if (generation !== schedulerGeneration) return
     isSchedulerRunning = false
+    isSchedulerStopped = true
+    schedulerGeneration++
+    if (startupTimer) {
+      clearTimeout(startupTimer)
+      startupTimer = null
+    }
     if (schedulerTimer) {
       clearTimeout(schedulerTimer)
       schedulerTimer = null
     }
+    for (const timer of deferredSyncTimers) clearTimeout(timer)
+    deferredSyncTimers.clear()
+    hasQueuedSync = false
+    queuedUserId = undefined
     resetMutationTracking()
   }
 }
 
 // 切回前台时的同步检查：满 30 秒后延迟 2 秒拉取
 export function triggerResumeSync(): void {
-  if (!FileManager.isiCloudEnabled) {
+  if (!FileManager.isiCloudEnabled || isSchedulerStopped) {
     return
   }
   const state = loadSyncState()
   if (Date.now() - state.lastSyncTime >= MIN_RESUME_SYNC_INTERVAL_MS) {
-    setTimeout(() => {
-      syncHistoryNow().catch(() => {})
-    }, RESUME_DELAY_MS)
+    scheduleDeferredSync(RESUME_DELAY_MS)
   }
 }
