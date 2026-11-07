@@ -771,7 +771,7 @@ function processIllustPaletteFromImage(uiImage: UIImage, url?: string): IllustAm
 }
 
 /**
- * 同步尝试从已缓存到本地的插画封面提取氛围色
+ * 同步从已缓存到本地的插画封面提取氛围色。会解码图片，禁止在渲染路径调用。
  */
 export function extractIllustAmbientPaletteSync(
   url: string | null | undefined
@@ -795,7 +795,8 @@ export function extractIllustAmbientPaletteSync(
 }
 
 /**
- * 同步尝试从内存缓存中获取已计算的插画/漫画氛围色盘（未缓存时自动同步尝试从本地文件解析）
+ * 渲染路径只读内存中已算好的插画/漫画氛围色盘。
+ * 未命中返回 null，不在这里同步解码；由 extractIllustAmbientPalette 异步补全。
  */
 export function getCachedIllustAmbientPalette(
   url: string | null | undefined,
@@ -803,10 +804,7 @@ export function getCachedIllustAmbientPalette(
   intensity: AmbientIntensity = "medium"
 ): IllustAmbientPalette | null {
   if (!url) return null
-  let cached = illustPaletteCache.get(url)
-  if (!cached) {
-    cached = extractIllustAmbientPaletteSync(url) ?? undefined
-  }
+  const cached = illustPaletteCache.get(url)
   if (!cached) return null
   const modeObj = isDark ? cached.dark : cached.light
   return modeObj[intensity] ?? modeObj.medium

@@ -6,7 +6,7 @@
 
 | 项目名称 | 类型 / 简介 | 当前版本 | 快速跳转 |
 | :--- | :--- | :---: | :---: |
-| **Pix-Scripting** | 液态玻璃风格 Pixiv 客户端，含 PixivReader 正文翻译移植 | `v1.8.7.2` | [查看介绍 & 安装](#pix-scripting) |
+| **Pix-Scripting** | 液态玻璃风格 Pixiv 客户端，含 PixivReader 正文翻译移植 | `v1.8.7.3` | [查看介绍 & 安装](#pix-scripting) |
 | *（更多项目）* | 更多高品质脚本持续孵化中... | `Planning` | - |
 
 ---
@@ -29,7 +29,7 @@
 #### 📥 快速安装
 
 1. 安装 **[Scripting](https://apps.apple.com/app/scripting/id6477833076)** App；
-2. 下载并导入 [`Release/Pix-Scripting.scripting`](https://raw.githubusercontent.com/beckyeeky/Scripting/feature/pixivreader-port/Release/Pix-Scripting.scripting)；也可从 [v1.8.7.2 发布页](https://github.com/beckyeeky/Scripting/releases/tag/v1.8.7.2-pixivreader) 下载附件。该包为 `feature/pixivreader-port` 分支的移植版，未合入 `main`；包内 `remoteResource.url` 指向本功能分支，不会被上游自动更新覆盖；
+2. 下载并导入 [`Release/Pix-Scripting.scripting`](https://raw.githubusercontent.com/beckyeeky/Scripting/feature/pixivreader-port/Release/Pix-Scripting.scripting)；也可从 [v1.8.7.3 发布页](https://github.com/beckyeeky/Scripting/releases/tag/v1.8.7.3-pixivreader) 下载附件。该包为 `feature/pixivreader-port` 分支的移植版，未合入 `main`；包内 `remoteResource.url` 指向本功能分支，不会被上游自动更新覆盖；
 3. 在小说详情或沉浸阅读器中打开「正文翻译」，选择翻译、暂停/继续或原文/译文切换；在小说系列页可分批翻译当前已加载的章节。先在「设置 → 智能助手」配置模型，或使用可用的 Scripting 原生助手。
 
 正文上方有常驻翻译进度条，可直接看已完成段数、摘要与术语状态、暂停/继续、原文/译文切换；展开「摘要与术语」可查看内容、系列继承的术语数及失败段落的单块重试。沉浸阅读时可在顶部翻译菜单查看进度、切换原文/译文及暂停或继续翻译；术语表和详细信息在小说详情页查看。故事摘要先生成，术语表随后整理，最后最多两个正文请求并发；上下文失败时会显示状态并继续翻译正文。长篇摘要和术语表会抽取开头、中段、结尾各约 3000 字，避免只看到开头；超长正文块优先在换行或句末拆分，保留接缝空行与 Pixiv 链接。
@@ -39,6 +39,12 @@
 正文翻译、摘要与术语请求会尽可能向服务商发送关闭思考参数：直连 DeepSeek、支持 `none` 的 OpenAI 模型、Gemini 2.5 Flash，以及可关闭思考的 Claude 模型。Claude Sonnet 5.5 使用 `between_tools` 关闭前置思考（小说翻译不使用工具）；Claude Opus 5.5 等型号无法关闭。OpenRouter 会请求关闭，但是否生效取决于下游模型。不支持关闭的模型或 Scripting 原生助手会在详情中明确提示，不能把“隐藏思考文本”当成已关闭思考。具体支持边界以 [DeepSeek](https://api-docs.deepseek.com/guides/thinking_mode/)、[OpenAI](https://platform.openai.com/docs/api-reference/chat/create)、[Gemini](https://ai.google.dev/gemini-api/docs/generate-content/thinking) 和 [Claude](https://platform.claude.com/docs/en/build-with-claude/thinking) 官方文档为准。
 
 小说系列页工具栏、底部操作栏「下载」以及追更卡片菜单「下载整本小说」均可选择原文 EPUB 或当前目标语言的译文 EPUB。译文导出复用已完成的翻译，包含各话的译名、简介和正文，并保留分页、章节与插图标记；任一话未完成翻译、正文获取失败或账号切换时，会停止导出并提示原因。译文文件名带目标语言和「译文」，便于与原文区分。
+
+#### v1.8.7.3（功能分支 feature/pixivreader-port）
+
+- 修复排队下载暂停后恢复无法重新调度的问题，已启动任务沿用原 runner，保留 600ms 防抖。
+- 插画氛围色渲染 getter 仅访问内存缓存，冷缓存沿已有异步路径补全，不在渲染阶段同步解码图片。
+- 补齐离线插图任务 deferred 类型声明，附下载调度和色盘回归脚本；真实下载、灵动岛与冷缓存 UI 仍需设备验收。
 
 #### v1.8.7.2（功能分支 feature/pixivreader-port）
 

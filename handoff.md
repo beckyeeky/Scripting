@@ -1,5 +1,14 @@
 # 项目交接
 
+## 本次发布准备：v1.8.7.3（2026-11-07）
+
+- 将设备运行项目中已审查的下载暂停恢复、渲染色盘内存 getter 和 OfflineImageTask.deferred 类型补齐同步至 feature/pixivreader-port；附带两项回归脚本及 REVIEW.md。未改 main，不 force push，不移动既有标签。
+- 下载隔离回归通过：debounce-queued、queued-pause-resume、queued-resumed-schedulable、debounce-running、running-resume、done，A/B 各启动一次。色盘回归输出 RENDER_CACHE_REGRESSION_OK。
+- 安装 TypeScript 5.9.3 后，201 个 TS/TSX 文件语法检查 0 错误；这不是完整类型检查。设备 Node 缺少 node:test，npm test 无法执行，不能声称全量桌面回归通过。设备项目保留 REVIEW.md 所列 4 项既有类型错误。
+- 使用 Python 标准 ZIP 等价构建（设备无 bash/zip），包内 203 个文件与仓库源码逐字节一致，ZIP 完整性、版本 1.8.7.3 与功能分支更新地址检查通过。
+- 包大小 831948 字节；SHA-256：b23918fae4de35337c28bb0432cddcd8039354494bddba7f5b60366e2c1b7a2b。推送及 Release 结果以本轮交付报告为准。
+- 未做真实网络下载、灵动岛按钮和冷缓存 UI 验收；建议按 REVIEW.md 设备回归清单验证，并在桌面补跑 npm test。
+
 ## 当前发布：v1.8.7.2（2026-10-28）
 
 - 复现：沉浸阅读器把完整翻译状态卡片悬浮于正文，横排/竖排、翻译中/完成/失败及隐藏工具栏时均存在；卡片包含「看原文」「术语表」等入口，遮挡沉浸阅读内容。

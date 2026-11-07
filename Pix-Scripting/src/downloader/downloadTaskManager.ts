@@ -193,10 +193,41 @@ class DownloadTaskManagerImpl {
   private listeners = new Set<() => void>()
   private notifyTimer: any = null
   private signalPollTimer: any = null
+  /** 隔离测试实例：不触任务目录、信号文件、下载库通知与真实后台任务。 */
+  private readonly isolated: boolean
+  private readonly backgroundStarter: typeof beginBackgroundTask
 
-  constructor() {
-    this.ensureTaskDirectory()
-    this.rehydrateExistingTasks()
+  constructor(options?: {
+    isolated?: boolean
+    backgroundStarter?: typeof beginBackgroundTask
+  }) {
+    this.isolated = options?.isolated === true
+    this.backgroundStarter =
+      options?.backgroundStarter ?? ((taskOptions) => beginBackgroundTask(taskOptions))
+    if (!this.isolated) {
+      this.ensureTaskDirectory()
+      this.rehydrateExistingTasks()
+    }
+  }
+
+  private consumeSignal(taskId: string) {
+    if (this.isolated || !taskId) return null
+    return consumeTaskSignal(taskId)
+  }
+
+  private clearSignal(taskId: string): void {
+    if (this.isolated || !taskId) return
+    clearTaskSignal(taskId)
+  }
+
+  private peekSignal(taskId: string) {
+    if (this.isolated || !taskId) return null
+    return peekTaskSignal(taskId)
+  }
+
+  private clearActivityMeta(): void {
+    if (this.isolated) return
+    clearActiveTaskActivityMeta()
   }
 
   private resolveCategoryIcon(type: DownloadTaskType, customIcon?: string): string {
@@ -222,6 +253,7 @@ class DownloadTaskManagerImpl {
    * 持久化已完成/已取消/已失败的历史终态任务快照（最多保留 30 条）
    */
   private saveHistoryTasks(): void {
+    if (this.isolated) return
     try {
       const historyItems: DownloadTaskItem[] = []
       for (const id of this.taskOrder) {
@@ -249,6 +281,7 @@ class DownloadTaskManagerImpl {
    * 应用冷启动时从磁盘水合恢复历史终态任务与未完成中断任务
    */
   private rehydrateExistingTasks(): void {
+    if (this.isolated) return
     const baseDir = this.ensureTaskDirectory()
     const historyPath = this.getHistoryFilePath()
 
@@ -343,7 +376,7 @@ class DownloadTaskManagerImpl {
         return
       }
       const targetId = this.activeTaskId
-      const signal = consumeTaskSignal(targetId)
+      const signal = this.consumeSignal(targetId)
       if (signal === "pause") {
         void this.pauseTask(targetId)
       } else if (signal === "resume") {
@@ -364,6 +397,7 @@ class DownloadTaskManagerImpl {
   }
 
   private ensureTaskDirectory(): string {
+    if (this.isolated) return "isolated://tasks"
     const baseDir = `${getCategoryDirectory("temp")}/tasks`
     if (!FileManager.existsSync(baseDir)) {
       try {
@@ -374,6 +408,7 @@ class DownloadTaskManagerImpl {
   }
 
   private getTaskDir(taskId: string): string {
+    if (this.isolated) return `isolated://tasks/${taskId}`
     const dir = `${this.ensureTaskDirectory()}/${taskId}`
     if (!FileManager.existsSync(dir)) {
       try {
@@ -384,6 +419,7 @@ class DownloadTaskManagerImpl {
   }
 
   private loadManifest(taskId: string): TaskManifest | null {
+    if (this.isolated) return null
     try {
       const path = `${this.getTaskDir(taskId)}/manifest.json`
       if (FileManager.existsSync(path)) {
@@ -399,6 +435,7 @@ class DownloadTaskManagerImpl {
   }
 
   private saveManifest(taskId: string, manifest: TaskManifest): void {
+    if (this.isolated) return
     try {
       const path = `${this.getTaskDir(taskId)}/manifest.json`
       manifest.updatedAt = Date.now()
@@ -573,7 +610,7 @@ class DownloadTaskManagerImpl {
     }
 
     // 启动灵动岛与后台保活
-    const bgHandle = await beginBackgroundTask({
+    const bgHandle = await this.backgroundStarter({
       taskId: record.item.id,
       title: record.item.title,
       subtitle: record.item.subtitle,
@@ -590,7 +627,7 @@ class DownloadTaskManagerImpl {
         if (record.item.status !== "running" && record.item.status !== "paused") return
         
         // 状态锁保护：如果任务已处于暂停或令牌已暂停或磁盘有未消费的 pause 信号，禁止并发回调冲刷为运行态
-        const hasPendingPauseSignal = peekTaskSignal(record.item.id) === "pause"
+        const hasPendingPauseSignal = this.peekSignal(record.item.id) === "pause"
         const isCurrentlyPaused =
           record.item.status === "paused" ||
           record.token.isPaused ||
@@ -648,7 +685,7 @@ class DownloadTaskManagerImpl {
 
       // 清理临时工作目录
       this.cleanupTaskDir(record.item.id)
-      notifyDownloadFilesChanged()
+      if (!this.isolated) notifyDownloadFilesChanged()
     } catch (err: any) {
       if (err instanceof TaskAbortError || record.token.isCancelled) {
         record.item = {
@@ -709,7 +746,7 @@ class DownloadTaskManagerImpl {
       .filter((r): r is InternalTaskRecord => Boolean(r))
 
     for (const record of activeTasks) {
-      const sig = consumeTaskSignal(record.item.id)
+      const sig = this.consumeSignal(record.item.id)
       if (sig === "pause") {
         void this.pauseTask(record.item.id)
       } else if (sig === "resume") {
@@ -745,7 +782,7 @@ class DownloadTaskManagerImpl {
           isPaused: true,
         })
       }
-      clearTaskSignal(targetId)
+      this.clearSignal(targetId)
       this.notify()
       return true
     } else if (record.item.status === "queued") {
@@ -754,7 +791,7 @@ class DownloadTaskManagerImpl {
         status: "paused",
         statusText: "已暂停",
       }
-      clearTaskSignal(targetId)
+      this.clearSignal(targetId)
       this.notify()
       return true
     }
@@ -782,22 +819,40 @@ class DownloadTaskManagerImpl {
         return false
       }
 
-      clearTaskSignal(targetId)
+      this.clearSignal(targetId)
+      // 是否实际启动只看 activeTaskId。排队任务的令牌初始未暂停，
+      // pauseTask 条件为 status === "running" || !token.isPaused，
+      // 因此排队暂停也会进入令牌暂停分支（写入 lastPauseTimestamp 并 token.pause()）。
+      // 不能用 token.isPaused 或「没有时间戳」反推它走了排队分支。
+      // 未占据活跃槽的任务没有在跑的 runner，若恢复成 running，调度器只拣 queued，会永久无法启动。
+      const actuallyStarted = this.activeTaskId === targetId
+      if (actuallyStarted) {
+        record.item = {
+          ...record.item,
+          status: "running",
+          statusText: "继续下载中…",
+        }
+        record.token.resume()
+        if (record.bgHandle) {
+          record.bgHandle.updateProgress({
+            current: record.item.current,
+            total: record.item.total,
+            statusText: "继续下载中…",
+            isPaused: false,
+          })
+        }
+        this.notify()
+        return true
+      }
+
       record.item = {
         ...record.item,
-        status: "running",
-        statusText: "继续下载中…",
+        status: "queued",
+        statusText: "排队中…",
       }
       record.token.resume()
-      if (record.bgHandle) {
-        record.bgHandle.updateProgress({
-          current: record.item.current,
-          total: record.item.total,
-          statusText: "继续下载中…",
-          isPaused: false,
-        })
-      }
       this.notify()
+      this.scheduleNext()
       return true
     } else if (record.item.status === "queued") {
       this.notify()
@@ -818,8 +873,8 @@ class DownloadTaskManagerImpl {
 
     // 先撤销进度尾发，再清元数据；runner 收尾及 1.2 秒兜底时序不变。
     record.bgHandle?.stopProgressUpdates?.()
-    clearTaskSignal(targetId)
-    clearActiveTaskActivityMeta()
+    this.clearSignal(targetId)
+    this.clearActivityMeta()
     record.token.cancel()
     if (record.item.status === "running") {
       record.item = {
@@ -939,6 +994,7 @@ class DownloadTaskManagerImpl {
    * 清理任务专属临时工作区
    */
   cleanupTaskDir(taskId: string): void {
+    if (this.isolated) return
     try {
       clearTaskSignal(taskId)
       const dir = `${this.ensureTaskDirectory()}/${taskId}`
@@ -949,6 +1005,39 @@ class DownloadTaskManagerImpl {
       console.log(`cleanupTaskDir error for ${taskId}:`, e)
     }
   }
+}
+
+export interface IsolatedDownloadTaskController {
+  submitTask(options: {
+    taskId?: string
+    type: DownloadTaskType
+    title: string
+    subtitle?: string
+    categoryIcon?: string
+    total?: number
+    metadata?: Record<string, any>
+    runner: TaskRunner
+  }): Promise<string>
+  pauseTask(taskId?: string): Promise<boolean>
+  resumeTask(taskId?: string): Promise<boolean>
+  cancelTask(taskId?: string): Promise<boolean>
+  removeTask(taskId: string): void
+  getTask(taskId: string): DownloadTaskItem | undefined
+  getActiveTask(): DownloadTaskItem | undefined
+  getAllTasks(): DownloadTaskItem[]
+}
+
+/**
+ * 隔离实例：走真实 pause/resume/scheduleNext，但不写任务目录、不读信号、不拉起后台任务。
+ * 生产单例仍是下方无参构造。
+ */
+export function createIsolatedDownloadTaskManager(options?: {
+  backgroundStarter?: typeof beginBackgroundTask
+}): IsolatedDownloadTaskController {
+  return new DownloadTaskManagerImpl({
+    isolated: true,
+    backgroundStarter: options?.backgroundStarter,
+  })
 }
 
 export const DownloadTaskManager = new DownloadTaskManagerImpl()

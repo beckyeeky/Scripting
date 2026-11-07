@@ -21,6 +21,8 @@ export interface OfflineImageTask {
   chunkId: string
   /** 图片地址；缺失表示正文引用了但当前拿不到地址 */
   url?: string | null
+  /** 因本次解析上限而推迟，缺少 URL 时应标记 pending 而非 missing */
+  deferred?: boolean
 }
 
 export interface OfflineImagePersistSummary {
