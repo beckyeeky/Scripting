@@ -526,6 +526,12 @@ for (const direction of ["horizontal", "vertical"]) {
         assert.ok(findNode(tree, node => node.type === "WebView"), "正文应继续显示")
         const reader = findNode(tree, node => node.type === "ZStack" && node.props.toolbarVisibility)
         assert.equal(reader.props.toolbarVisibility.visibility, hidden ? "hidden" : "visible")
+        const topBar = findNode(tree, node => node.type === "VStack" && node.props.allowsHitTesting === !hidden)
+        assert.ok(topBar, "自绘顶部栏应随控件显示状态启用交互")
+        assert.equal(topBar.props.opacity, hidden ? 0 : 1)
+        assert.ok(findNode(topBar, node => node.type === "Button" && hasDescendantImage(node, /^list\.bullet\.indent$/)),
+          "自绘顶部栏应保留目录检索入口")
+        assert.ok(findNode(topBar, node => node.type === "Menu"), "翻译菜单应位于自绘顶部栏")
         const toggle = findNode(tree, node => node.type === "Button" && node.props.title === "显示原文")
         assert.ok(toggle, "顶部菜单保留原文/译文切换")
         if (!hidden) {
@@ -564,3 +570,18 @@ for (const direction of ["horizontal", "vertical"]) {
     assert.deepEqual(calls, ["translated"])
   })
 }
+
+
+test("自绘顶部栏的目录检索按钮能打开面板", async () => {
+  const harness = createHarness()
+  await harness.runtime.settle()
+  let tree = harness.runtime.render()
+  const outline = findNode(tree, node => node.type === "Button" && hasDescendantImage(node, /^list\.bullet\.indent$/))
+  assert.ok(outline)
+  outline.props.action()
+  await harness.runtime.settle()
+  tree = harness.runtime.render()
+  const host = findNode(tree, node => node.props?.sheet?.content?.type === "NovelOutlineSearchSheet")
+  assert.ok(host, "目录检索 Sheet 应存在")
+  assert.equal(host.props.sheet.isPresented, true)
+})

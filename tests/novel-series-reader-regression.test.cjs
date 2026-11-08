@@ -127,7 +127,12 @@ for (const direction of ["horizontal", "vertical"]) {
     // 确保实际下发的内嵌 JS 可解析，避免页面加载后失去交互。
     for (const script of harness.loaded[0].matchAll(/<script>([\s\S]*?)<\/script>/g)) new vm.Script(script[1])
     assert.equal(harness.translations[0][2], "简介")
-    zstack.props.toolbar.topBarLeading[0].props.action()
+    const topBar = zstack.props.children.find(child => child?.props?.allowsHitTesting === true)
+    assert.ok(topBar, "自绘顶部栏应可交互")
+    const topRow = topBar.props.children[0]
+    const closeButton = topRow.props.children.find(child => child?.type === "Button")
+    assert.ok(closeButton, "自绘顶部栏应保留关闭按钮")
+    closeButton.props.action()
     // 关闭回传：作品、页码与原作品兼容；可选续读锚点为新增能力，不改变既有前三位契约
     assert.equal(harness.closes.length, 1)
     assert.deepEqual(harness.closes[0].slice(0, 3), [null, 1, 1])

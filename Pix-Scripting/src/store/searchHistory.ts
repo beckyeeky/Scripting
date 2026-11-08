@@ -13,6 +13,23 @@ export type SearchHistoryScope = "illust" | "novel" | "user"
 export interface SearchHistoryEntry {
   query: string
   searchedAt: number
+  translatedName?: string | null
+}
+
+// -------------------- 标签/词条中文翻译内存映射字典 --------------------
+const tagTranslationDict = new Map<string, string>()
+
+export function recordTagTranslation(tag: string, translation?: string | null): void {
+  const t = tag?.trim()
+  const trans = translation?.trim()
+  if (t && trans && t !== trans) {
+    tagTranslationDict.set(t, trans)
+  }
+}
+
+export function getTagTranslation(tag: string): string | null {
+  if (!tag) return null
+  return tagTranslationDict.get(tag.trim()) || null
 }
 
 export interface SearchHistoryStore {
@@ -20,9 +37,23 @@ export interface SearchHistoryStore {
   novel: SearchHistoryEntry[]
   user: SearchHistoryEntry[]
   updatedAt?: number
+  // ─── 跨设备共享的搜索删除墓碑与清空水位线 ───
+  tombstones?: Record<string, number>
+  clearBefore?: Record<string, number>
 }
 
 export const MAX_SEARCH_HISTORY_ITEMS = 100
+const TOMBSTONE_TTL_MS = 30 * 24 * 60 * 60 * 1000
+
+export function pruneSearchStoreTombstones(store: SearchHistoryStore): void {
+  if (!store.tombstones) return
+  const now = Date.now()
+  for (const [key, ts] of Object.entries(store.tombstones)) {
+    if (typeof ts !== "number" || isNaN(ts) || now - ts > TOMBSTONE_TTL_MS) {
+      delete store.tombstones[key]
+    }
+  }
+}
 
 const SEARCH_HISTORY_FILE_NAME = "search_history.json"
 const DEBOUNCE_DELAY_MS = 1000
@@ -99,6 +130,7 @@ export function normalizeHistoryEntries(
     const item = rawList[i]
     let query = ""
     let searchedAt = fallbackTime - i * 1000
+    let translatedName: string | null = null
 
     if (typeof item === "string") {
       query = item.trim()
@@ -109,11 +141,20 @@ export function normalizeHistoryEntries(
       if (typeof item.searchedAt === "number" && !isNaN(item.searchedAt) && item.searchedAt > 0) {
         searchedAt = item.searchedAt
       }
+      if (typeof item.translatedName === "string" && item.translatedName.trim()) {
+        translatedName = item.translatedName.trim()
+      }
     }
 
     if (query.length > 0 && !seen.has(query)) {
       seen.add(query)
-      result.push({ query, searchedAt })
+      const finalTrans = translatedName || tagTranslationDict.get(query) || null
+      if (finalTrans) {
+        recordTagTranslation(query, finalTrans)
+        result.push({ query, searchedAt, translatedName: finalTrans })
+      } else {
+        result.push({ query, searchedAt })
+      }
     }
   }
 
@@ -132,11 +173,20 @@ export function getFullSearchHistoryStore(): SearchHistoryStore {
       if (parsed && typeof parsed === "object") {
         if (Array.isArray(parsed.illust) || Array.isArray(parsed.novel) || Array.isArray(parsed.user)) {
           const fallback = typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now()
+          const tombstones =
+            parsed.tombstones && typeof parsed.tombstones === "object" ? { ...parsed.tombstones } : undefined
+          const clearBefore =
+            parsed.clearBefore && typeof parsed.clearBefore === "object" ? { ...parsed.clearBefore } : undefined
           cachedSearchHistory = {
             illust: normalizeHistoryEntries(parsed.illust, fallback),
             novel: normalizeHistoryEntries(parsed.novel, fallback),
             user: normalizeHistoryEntries(parsed.user, fallback),
             updatedAt: fallback,
+            tombstones,
+            clearBefore,
+          }
+          if (cachedSearchHistory.tombstones) {
+            pruneSearchStoreTombstones(cachedSearchHistory)
           }
           // 旧词项只在冷读取时迁移一次，将本次归一化的时间固定到磁盘。
           // 不广播，不改变词项时间与排序；正常格式不会额外写入。
@@ -173,11 +223,18 @@ export function getFullSearchHistoryStore(): SearchHistoryStore {
 
 export function replaceSearchHistoryStore(store: SearchHistoryStore, persist = true): void {
   const fallback = typeof store.updatedAt === "number" ? store.updatedAt : Date.now()
+  const tombstones = store.tombstones ? { ...store.tombstones } : undefined
+  const clearBefore = store.clearBefore ? { ...store.clearBefore } : undefined
   cachedSearchHistory = {
     illust: normalizeHistoryEntries(store.illust, fallback),
     novel: normalizeHistoryEntries(store.novel, fallback),
     user: normalizeHistoryEntries(store.user, fallback),
     updatedAt: fallback,
+    tombstones,
+    clearBefore,
+  }
+  if (cachedSearchHistory.tombstones) {
+    pruneSearchStoreTombstones(cachedSearchHistory)
   }
   if (persist) {
     flushSearchHistory()
@@ -203,17 +260,39 @@ export function getSearchHistory(scope: SearchHistoryScope = "illust"): string[]
   return getSearchHistoryEntries(scope).map((e) => e.query)
 }
 
-export function addSearchHistory(query: string, scope: SearchHistoryScope = "illust"): string[] {
+export function addSearchHistory(
+  query: string,
+  scope: SearchHistoryScope = "illust",
+  translatedName?: string | null
+): string[] {
   const trimmed = query.trim()
   if (!trimmed) return getSearchHistory(scope)
+  const store = getFullSearchHistoryStore()
+  if (store.tombstones) {
+    delete store.tombstones[`${scope}:${trimmed}`]
+  }
   try {
     removeSearchTombstone(scope, trimmed)
   } catch {}
-  const store = getFullSearchHistoryStore()
   const current = store[scope] ?? []
+  const existing = current.find((item) => item.query === trimmed)
+  const finalTrans =
+    (translatedName && translatedName.trim()) ||
+    existing?.translatedName ||
+    tagTranslationDict.get(trimmed) ||
+    null
+
+  if (finalTrans) {
+    recordTagTranslation(trimmed, finalTrans)
+  }
+
   const filtered = current.filter((item) => item.query !== trimmed)
   const now = Date.now()
-  const next: SearchHistoryEntry[] = [{ query: trimmed, searchedAt: now }, ...filtered].slice(
+  const newEntry: SearchHistoryEntry = finalTrans
+    ? { query: trimmed, searchedAt: now, translatedName: finalTrans }
+    : { query: trimmed, searchedAt: now }
+
+  const next: SearchHistoryEntry[] = [newEntry, ...filtered].slice(
     0,
     MAX_SEARCH_HISTORY_ITEMS
   )
@@ -227,16 +306,20 @@ export function addSearchHistory(query: string, scope: SearchHistoryScope = "ill
 
 export function removeSearchHistory(query: string, scope: SearchHistoryScope = "illust"): string[] {
   const trimmed = query.trim()
+  const store = getFullSearchHistoryStore()
+  const now = Date.now()
   if (trimmed) {
+    if (!store.tombstones) store.tombstones = {}
+    store.tombstones[`${scope}:${trimmed}`] = now
+    pruneSearchStoreTombstones(store)
     try {
       recordSearchTombstone(scope, trimmed)
     } catch {}
   }
-  const store = getFullSearchHistoryStore()
   const current = store[scope] ?? []
   const next = current.filter((item) => item.query !== trimmed && item.query !== query)
   store[scope] = next
-  store.updatedAt = Date.now()
+  store.updatedAt = now
   scheduleSave()
   emitChanged()
   notifyLocalMutation()
@@ -244,12 +327,23 @@ export function removeSearchHistory(query: string, scope: SearchHistoryScope = "
 }
 
 export function clearSearchHistory(scope: SearchHistoryScope = "illust"): void {
+  const store = getFullSearchHistoryStore()
+  const now = Date.now()
+  if (!store.clearBefore) store.clearBefore = {}
+  store.clearBefore[scope] = now
+  if (store.tombstones) {
+    const prefix = `${scope}:`
+    for (const key of Object.keys(store.tombstones)) {
+      if (key.startsWith(prefix)) {
+        delete store.tombstones[key]
+      }
+    }
+  }
   try {
     recordSearchClearBefore(scope)
   } catch {}
-  const store = getFullSearchHistoryStore()
   store[scope] = []
-  store.updatedAt = Date.now()
+  store.updatedAt = now
   scheduleSave()
   emitChanged()
   notifyLocalMutation()

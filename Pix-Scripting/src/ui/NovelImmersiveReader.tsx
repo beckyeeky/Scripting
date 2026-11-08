@@ -1294,8 +1294,8 @@ ${THEME_CSS_VARS}
     height: 100%;
     min-height: 100%;
     box-sizing: border-box;
-    padding-top: max(48px, env(safe-area-inset-top));
-    padding-bottom: max(60px, env(safe-area-inset-bottom));
+    padding-top: 76px;
+    padding-bottom: 64px;
     padding-left: max(24px, env(safe-area-inset-left));
     padding-right: max(24px, env(safe-area-inset-right));
     overflow-x: auto;
@@ -2755,6 +2755,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
   }, [chunks, activeImages])
 
   const metrics = useLayoutMetrics()
+  const topInset = Device.isiPad ? 24 : (metrics.isLandscape ? 16 : 60)
   const bottomInset = metrics.isLandscape ? 18 : (Device.screen.height > 800 ? 32 : 16)
   const horizontalInset = metrics.isLandscape ? 32 : 20
 
@@ -2768,62 +2769,13 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
         background="systemBackground"
         preferredColorScheme={isDark ? "dark" : "light"}
         environments={{ colorScheme: isDark ? "dark" : "light" }}
+        navigationBarVisibility="hidden"
         statusBarHidden={!controlsVisible}
         toolbarVisibility={{
           visibility: controlsVisible ? "visible" : "hidden",
-          bars: ["navigationBar", "statusBar"],
+          bars: ["statusBar"],
         }}
         ignoresSafeArea={true}
-        toolbar={{
-          topBarLeading: [
-            <Button action={handleClose}>
-              <Image systemName="xmark" />
-            </Button>,
-          ],
-          topBarTrailing: [
-            ...(translationSession && translation ? [
-              <Menu label={<Image systemName="character.book.closed" />}>
-                <Button title={`小说翻译 ${translation.done}/${translation.total}`} disabled action={() => {}} />
-                <Button
-                  title={translation.mode === "translated" ? "显示原文" : "显示译文"}
-                  action={() => translationSession.setMode(translation.mode === "translated" ? "original" : "translated")}
-                />
-                {translation.running ? (
-                  <Button title="暂停翻译" action={() => translationSession.pause()} />
-                ) : translation.done < translation.total ? (
-                  <Button title={translation.done ? "继续翻译" : "翻译小说"} action={() => {
-                    translationSession.setMode("translated")
-                    void translationSession.start()
-                  }} />
-                ) : translation.summaryStatus === "error" || translation.glossaryStatus === "error" ? (
-                  <Button title="重试译名、摘要与术语" action={() => void translationSession.start([])} />
-                ) : null}
-                {translation.failed > 0 ? (
-                  <Button title={`重试失败段落（${translation.failed}）`} action={() => void translationSession.start(
-                    Object.values(translation.blocks).filter((b) => b.status === "error").map((b) => b.id)
-                  )} />
-                ) : null}
-                {translation.message ? <Button title={translation.message} disabled action={() => {}} /> : null}
-              </Menu>,
-            ] : []),
-            <Button
-              action={() => {
-                triggerHaptic("light")
-                setShowOutlineSearch(true)
-              }}
-            >
-              <Image systemName="list.bullet.indent" />
-            </Button>,
-            <Button
-              action={() => {
-                triggerHaptic("light")
-                setShowTypography(true)
-              }}
-            >
-              <Image systemName="a.square" />
-            </Button>,
-          ],
-        }}
       >
       {/* 0. 沉浸式环境光大画布（与小说正文页同款，整屏铺满） */}
       {isVirtualNode(ambientBackground) ? (
@@ -2834,6 +2786,102 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
 
       {/* 1. 核心 WebView 纯净渲染引擎（横竖双引擎无缝调度） */}
       <WebView controller={controller} frame={{ maxWidth: "infinity", maxHeight: "infinity" }} />
+
+      {/* 2. 顶部自绘悬浮操作栏（完全替代系统 NavigationBar，彻底消除高度推挤震荡） */}
+      <VStack
+        frame={{ maxWidth: "infinity", maxHeight: "infinity", alignment: "top" }}
+        padding={{ top: topInset, horizontal: horizontalInset }}
+        opacity={controlsVisible ? 1 : 0}
+        animation={{ animation: Animation.smooth({ duration: 0.25 }), value: controlsVisible }}
+        allowsHitTesting={controlsVisible}
+      >
+        <HStack alignment="center" spacing={8} frame={{ maxWidth: "infinity" }}>
+          {/* 左上角：关闭按钮 */}
+          <Button buttonStyle="plain" action={handleClose}>
+            <ZStack
+              alignment="center"
+              frame={{ width: 44, height: 44 }}
+              glassEffect={appInteractiveGlass("circle")}
+              contentShape="circle"
+              shadow={{ color: "#0000001F", radius: 8, y: 2 }}
+            >
+              <Image
+                systemName="xmark"
+                font="body"
+                fontWeight="medium"
+                foregroundStyle="label"
+              />
+            </ZStack>
+          </Button>
+
+          <Spacer />
+
+          {translationSession && translation ? (
+            <Menu label={
+              <ZStack alignment="center" frame={{ width: 44, height: 44 }}
+                glassEffect={appInteractiveGlass("circle")} contentShape="circle"
+                shadow={{ color: "#0000001F", radius: 8, y: 2 }}>
+                <Image systemName="character.book.closed" font="body" fontWeight="medium" foregroundStyle="label" />
+              </ZStack>
+            }>
+              <Button title={`小说翻译 ${translation.done}/${translation.total}`} disabled action={() => {}} />
+              <Button title={translation.mode === "translated" ? "显示原文" : "显示译文"}
+                action={() => translationSession.setMode(translation.mode === "translated" ? "original" : "translated")} />
+              {translation.running ? (
+                <Button title="暂停翻译" action={() => translationSession.pause()} />
+              ) : translation.done < translation.total ? (
+                <Button title={translation.done ? "继续翻译" : "翻译小说"} action={() => {
+                  translationSession.setMode("translated")
+                  void translationSession.start()
+                }} />
+              ) : translation.summaryStatus === "error" || translation.glossaryStatus === "error" ? (
+                <Button title="重试译名、摘要与术语" action={() => void translationSession.start([])} />
+              ) : null}
+              {translation.failed > 0 ? (
+                <Button title={`重试失败段落（${translation.failed}）`} action={() => void translationSession.start(
+                  Object.values(translation.blocks).filter((b) => b.status === "error").map((b) => b.id)
+                )} />
+              ) : null}
+              {translation.message ? <Button title={translation.message} disabled action={() => {}} /> : null}
+            </Menu>
+          ) : null}
+
+          <Button buttonStyle="plain" action={() => {
+            triggerHaptic("light")
+            setShowOutlineSearch(true)
+          }}>
+            <ZStack alignment="center" frame={{ width: 44, height: 44 }}
+              glassEffect={appInteractiveGlass("circle")} contentShape="circle"
+              shadow={{ color: "#0000001F", radius: 8, y: 2 }}>
+              <Image systemName="list.bullet.indent" font="body" fontWeight="medium" foregroundStyle="label" />
+            </ZStack>
+          </Button>
+
+          {/* 右上角：版式设置按钮 */}
+          <Button
+            buttonStyle="plain"
+            action={() => {
+              triggerHaptic("light")
+              setShowTypography(true)
+            }}
+          >
+            <ZStack
+              alignment="center"
+              frame={{ width: 44, height: 44 }}
+              glassEffect={appInteractiveGlass("circle")}
+              contentShape="circle"
+              shadow={{ color: "#0000001F", radius: 8, y: 2 }}
+            >
+              <Image
+                systemName="a.square"
+                font="body"
+                fontWeight="medium"
+                foregroundStyle="label"
+              />
+            </ZStack>
+          </Button>
+        </HStack>
+      </VStack>
 
 
       {/* 2b. 离线阅读标注（断网由离线书库载入的篇章，明确不宣称在线） */}

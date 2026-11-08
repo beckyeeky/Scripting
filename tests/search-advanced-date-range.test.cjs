@@ -5,7 +5,7 @@ const path = require("node:path")
 const vm = require("node:vm")
 const ts = require("typescript")
 
-function loadSearchAdvancedSheet(settings = { showR18: true, showR18G: false, showAI: true }) {
+function loadSearchAdvancedSheet(settings = { showR18: true, showR18G: false, showAI: true }, options = {}) {
   const file = path.join(__dirname, "..", "Pix-Scripting/src/ui/searchAdvancedSheet.tsx")
   const source = fs.readFileSync(file, "utf8")
   const js = ts.transpileModule(source, {
@@ -33,13 +33,18 @@ function loadSearchAdvancedSheet(settings = { showR18: true, showR18G: false, sh
       cursor++
       return factory()
     },
+    useRef(initial) {
+      const index = cursor++
+      if (!(index in state)) state[index] = { current: initial }
+      return state[index]
+    },
     useEffect() {
       cursor++
     },
   }
   const componentNames = [
-    "Button", "DatePicker", "HStack", "Image", "Label", "List",
-    "NavigationStack", "Picker", "ScrollView", "Section", "Text",
+    "Button", "DatePicker", "Divider", "HStack", "Image", "Label", "List",
+    "NavigationStack", "Picker", "ScrollView", "Section", "Spacer", "Text",
     "TextField", "Toggle", "VStack",
   ]
   const scripting = Object.fromEntries(componentNames.map((name) => [name, name]))
@@ -56,16 +61,17 @@ function loadSearchAdvancedSheet(settings = { showR18: true, showR18G: false, sh
     exports: module.exports,
     React,
     Date,
-    setTimeout,
-    clearTimeout,
+    setTimeout: options.setTimeout ?? setTimeout,
+    clearTimeout: options.clearTimeout ?? clearTimeout,
     require(id) {
       const mocks = {
         scripting,
         "../api/pixiv": {
           compileSearchQuery: (value) => value,
+          searchAutocomplete: options.searchAutocomplete ?? (() => Promise.resolve([])),
           stripBookmarkFilterFromWord: (value) => value,
         },
-        "../api/session": { session: { user: null } },
+        "../api/session": { session: { user: null, call: fn => fn("fixture") } },
         "../store/settings": { loadSettings: () => settings },
         "./components/pageChrome": { sheetTopBar: () => ({}) },
         "./components/SheetScaffold": { SheetScaffold: "SheetScaffold" },
@@ -79,6 +85,7 @@ function loadSearchAdvancedSheet(settings = { showR18: true, showR18G: false, sh
   return {
     SearchAdvancedSheet: module.exports.SearchAdvancedSheet,
     normalizeSearchDateRange: module.exports.normalizeSearchDateRange,
+    extractActiveWordToken: module.exports.extractActiveWordToken,
     getDefaultAdvancedSearchParams: module.exports.getDefaultAdvancedSearchParams,
     render(props) {
       cursor = 0
@@ -205,4 +212,45 @@ test("时间范围归一化兼容缺失、越界和逆序时间戳", () => {
     normalize(maxTimestamp + 86400000, maxTimestamp + 86400000, maxTimestamp),
     { startTimestamp: maxTimestamp, endTimestamp: maxTimestamp }
   )
+})
+
+
+test("高级搜索标签补全保留查询前缀与日期范围归一化", () => {
+  const { extractActiveWordToken, normalizeSearchDateRange } = loadSearchAdvancedSheet()
+  for (const [text, prefix, token] of [["初音 or 桜", "初音 or ", "桜"], ["(猫 +犬", "(猫 +", "犬"], ["", "", ""]]) {
+    const result = extractActiveWordToken(text)
+    assert.equal(result.prefix, prefix)
+    assert.equal(result.token, token)
+  }
+  const min = new Date("2007-09-09").getTime()
+  const max = new Date("2026-11-01").getTime()
+  const normalized = normalizeSearchDateRange(0, max + 1000, max)
+  assert.equal(normalized.startTimestamp, max)
+  assert.equal(normalized.endTimestamp, max)
+  assert.ok(normalized.startTimestamp >= min)
+})
+
+
+test("高级搜索自动补全替换末尾词并保留之前的表达式", async () => {
+  let timer
+  const queries = []
+  const harness = loadSearchAdvancedSheet(undefined, {
+    setTimeout: fn => { timer = fn; return 1 }, clearTimeout() {},
+    searchAutocomplete: async token => { queries.push(token); return [{ name: "桜花", translated_name: "樱花" }] },
+  })
+  const props = { currentParams: harness.getDefaultAdvancedSearchParams("novel", "初音 or 桜"),
+    settings: { hideNovels: false, showR18: true, showR18G: false, showAI: true }, onApply() {}, onCancel() {} }
+  let tree = harness.render(props)
+  const input = findAll(tree, "TextField").find(node => node.props.title === "关键词")
+  input.props.onChanged("初音 or 桜")
+  assert.ok(timer)
+  timer()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.deepEqual(queries, ["桜"])
+  tree = harness.render(props)
+  const suggestion = findAll(tree, "Button").find(node => JSON.stringify(node.props.children).includes("桜花"))
+  assert.ok(suggestion, "应显示自动补全结果")
+  suggestion.props.action()
+  tree = harness.render(props)
+  assert.equal(findAll(tree, "TextField").find(node => node.props.title === "关键词").props.value, "初音 or 桜花 ")
 })
