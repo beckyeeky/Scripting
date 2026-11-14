@@ -268,3 +268,22 @@ test("全部内容获取成功时不出现部分导出标注，保持完整成�
     { expected: 2, exported: 2, partial: false }
   )
 })
+
+test("嵌套章节标签在 EPUB 正文和分页目录中保持完整", async () => {
+  const harness = loadNovelExporter({})
+  await harness.mod.exportNovelToEpub({
+    ...baseNovel,
+    chapters: [{ id: 1, title: "单篇", text: "[chapter:[b:第一章]]\n正文\n[chapter:未闭合\n[newpage]\n第二页" }],
+    targetDir: "/documents/Novels",
+  })
+  const files = [...harness.files.entries()]
+  const page = files.find(([key]) => key.endsWith("page_1.xhtml"))
+  assert.ok(page, "必须生成第一页")
+  assert.match(String(page[1]), /<h2>第一章<\/h2>/)
+  assert.doesNotMatch(String(page[1]), /\[b:第一章|<p>\]<\/p>/)
+  assert.match(String(page[1]), /<p>\[chapter:未闭合<\/p>/)
+  const nav = files.find(([key]) => key.endsWith("toc.ncx"))
+  assert.ok(nav, "必须生成导航目录")
+  assert.match(String(nav[1]), /第 1 页 · 第一章/)
+  assert.doesNotMatch(String(nav[1]), /\[b:第一章/)
+})

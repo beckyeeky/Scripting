@@ -105,6 +105,10 @@ export function cleanNovelTextForAI(rawText: string | null | undefined): string 
       /\[\[rb:\s*([^\r\n>]+?)\s*(?:>|&gt;)\s*([^\r\n\]]+?)\s*\]\]/g,
       (_, kanji: string) => kanji.trim()
     )
+    .replace(
+      /(?:\[{1,2}|［{1,2})[bB]\s*[:：]\s*((?:\[\[rb:[^\r\n]+?\]\]|[^\]］\r\n])+?)(?:\]{1,2}|］{1,2})/g,
+      "$1"
+    )
     .replace(/\r\n/g, "\n")
     .replace(/\n{4,}/g, "\n\n\n")
     .trim()

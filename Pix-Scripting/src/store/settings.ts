@@ -320,7 +320,7 @@ const DEFAULT_SETTINGS: AppSettings = {
   downloadCustomDirectoryPath: null,
   downloadPhotoAlbumName: "Pix-Scripting",
   prefetchEnabled: true,
-  privacyShieldEnabled: true,
+  privacyShieldEnabled: false,
   privacyShieldMaterial: "ultraThinMaterial",
   cacheLimitMB: 300,
   recordHistory: true,

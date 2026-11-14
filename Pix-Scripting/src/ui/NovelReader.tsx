@@ -192,14 +192,22 @@ function processLineIntoNovelItems(
   }
 
   // 2. [chapter: xxx]
-  const chapterMatch = trimmedLine.match(/^\[chapter\s*[:：]\s*(.+?)\]$/i)
+  const chapterMatch = trimmedLine.match(/^(?:\[|［)chapter\s*[:：]\s*(.*)(?:\]|］)$/i)
   if (chapterMatch) {
     flushTextBuffer(state)
     state.chapterIndex += 1
+    const rawContent = chapterMatch[1].trim()
+    // 剥离章节名内部可能嵌套的 [b:...]、［b:...］、[[b:...]]
+    const cleanTitle = rawContent
+      .replace(
+        /^(?:\[{1,2}|［{1,2})[bB]\s*[:：]\s*([\s\S]+?)(?:\]{1,2}|］{1,2})$/,
+        "$1"
+      )
+      .trim()
     state.items.push({
       type: "chapter",
       id: `chapter-${state.chapterIndex}`,
-      title: chapterMatch[1].trim(),
+      title: cleanTitle,
     })
     return
   }
@@ -724,7 +732,7 @@ function NovelChunkRenderer(props: {
           fontWeight="bold"
           frame={{ maxWidth: "infinity", alignment: "leading" }}
         >
-          {chapterTitle}
+          {formatPixivRubyText(chapterTitle)}
         </Text>
         <Divider />
       </VStack>
@@ -819,16 +827,24 @@ export function buildVerticalHtml(
   /** 续读锚点：正文版本 + 段内偏移 + 文本锚点，正文/排版变化后按片段安全恢复 */
   readingAnchor?: { chunkId?: string | null; page?: number; offset?: number; quote?: string } | null
 ): string {
-  const fontName = resolveFontName(settings.fontId, settings.customFontPostscriptName)
   let fontFamily = "-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif"
-  if (fontName) {
-    fontFamily = `"${fontName}", -apple-system, BlinkMacSystemFont, sans-serif`
-  } else if (settings.fontId === "songti") {
-    fontFamily = "ui-serif, 'Songti SC', 'Source Han Serif SC', 'Hiragino Mincho ProN', serif"
+  if (settings.fontId === "songti") {
+    fontFamily = "ui-serif, 'Songti SC', 'Source Han Serif SC', serif"
   } else if (settings.fontId === "kaiti") {
     fontFamily = "'Kaiti SC', 'STKaiti', serif"
   } else if (settings.fontId === "yuanti") {
     fontFamily = "'Yuanti SC', 'STYuan', sans-serif"
+  } else if (settings.fontId === "hiragino_mincho") {
+    fontFamily = "'Hiragino Mincho ProN', 'HiraMinProN-W3', serif"
+  } else if (settings.fontId === "hiragino_maru") {
+    fontFamily = "'Hiragino Maru Gothic ProN', 'HiraMaruProN-W4', sans-serif"
+  } else if (settings.fontId === "hiragino_sans") {
+    fontFamily = "'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif"
+  } else {
+    const fontName = resolveFontName(settings.fontId, settings.customFontPostscriptName)
+    if (fontName) {
+      fontFamily = `"${fontName}", -apple-system, BlinkMacSystemFont, sans-serif`
+    }
   }
 
   const weightMap: Record<string, string> = {
@@ -876,7 +892,7 @@ export function buildVerticalHtml(
       )
     } else if (chunk.type === "chapter") {
       bodyHtmlParts.push(
-        `<div id="${chunk.id}" class="chapter-block" data-page="${currentPage}" data-chunk-id="${chunk.id}"><div class="chapter-tag">CHAPTER</div><h2 class="chapter-title">${escapeHtml(chunk.title ?? "")}</h2></div>`
+        `<div id="${chunk.id}" class="chapter-block" data-page="${currentPage}" data-chunk-id="${chunk.id}"><div class="chapter-tag">CHAPTER</div><h2 class="chapter-title">${formatPixivRubyToHtml(chunk.title ?? "")}</h2></div>`
       )
     } else if (chunk.type === "uploadedimage") {
       const cached = imageCache?.[chunk.id]
@@ -1703,16 +1719,24 @@ function NovelVerticalReaderView(props: {
     const ctrl = controllerRef.current
     if (!ctrl) return
 
-    const fontName = resolveFontName(settings.fontId, settings.customFontPostscriptName)
     let fontFamily = "-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif"
-    if (fontName) {
-      fontFamily = `"${fontName}", -apple-system, BlinkMacSystemFont, sans-serif`
-    } else if (settings.fontId === "songti") {
-      fontFamily = "ui-serif, 'Songti SC', 'Source Han Serif SC', 'Hiragino Mincho ProN', serif"
+    if (settings.fontId === "songti") {
+      fontFamily = "ui-serif, 'Songti SC', 'Source Han Serif SC', serif"
     } else if (settings.fontId === "kaiti") {
       fontFamily = "'Kaiti SC', 'STKaiti', serif"
     } else if (settings.fontId === "yuanti") {
       fontFamily = "'Yuanti SC', 'STYuan', sans-serif"
+    } else if (settings.fontId === "hiragino_mincho") {
+      fontFamily = "'Hiragino Mincho ProN', 'HiraMinProN-W3', serif"
+    } else if (settings.fontId === "hiragino_maru") {
+      fontFamily = "'Hiragino Maru Gothic ProN', 'HiraMaruProN-W4', sans-serif"
+    } else if (settings.fontId === "hiragino_sans") {
+      fontFamily = "'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif"
+    } else {
+      const fontName = resolveFontName(settings.fontId, settings.customFontPostscriptName)
+      if (fontName) {
+        fontFamily = `"${fontName}", -apple-system, BlinkMacSystemFont, sans-serif`
+      }
     }
 
     const weightMap: Record<string, string> = {

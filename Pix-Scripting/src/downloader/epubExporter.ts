@@ -435,16 +435,22 @@ function formatCaptionToXHtml(rawCaption?: string, headerTitle?: string): string
 }
 
 /**
- * 将段落文本内的行内语法（Ruby 注音、jumpuri 链接）转换为标准且安全转义的 XHTML
+ * 将段落文本内的行内语法（Ruby 注音、jumpuri 链接）转换为标准且安全转义的 XHTML，并忽略剥离 [b:...] 加粗标记
  */
 function formatInlineToXHtml(text: string): string {
   if (!text) return ""
+
+  // 忽略并剥离 [b: ...]、［b: ...］等加粗语法标记为纯文本（不渲染 strong）
+  const cleanText = text.replace(
+    /(?:\[{1,2}|［{1,2})[bB]\s*[:：]\s*((?:\[\[rb:[^\r\n]+?\]\]|[^\]］\r\n])+?)(?:\]{1,2}|］{1,2})/g,
+    "$1"
+  )
 
   // 匹配 [[rb: 汉字 > 假名 ]]、[ruby text=假名]汉字[/ruby] 以及 [[jumpuri: 标题 > url ]]
   const INLINE_REGEX =
     /(\[\[rb:\s*[^>\r\n]+?\s*(?:>|&gt;)\s*[^\]\r\n]+?\s*\]\]|\[ruby\s+text=[^\]]+?\].*?\[\/ruby\]|\[\[jumpuri:\s*[^>\r\n]+?\s*(?:>|&gt;)\s*[^\]\r\n]+?\s*\]\])/gi
 
-  const parts = text.split(INLINE_REGEX)
+  const parts = cleanText.split(INLINE_REGEX)
   return parts
     .map((part) => {
       if (!part) return ""
@@ -477,6 +483,15 @@ function formatInlineToXHtml(text: string): string {
     .join("")
 }
 
+/** 只读取完整章节行，保留嵌套标记的右括号。 */
+function chapterTitleFromLine(line: string): string | null {
+  const match = line.trim().match(/^(?:\[|［)chapter\s*[:：]\s*(.*)(?:\]|］)$/i)
+  if (!match) return null
+  return match[1].trim()
+    .replace(/^(?:\[{1,2}|［{1,2})[bB]\s*[:：]\s*([\s\S]+?)(?:\]{1,2}|］{1,2})$/, "$1")
+    .trim()
+}
+
 /**
  * 转换 Pixiv 小说正文中的自定义语法为标准 XHTML
  */
@@ -499,15 +514,21 @@ function formatNovelTextToXHtml(
       continue
     }
 
+    const fullChapterTitle = chapterTitleFromLine(rawLine)
+    if (fullChapterTitle !== null) {
+      resultBlocks.push(`<h2>${formatInlineToXHtml(fullChapterTitle)}</h2>`)
+      continue
+    }
+
     // 将单行文本按可能内嵌的块级标记切分
     const segments = rawLine.split(BLOCK_SPLIT_REGEX)
     for (const seg of segments) {
       if (!seg) continue
 
       // 1. [chapter: 章节名]
-      const chapMatch = seg.match(/^\[chapter\s*[:：]\s*(.+?)\]$/i)
-      if (chapMatch) {
-        resultBlocks.push(`<h2>${escapeXml(chapMatch[1].trim())}</h2>`)
+      const chapterTitle = chapterTitleFromLine(seg)
+      if (chapterTitle !== null) {
+        resultBlocks.push(`<h2>${formatInlineToXHtml(chapterTitle)}</h2>`)
         continue
       }
 
@@ -1041,8 +1062,9 @@ export async function exportNovelToEpub(options: NovelEpubOptions): Promise<stri
       const isChapMultiPage = rawParts.length > 1
       const pages: NovelPageSection[] = rawParts.map((part, pIdx) => {
         const pageIndex = pIdx + 1
-        const chapMatch = part.match(/\[chapter\s*[:：]\s*(.+?)\]/i)
-        const chapterHeading = chapMatch ? chapMatch[1].trim() : undefined
+        const chapterHeading = part.split(/\r?\n/)
+          .map((line) => chapterTitleFromLine(line))
+          .find((heading): heading is string => heading !== null && heading.length > 0)
 
         const xhtmlId = isSingleNovel
           ? `page_${pageIndex}`

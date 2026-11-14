@@ -30,6 +30,8 @@ import { NavigationZoomProvider } from "./NavigationZoomContext"
 import { FeatureHighlightsSheet } from "./components/FeatureHighlightsSheet"
 import { IpadSplitViewNoticeSheet } from "./components/IpadSplitViewNoticeSheet"
 import { PrivacyShield } from "./components/PrivacyShield"
+import { DynamicIslandBrandCapsule } from "./components/DynamicIslandBrandCapsule"
+import { getSessionBrandFont } from "./components/brandFont"
 import { topBarScrollEdge } from "./components/pageChrome"
 import {
   CapsuleAccessoryContainer,
@@ -111,10 +113,12 @@ function LaunchExperienceView() {
         padding={32}
       >
         <Text
-          font={38}
+          font={{ name: getSessionBrandFont(), size: 38 }}
           fontWeight="heavy"
           foregroundStyle="white"
           shadow={{ color: "rgba(0, 0, 0, 0.32)", radius: 10, y: 3 }}
+          lineLimit={1}
+          minScaleFactor={0.6}
         >
           Pix-Scripting
         </Text>
@@ -293,6 +297,9 @@ export function RootView() {
 
         {/* 隐私保护遮罩 */}
         <PrivacyShield />
+
+        {/* 灵动岛区域品牌玻璃胶囊（position 绝对中心锚定，零干扰安全区） */}
+        <DynamicIslandBrandCapsule />
       </ZStack>
     )
   }
@@ -341,6 +348,9 @@ export function RootView() {
 
       {/* 顶层：多任务隐私保护（纯净毛玻璃材质遮罩，不含任何多余图标文字） */}
       <PrivacyShield />
+
+      {/* 顶层：灵动岛区域品牌玻璃胶囊（position 绝对中心锚定，零干扰安全区） */}
+      <DynamicIslandBrandCapsule />
     </ZStack>
   )
 }

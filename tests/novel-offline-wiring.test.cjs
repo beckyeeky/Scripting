@@ -277,7 +277,7 @@ function mountImmersive(input) {
   }
   for (const name of ["NavigationStack", "ZStack", "VStack", "HStack", "Button", "Image", "WebView",
     "Rectangle", "Text", "Spacer", "Menu", "Picker", "ProgressView", "Group", "Divider", "ScrollView",
-    "NovelTypographySheet", "NovelOutlineSearchSheet", "PrivacyShield"]) {
+    "NovelTypographySheet", "NovelOutlineSearchSheet", "DynamicIslandBrandCapsule", "PrivacyShield"]) {
     globals[name] = name
   }
 

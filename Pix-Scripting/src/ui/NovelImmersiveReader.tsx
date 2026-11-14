@@ -26,6 +26,7 @@ import {
 } from "scripting"
 import { appGlass, appInteractiveGlass, appCustomTint } from "./components/glass"
 import { PrivacyShield } from "./components/PrivacyShield"
+import { DynamicIslandBrandCapsule } from "./components/DynamicIslandBrandCapsule"
 import { useLayoutMetrics, useEffectiveIsDark } from "./Hooks"
 import { presentExternalURL, routeForDescriptionLink } from "./components"
 import { requestPixivRoute } from "../store/routeNavigation"
@@ -233,18 +234,27 @@ function resolveUploadedImageUrl(
 }
 
 function resolveFontFamily(settings: NovelReaderSettings): string {
-  const fontName = resolveFontName(settings.fontId, settings.customFontPostscriptName)
-  if (fontName) {
-    return `"${fontName}", -apple-system, BlinkMacSystemFont, sans-serif`
-  }
   if (settings.fontId === "songti") {
-    return "ui-serif, 'Songti SC', 'Source Han Serif SC', 'Hiragino Mincho ProN', serif"
+    return "ui-serif, 'Songti SC', 'Source Han Serif SC', serif"
   }
   if (settings.fontId === "kaiti") {
     return "'Kaiti SC', 'STKaiti', serif"
   }
   if (settings.fontId === "yuanti") {
     return "'Yuanti SC', 'STYuan', sans-serif"
+  }
+  if (settings.fontId === "hiragino_mincho") {
+    return "'Hiragino Mincho ProN', 'HiraMinProN-W3', serif"
+  }
+  if (settings.fontId === "hiragino_maru") {
+    return "'Hiragino Maru Gothic ProN', 'HiraMaruProN-W4', sans-serif"
+  }
+  if (settings.fontId === "hiragino_sans") {
+    return "'Hiragino Sans', 'Hiragino Kaku Gothic ProN', sans-serif"
+  }
+  const fontName = resolveFontName(settings.fontId, settings.customFontPostscriptName)
+  if (fontName) {
+    return `"${fontName}", -apple-system, BlinkMacSystemFont, sans-serif`
   }
   return "-apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif"
 }
@@ -344,7 +354,7 @@ function buildHorizontalImmersiveHtml(options: BuildHtmlOptions): string {
       bodyParts.push(
         `<div id="${chunk.id}" class="novel-chunk chapter-block" data-page="${currentPage}" data-chunk-id="${chunk.id}">
           <div class="chapter-tag">CHAPTER</div>
-          <h2 class="chapter-title">${escapeHtml(chunk.title ?? "")}</h2>
+          <h2 class="chapter-title">${formatPixivRubyToHtml(chunk.title ?? "")}</h2>
         </div>`
       )
     } else if (chunk.type === "uploadedimage") {
@@ -1129,7 +1139,7 @@ function buildVerticalImmersiveHtml(options: BuildHtmlOptions): string {
       bodyParts.push(
         `<div id="${chunk.id}" class="novel-chunk chapter-block" data-page="${currentPage}" data-chunk-id="${chunk.id}">
           <div class="chapter-tag">CHAPTER</div>
-          <h2 class="chapter-title">${escapeHtml(chunk.title ?? "")}</h2>
+          <h2 class="chapter-title">${formatPixivRubyToHtml(chunk.title ?? "")}</h2>
         </div>`
       )
     } else if (chunk.type === "uploadedimage") {
@@ -3072,6 +3082,9 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
       />
       {/* 7. 多任务隐私保护遮罩 */}
       <PrivacyShield />
+
+      {/* 7. 灵动岛区域品牌玻璃胶囊（小说沉浸阅读时始终常驻） */}
+      <DynamicIslandBrandCapsule />
     </ZStack>
   </NavigationStack>
 )

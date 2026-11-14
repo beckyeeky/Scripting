@@ -98,7 +98,7 @@ function immersiveHarness(direction) {
   }
   for (const name of ["NavigationStack", "ZStack", "Button", "Image", "WebView", "Rectangle",
     "VStack", "HStack", "Text", "Spacer", "Menu", "Picker", "NovelTypographySheet",
-    "NovelOutlineSearchSheet", "PrivacyShield"]) globals[name] = name
+    "NovelOutlineSearchSheet", "DynamicIslandBrandCapsule", "PrivacyShield"]) globals[name] = name
   const file = "Pix-Scripting/src/ui/NovelImmersiveReader.tsx"
   const source = fs.readFileSync(file, "utf8")
   const mod = evaluate(source.slice(source.indexOf("function isVirtualNode")), file, {}, globals)
@@ -327,4 +327,10 @@ test("真实系列翻译入口生成的缓存可在清空内存会话后直接�
   assert.equal(harness.exported[0].chapters[0].caption, "译介1")
   assert.match(harness.exported[0].chapters[0].text, /译文正文/)
   assert.equal(harness.getTranslationCalls(), calls, "导出只读缓存，不触发新翻译")
+})
+
+test("章节解析保留嵌套标题且未闭合的标记作为正文", () => {
+  const chunks = reader.parseNovelToChunks("[chapter:[b:第一章]]\n正文\n［chapter：第二章］\n[chapter:尚未闭合")
+  assert.deepEqual(Array.from(chunks.filter(item => item.type === "chapter"), item => item.title), ["第一章", "第二章"])
+  assert.ok(chunks.some(item => item.type === "text" && item.text.includes("[chapter:尚未闭合")))
 })

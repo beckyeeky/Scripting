@@ -107,6 +107,7 @@ function loadImmersiveReader() {
   }
   return loadModule("Pix-Scripting/src/ui/NovelImmersiveReader.tsx", {
     scripting: scriptingStub,
+    "./components/DynamicIslandBrandCapsule": { DynamicIslandBrandCapsule: "DynamicIslandBrandCapsule" },
     "./components/glass": { appGlass: (s) => s, appInteractiveGlass: (s) => s, appCustomTint: () => undefined, currentGlass: () => null },
     "./Hooks": { useLayoutMetrics: () => ({ width: 390, isLandscape: false }), useEffectiveIsDark: () => false },
     "./components": { presentExternalURL: () => {}, routeForDescriptionLink: () => null },
