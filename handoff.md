@@ -1,6 +1,6 @@
 # 项目交接
 
-## 开发进展（未发布）：2026-11-19
+## 当前发布：v1.8.14.2（2026-11-19）
 
 - **Fork 清理与上游同步核对**：将本地 `main` 与 `origin/main` 从 `0a3eb31` 快进至 `upstream/main`（`754d8da`，Pix-Scripting 1.8.14）；确认当前工作分支 `feature/pixivreader-port` 已在 `ff47c27` 合入 `754d8da`（相对于上游 0 落后）。清理 `beckyeeky/Scripting` 仓库 24 个陈旧 GitHub Release（仅保留 `v1.8.14.1-pixivreader` 与 `v1.8.10.1-pixivreader`，不删除 git tag）。
 - **行内标记与 EPUB 文本渲染统一**：
@@ -18,7 +18,9 @@
   - `store/novelSearch.ts`、`ui/NovelOutlineSearchSheet.tsx`、`ui/NovelDetail.tsx` 与 `ui/NovelImmersiveReader.tsx` 接入 `resolveSearchableChunks` 与 `resolveOutlineTitle` 使译文模式下目录与正文检索匹配译文，并将命中高亮从嵌套 `<Text>` 改为原生 `styledText`。
   - `store/novelOfflineLibrary.ts` 放宽 `synthesizeOfflineNovelDetail` 的 `fallback` 参数为 `PixivNovelDetail | PixivNovel | null` 并按类型收窄字段访问。
   - 原 `REVIEW.md` 所列 `#2`（WebView 完成后重放插图）与 4 项基线 TypeScript 诊断（`PixivNovel`/`PixivNovelDetail`、`NovelOutlineSearchSheet` 嵌套 `<Text>`、`NovelReader` `controllerSink`）均已在本轮解决。
-- **包内测试清理与桌面回归迁移**：将 `Pix-Scripting/src/downloader/downloadTaskManager.pauseResume.isolated.test.ts` 与 `Pix-Scripting/src/image/colorExtractor.renderCache.regression.tsx` 迁移到 `tests/download-pause-resume.test.cjs` 与 `tests/color-extractor-render-cache.test.cjs`，并删除 `Pix-Scripting/REVIEW.md`、前述两份包内临时脚本及已过时的 `scripts/publish-release.py`（未修改版本号、未构建/覆盖 `Release/Pix-Scripting.scripting`，未提交、推送或发版）。
+- **包内测试清理与桌面回归迁移**：将 `Pix-Scripting/src/downloader/downloadTaskManager.pauseResume.isolated.test.ts` 与 `Pix-Scripting/src/image/colorExtractor.renderCache.regression.tsx` 迁移到 `tests/download-pause-resume.test.cjs` 与 `tests/color-extractor-render-cache.test.cjs`，并删除 `Pix-Scripting/REVIEW.md`、前述两份包内临时脚本及已过时的 `scripts/publish-release.py`。
+- **正式发布（v1.8.14.2）**：`https://github.com/beckyeeky/Scripting/releases/tag/v1.8.14.2-pixivreader`（非草稿、非 prerelease、Latest）；发布提交 `2cd1a630319bca45a75fe2cd4687510e70fe71ca`，匹配标签 `v1.8.14.2-pixivreader` 指向该提交；发布后交接文档单独提交，不移动标签。
+- **发布包与校验**：`Release/Pix-Scripting.scripting` 大小 843181 字节，SHA-256 `4258f63c39a8e92e62fd50916190c87dc489a6190cf384bd51f442136a9d5f97`；`scripts/verify-release-package.sh --target-branch feature/pixivreader-port` 校验工作树与包内 202 个文件逐字节一致，ZIP 完整性通过，版本 `1.8.14.2` 与 fork 功能分支 `remoteResource.url` 一致；Release 附件回下载校验与本地包及 `.sha256` 逐字节一致。
 - **已验证（桌面 Node + TS 转译 + 宿主替身）**：`npm test` 229/229 通过（0 失败，0 跳过）；`node scripts/syntax-check.cjs` 检查 201 个 TS/TSX 文件，0 语法错误（非全量类型检查）；`git diff --check` 无空白错误；针对改动涉及源码运行无 `scripting` 依赖的定向 TS 语义诊断均无新错。
 - **未验证（需 iPhone/iPad 真机 Scripting 宿主验收）**：横/竖排 WebView 实际排版、`[b:]`/`[i:]`/着重号展示、竖排延迟加载后插图重放与连续换话切篇效果、译文模式目录检索与 `styledText` 命中高亮渲染、沉浸阅读隐藏控制条后手势穿透与离线提示横幅布局、真机下载暂停/恢复调度与冷缓存氛围色切换。
 - **后续待办（自原 `REVIEW.md` 迁入，本轮未改动）**：
@@ -30,7 +32,7 @@
   6. `client.ts`：OAuth token 一次性凭证重试策略需独立评估，不能仅凭 5xx 假设可安全重放。
   7. `history.ts`：大历史数组复制与整文件持久化性能测量（保持不可变快照语义，不直接共享数组原地修改）。
 
-## 当前发布：v1.8.14.1（2026-11-14）
+## 历史发布：v1.8.14.1（2026-11-14）
 
 - 合并上游 `754d8da`（1.8.11 至 1.8.14）；保留 fork 更新地址、翻译/离线能力及既有行内加粗、斜体和注音解析。
 - 合并中发现上游嵌套章节标题在 EPUB 正文与分页目录被截断，已在实际导出路径复现并修复；未闭合章节标记保持正文。补充阅读器和 EPUB 回归；桌面宿主替身补齐上游新增的 DynamicIslandBrandCapsule。
