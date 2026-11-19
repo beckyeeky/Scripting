@@ -9,7 +9,7 @@ function loadModule(file, mocks = {}, globals = {}) {
   const absolute = path.join(__dirname, "..", file)
   const source = fs.readFileSync(absolute, "utf8")
   const js = ts.transpileModule(source, { fileName: absolute, compilerOptions: {
-    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.React,
   } }).outputText
   const module = { exports: {} }
   vm.runInNewContext(js, {
@@ -160,4 +160,107 @@ test("命中规范化：排序并去重", () => {
   assert.equal(normalized.length, 2)
   assert.equal(normalized.map((hit) => hit.chunkId).join(","), "a,b")
   assert.equal(search.normalizeHits(null).length, 0)
+})
+
+test("译文模式下目录与正文检索自动切换为已完成且未失效的译文", () => {
+  const list = chunks()
+  const translated = {
+    mode: "translated",
+    translatedTitle: "译文标题",
+    blocks: {
+      "chapter-1": { id: "chapter-1", status: "done", translation: "第一章 译名" },
+      "chunk-1": { id: "chunk-1", status: "done", translation: "星光照在窗台上。" },
+      "chunk-2": { id: "chunk-2", status: "done", stale: true, translation: "失效的星光译文" },
+      "chunk-3": { id: "chunk-3", status: "pending", translation: "未完成的星光" },
+    },
+  }
+
+  assert.equal(search.resolveOutlineTitle("原标题", translated), "译文标题")
+  assert.equal(search.resolveOutlineTitle("原标题", { ...translated, mode: "original" }), "原标题")
+
+  const resolved = search.resolveSearchableChunks(list, translated)
+  const outlineEntries = outline.buildEpisodeOutline(resolved)
+  assert.equal(outlineEntries[0].title, "第一章 译名")
+  assert.equal(outlineEntries[2].title, "第二章 归途")
+
+  const hits = search.searchNovelChunks(resolved, "星光")
+  assert.equal(hits.length, 1)
+  assert.equal(hits[0].chunkId, "chunk-1")
+  assert.equal(search.searchNovelChunks(resolved, "失效").length, 0)
+
+  const originalResolved = search.resolveSearchableChunks(list, { ...translated, mode: "original" })
+  assert.equal(originalResolved, list)
+})
+
+test("NovelOutlineSearchSheet 在译文模式检索使用 styledText（无嵌套 Text）", () => {
+  let stateSlot
+  let cursor = 0
+  const stateValues = []
+  const hooks = {
+    useState(initial) {
+      const idx = cursor++
+      if (!(idx in stateValues)) stateValues[idx] = typeof initial === "function" ? initial() : initial
+      return [stateValues[idx], (next) => {
+        stateValues[idx] = typeof next === "function" ? next(stateValues[idx]) : next
+      }]
+    },
+    useMemo(factory) { return factory() },
+    useCallback(fn) { return fn },
+  }
+  const sheetModule = loadModule("Pix-Scripting/src/ui/NovelOutlineSearchSheet.tsx", {
+    scripting: {
+      Button: "Button", Divider: "Divider", HStack: "HStack", Image: "Image", NavigationStack: "NavigationStack",
+      Picker: "Picker", ScrollView: "ScrollView", Spacer: "Spacer", Text: "Text", TextField: "TextField", VStack: "VStack",
+      ...hooks,
+    },
+    "./components/glass": { appGlass: (s) => s, appInteractiveGlass: (s) => s },
+    "./components/pageChrome": { sheetDetents: () => [], sheetTopBar: () => ({}) },
+    "../platform/haptics": { triggerHaptic() {} },
+    "../store/novelOutline": outline,
+    "../store/novelSearch": search,
+  }, {
+    React: { createElement: (type, props, ...children) => ({ type, props: { ...props, children } }) },
+  })
+
+  const renderTree = () => {
+    cursor = 0
+    return sheetModule.NovelOutlineSearchSheet({
+      title: "原标题",
+      chunks: chunks(),
+      translation: {
+        mode: "translated",
+        translatedTitle: "译文篇名",
+        blocks: {
+          "chapter-1": { id: "chapter-1", status: "done", translation: "第一章 译名" },
+          "chunk-1": { id: "chunk-1", status: "done", translation: "星光洒在窗台上。" },
+        },
+      },
+      onJump: () => {},
+    })
+  }
+
+  let tree = renderTree()
+  const collectTexts = (node, list = []) => {
+    if (!node || typeof node !== "object") return list
+    if (Array.isArray(node)) { node.forEach((n) => collectTexts(n, list)); return list }
+    if (node.type === "Text") list.push(node)
+    Object.values(node.props ?? {}).forEach((v) => collectTexts(v, list))
+    return list
+  }
+  const initialTexts = collectTexts(tree).map((n) => JSON.stringify(n.props.children)).join("|")
+  assert.match(initialTexts, /译文篇名/)
+  assert.match(initialTexts, /第一章 译名/)
+
+  // 切换到“搜正文”页签并输入译文关键词
+  stateValues[0] = "search"
+  stateValues[1] = "星光"
+  stateSlot = renderTree()
+  const hitTextNodes = collectTexts(stateSlot).filter((n) => n.props.styledText)
+  assert.equal(hitTextNodes.length, 1, "命中条目应通过 styledText 高亮")
+  const styledContent = JSON.parse(JSON.stringify(hitTextNodes[0].props.styledText.content))
+  assert.equal(styledContent[1].content, "星光")
+  for (const textNode of collectTexts(stateSlot)) {
+    const childTexts = collectTexts(textNode.props.children)
+    assert.equal(childTexts.length, 0, "Text 组件内部不得再嵌套 Text 元素")
+  }
 })

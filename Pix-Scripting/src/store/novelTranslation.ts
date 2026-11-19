@@ -35,6 +35,7 @@ export interface TranslationBlock {
   translation?: string
   status: TranslationBlockStatus
   error?: string
+  stale?: boolean
   /** 本轮调用阶段；不包含正文、密钥或供应商原始报错。 */
   attempt?: { stage: "original" | "split" | "merge"; splitPart: number; splitCompleted: number }
 }
@@ -51,6 +52,8 @@ export interface NovelTranslationSnapshot {
   phase: "idle" | "summary" | "glossary" | "translating"
   summaryStatus: TranslationContextStatus
   glossaryStatus: TranslationContextStatus
+  summaryError?: string
+  glossaryError?: string
   translatedTitle?: string
   translatedCaption?: string
   summary?: string
@@ -228,19 +231,15 @@ export class NovelTranslationSession {
         translation: status === "done" ? saved?.translation : undefined,
         status: status === "done" ? "done" : status === "failed" ? "error" : "pending",
         error: status === "failed" ? saved?.error : undefined,
+        stale: status === "stale" ? true : undefined,
       }
     }
     this.stored.blocks = Object.fromEntries(Object.values(blocks).map((block) => [block.id, {
       source: fingerprint(block.original), translation: block.translation, error: block.error,
       model: this.model,
     }]))
-    const seriesKey = this.input.seriesId ? `${this.uid}:${this.model}:${this.input.seriesId}` : ""
-    const seriesFile = this.input.seriesId && this.persistent
-      ? readStored(seriesPath(this.uid, this.input.seriesId, this.input.targetLanguage)) : null
-    const inherited = seriesKey
-      ? seriesGlossaries.get(seriesKey) ?? (seriesFile?.model === this.model ? seriesFile.glossary ?? "" : "")
-      : ""
-    const glossary = mergeGlossary(inherited, this.stored.glossary ?? "")
+    const inherited = this.currentSeriesGlossary()
+    const glossary = this.resolveMergedGlossary(inherited)
     const needsGlossary = this.input.text.length >= 500 || Boolean(this.input.seriesId)
     return this.count({ novelId: this.input.novelId, targetLanguage: this.input.targetLanguage,
       mode: this.stored.mode, running: false, blocks,
@@ -258,7 +257,8 @@ export class NovelTranslationSession {
   private count(snapshot: NovelTranslationSnapshot): NovelTranslationSnapshot {
     const blocks = Object.values(snapshot.blocks)
     return { ...snapshot, total: blocks.length, done: blocks.filter((b) => b.status === "done").length,
-      failed: blocks.filter((b) => b.status === "error").length }
+      failed: blocks.filter((b) => b.status === "error").length,
+      stale: blocks.filter((b) => Boolean(b.stale) && b.status !== "done").length }
   }
 
   private publish(): void {
@@ -294,7 +294,9 @@ export class NovelTranslationSession {
     this.stored.glossaryLocked = locked && Boolean(normalized)
     this.stored.glossarySkipped = !normalized
     const inherited = this.currentSeriesGlossary()
-    const glossary = mergeLockedGlossary(inherited, this.stored.glossary ?? "")
+    const glossary = this.stored.glossary
+      ? mergeLockedGlossary(this.stored.glossary, inherited)
+      : inherited
     this.snapshot = {
       ...this.snapshot,
       glossary,
@@ -302,15 +304,29 @@ export class NovelTranslationSession {
       seriesGlossaryCount: glossaryEntries(inherited).size,
       glossaryLocked: Boolean(this.stored.glossaryLocked),
       glossaryStatus: glossary ? "ready" : "skipped",
+      glossaryError: undefined,
     }
     this.persist()
     this.publish()
   }
 
+  /** 按锁定策略合并本篇术语与系列继承术语 */
+  private resolveMergedGlossary(inherited: string): string {
+    if (this.stored.glossaryLocked && this.stored.glossary) {
+      return mergeLockedGlossary(this.stored.glossary, inherited)
+    }
+    return mergeGlossary(inherited, this.stored.glossary ?? "")
+  }
+
   /** 当前可用的系列术语（内存缓存优先，其次磁盘） */
   private currentSeriesGlossary(): string {
     if (!this.input.seriesId) return ""
-    return seriesGlossaries.get(`${this.uid}:${this.model}:${this.input.seriesId}`) ?? ""
+    const seriesKey = `${this.uid}:${this.model}:${this.input.seriesId}`
+    const cached = seriesGlossaries.get(seriesKey)
+    if (cached !== undefined) return cached
+    if (!this.persistent) return ""
+    const seriesFile = readStored(seriesPath(this.uid, this.input.seriesId, this.input.targetLanguage))
+    return seriesFile?.model === this.model ? seriesFile.glossary ?? "" : ""
   }
 
   /**
@@ -473,7 +489,12 @@ export class NovelTranslationSession {
             if (!translation.trim()) throw new Error("empty translation")
             block.translation = translation.trim()
             block.status = "done"
-            this.stored.blocks[block.id] = { source: fingerprint(block.original), translation: block.translation }
+            block.stale = false
+            this.stored.blocks[block.id] = {
+              source: fingerprint(block.original),
+              translation: block.translation,
+              model: this.model,
+            }
           } catch (error) {
             if (run !== this.runId || controller.signal.aborted) return
             block.status = "error"
@@ -486,7 +507,11 @@ export class NovelTranslationSession {
             const splitDetail = block.attempt?.stage === "merge" ? "三段完成，合并校验失败"
               : `第 ${block.attempt?.splitPart ?? 1}/3 段失败，完成 ${block.attempt?.splitCompleted ?? 0}/3`
             block.error = splitAttempted ? `${reason}（已拆分重试：${splitDetail}）` : `${reason}${skipped}`
-            this.stored.blocks[block.id] = { source: fingerprint(block.original), error: block.error }
+            this.stored.blocks[block.id] = {
+              source: fingerprint(block.original),
+              error: block.error,
+              model: this.model,
+            }
           } finally {
             this.controllers.delete(controller)
             if (run === this.runId) {
@@ -520,7 +545,7 @@ export class NovelTranslationSession {
       : ""
     if (!this.stored.summary || !this.stored.translatedTitle ||
       (this.input.caption && !this.stored.translatedCaption)) {
-      this.snapshot = { ...this.snapshot, phase: "summary", summaryStatus: "running" }
+      this.snapshot = { ...this.snapshot, phase: "summary", summaryStatus: "running", summaryError: undefined }
       this.publish()
       try {
         const context = await generateNovelTranslationContext(this.input.title, this.input.caption, this.input.text, {
@@ -533,17 +558,18 @@ export class NovelTranslationSession {
         this.stored.translatedCaption = context.translatedCaption
         this.stored.summary = context.summary
         this.snapshot = { ...this.snapshot, translatedTitle: context.translatedTitle,
-          translatedCaption: context.translatedCaption, summary: context.summary, summaryStatus: "ready" }
+          translatedCaption: context.translatedCaption, summary: context.summary, summaryStatus: "ready",
+          summaryError: undefined }
         this.persist(); this.publish()
-      } catch {
+      } catch (error) {
         if (signal.aborted) return {}
-        this.snapshot = { ...this.snapshot, summaryStatus: "error" }
+        this.snapshot = { ...this.snapshot, summaryStatus: "error", summaryError: cleanError(error) }
         this.publish()
       }
     }
     if (needsGlossary && !this.stored.glossaryLocked &&
       !this.stored.glossary && !this.stored.glossarySkipped && !signal.aborted) {
-      this.snapshot = { ...this.snapshot, phase: "glossary", glossaryStatus: "running" }
+      this.snapshot = { ...this.snapshot, phase: "glossary", glossaryStatus: "running", glossaryError: undefined }
       this.publish()
       try {
         const context = await generateNovelTranslationContext(this.input.title, this.input.caption, this.input.text, {
@@ -557,23 +583,24 @@ export class NovelTranslationSession {
         }
         this.stored.glossary = normalized || undefined
         this.stored.glossarySkipped = !normalized
-        this.snapshot = { ...this.snapshot, glossaryStatus: normalized || inherited ? "ready" : "skipped" }
+        this.snapshot = { ...this.snapshot, glossaryStatus: normalized || inherited ? "ready" : "skipped",
+          glossaryError: undefined }
         this.persist(); this.publish()
-      } catch {
+      } catch (error) {
         if (signal.aborted) return {}
-        this.snapshot = { ...this.snapshot, glossaryStatus: "error" }
+        this.snapshot = { ...this.snapshot, glossaryStatus: "error", glossaryError: cleanError(error) }
         this.publish()
       }
     }
     let latestInherited = inherited
-    let glossary = mergeGlossary(inherited, this.stored.glossary ?? "")
+    let glossary = this.resolveMergedGlossary(inherited)
     if (this.input.seriesId) {
       const path = seriesPath(this.uid, this.input.seriesId, this.input.targetLanguage)
       // 其他章节可能在摘要/术语生成期间写入了新词，提交前重新读取并合并。
       const latestSeriesFile = this.persistent ? readStored(path) : null
       latestInherited = seriesGlossaries.get(seriesKey)
         ?? (latestSeriesFile?.model === this.model ? latestSeriesFile.glossary ?? "" : "")
-      glossary = mergeGlossary(latestInherited, this.stored.glossary ?? "")
+      glossary = this.resolveMergedGlossary(latestInherited)
       if (glossary) {
         seriesGlossaries.set(seriesKey, glossary)
         if (this.persistent) {

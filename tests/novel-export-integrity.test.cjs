@@ -181,6 +181,7 @@ function loadNovelExporter(options = {}) {
     "../ui/components/formatUtils": {
       htmlToPlainText: (value) => String(value ?? "").replace(/<[^>]*>/g, ""),
     },
+    "../ui/novelInlineMarkup": loadModule("Pix-Scripting/src/ui/novelInlineMarkup.ts"),
   }, {
     FileManager,
     Data: { fromBase64String: () => ({}) },
@@ -286,4 +287,35 @@ test("嵌套章节标签在 EPUB 正文和分页目录中保持完整", async ()
   assert.ok(nav, "必须生成导航目录")
   assert.match(String(nav[1]), /第 1 页 · 第一章/)
   assert.doesNotMatch(String(nav[1]), /\[b:第一章/)
+})
+
+test("EPUB 正文统一渲染 [b:]、[i:]、全角双括号、着重号与 ruby 注释并附带样式", async () => {
+  const harness = loadNovelExporter({})
+  await harness.mod.exportNovelToEpub({
+    ...baseNovel,
+    chapters: [
+      {
+        id: 1,
+        title: "装饰样例",
+        text: "[b:加粗]与［b：全角］与[[i:斜体]]和[[emphasismark:重点 > ﹅]]及[ruby text=かんじ]漢字[/ruby]",
+      },
+    ],
+    targetDir: "/documents/Novels",
+  })
+  const files = [...harness.files.entries()]
+  const css = files.find(([key]) => key.endsWith("style.css"))
+  assert.ok(css, "必须生成 style.css")
+  assert.match(String(css[1]), /strong\s*\{[\s\S]*font-weight:\s*700/)
+  assert.match(String(css[1]), /em\s*\{[\s\S]*font-style:\s*italic/)
+  assert.match(String(css[1]), /\.novel-emphasis\s*\{/)
+
+  const page = files.find(([key]) => key.endsWith("page_1.xhtml"))
+  assert.ok(page, "必须生成第 1 页")
+  const html = String(page[1])
+  assert.match(html, /<strong>加粗<\/strong>/)
+  assert.match(html, /<strong>全角<\/strong>/)
+  assert.match(html, /<em>斜体<\/em>/)
+  assert.match(html, /class="novel-emphasis"/)
+  assert.match(html, /<ruby>漢字<rt>かんじ<\/rt><\/ruby>/)
+  assert.doesNotMatch(html, /\[b:|［b：|\[\[i:|\[ruby text=/)
 })

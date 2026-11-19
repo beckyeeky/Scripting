@@ -1,5 +1,35 @@
 # 项目交接
 
+## 开发进展（未发布）：2026-11-19
+
+- **Fork 清理与上游同步核对**：将本地 `main` 与 `origin/main` 从 `0a3eb31` 快进至 `upstream/main`（`754d8da`，Pix-Scripting 1.8.14）；确认当前工作分支 `feature/pixivreader-port` 已在 `ff47c27` 合入 `754d8da`（相对于上游 0 落后）。清理 `beckyeeky/Scripting` 仓库 24 个陈旧 GitHub Release（仅保留 `v1.8.14.1-pixivreader` 与 `v1.8.10.1-pixivreader`，不删除 git tag）。
+- **行内标记与 EPUB 文本渲染统一**：
+  - `Pix-Scripting/src/ui/novelInlineMarkup.ts` 扩展半角/全角单双方括号与冒号兼容（`[b:]`、`[i:]`、`［b：］`、`[[b:]]`、`［［i：］］`），重做闭合栈以跳过内部闭合的 `[[rb:]]`/`[[emphasismark:]]`/`[[jumpuri:]]`，并新增输出标准 `<a href="...">` 的 `formatNovelInlineXHtml`；保留 `buildNovelStyledContent` 原生富文本兼容（未采纳上游 1.8.14 移除方案）。
+  - `Pix-Scripting/src/downloader/epubExporter.ts` 改为将 `[ruby text=...]...[/ruby]` 归一化为 `[[rb:...]]` 后复用 `formatNovelInlineXHtml`，在 `NOVEL_CSS` 补充 `strong`/`em`/`.novel-emphasis` 样式，消除阅读器与导出格式差异。
+- **小说翻译链路与质量修复**：
+  - `Pix-Scripting/src/store/novelTranslation.ts` 为段落块增加 `stale` 状态并在重译完成后清除（同步刷新 `stale` 计数），区块落盘与异常记录均写入当前 `model` 指纹，消除同会话重新翻译后仍被导出闸门拦截的问题；修复 `currentSeriesGlossary()` 冷磁盘回读；新增 `resolveMergedGlossary()` 并修正 `setGlossary()` 参数顺序，保证已锁定术语优先于系列词表，未锁定术语继续继承系列既有译名；新增独立 `summaryError`/`glossaryError` 字段记录摘要/术语失败原因而不覆盖总 `message`，并在 `Pix-Scripting/src/ui/NovelTranslationStatus.tsx` 展开详情中展示。
+  - `Pix-Scripting/src/api/aiService.ts` 在 `cleanNovelTextForAI` 中清除 `[[emphasismark:]]` 并多轮剥离嵌套 `[b:]`/`[i:]`（含全角）；在 `tokenizeNovelPassageForSplit` 与三分点保护中纳入 `[[emphasismark:]]`；`translateNovelPassage` 兼容 `[[rb:... &gt; ...]]`、剥离着重号标记并在系统提示词约束禁止 Markdown 输出；`validateNovelTranslation` 新增基于假名/非拉丁字符占比（`>= 0.65`）的长段大比例未译拦截，避免放过半截原文结果。
+  - `Pix-Scripting/src/ui/NovelReader.tsx` 的 `buildNovelTranslationPatchScript` 在支持 `innerHTML` 的 DOM 上使用 `formatPixivRubyToHtml` 渲染译文 `.chapter-title`（保留行内样式），在纯 `textContent` 测试替身上自动回退。
+- **阅读器排版、安全、交互与基线类型修复**：
+  - 横排沉浸阅读 CSS 增加 `max-width: 760px; margin: 0 auto` 与 `white-space: pre-wrap`；两阅读器竖排 CSS 改用 `text-orientation: mixed` 与 `overflow-wrap: break-word; word-break: normal`（替换导致字距/断词异常的 `upright` 与 `break-all`）。
+  - 横排与竖排沉浸阅读器以及竖排阅读器 `buildVerticalHtml` 均接入 `escapeInlineHtml`，对图片 `dataUrl`/`title`/`author` 做 HTML 转义并校验正整数 `illustId`，同时通过 `window.pendingImages` / `flushPendingImages` 缓冲 DOM 就绪前的更新。
+  - `NovelVerticalReaderView` 增加 `replayLoadedImages()` 在 `loadHTML` 就绪后重放缓存/离线插图，切换 `novelId` 时重置 `imageCacheRef` 与状态防止跨话串图，清理回调安全缩窄 `controllerSink`；两阅读器的 `translation` 副作用统一受 `readyGenerationRef` 守卫并允许置 `null` 恢复原文。
+  - `NovelImmersiveReaderView` 手动重试失败段落传入 `forceSplit = true`；底栏页码容器随 `controlsVisible` 设置 `allowsHitTesting`；离线提示横幅设置 `allowsHitTesting={false}` 与 `padding={{ top: topInset + 52, horizontal }}` 避让顶部自绘栏。
+  - `store/novelSearch.ts`、`ui/NovelOutlineSearchSheet.tsx`、`ui/NovelDetail.tsx` 与 `ui/NovelImmersiveReader.tsx` 接入 `resolveSearchableChunks` 与 `resolveOutlineTitle` 使译文模式下目录与正文检索匹配译文，并将命中高亮从嵌套 `<Text>` 改为原生 `styledText`。
+  - `store/novelOfflineLibrary.ts` 放宽 `synthesizeOfflineNovelDetail` 的 `fallback` 参数为 `PixivNovelDetail | PixivNovel | null` 并按类型收窄字段访问。
+  - 原 `REVIEW.md` 所列 `#2`（WebView 完成后重放插图）与 4 项基线 TypeScript 诊断（`PixivNovel`/`PixivNovelDetail`、`NovelOutlineSearchSheet` 嵌套 `<Text>`、`NovelReader` `controllerSink`）均已在本轮解决。
+- **包内测试清理与桌面回归迁移**：将 `Pix-Scripting/src/downloader/downloadTaskManager.pauseResume.isolated.test.ts` 与 `Pix-Scripting/src/image/colorExtractor.renderCache.regression.tsx` 迁移到 `tests/download-pause-resume.test.cjs` 与 `tests/color-extractor-render-cache.test.cjs`，并删除 `Pix-Scripting/REVIEW.md`、前述两份包内临时脚本及已过时的 `scripts/publish-release.py`（未修改版本号、未构建/覆盖 `Release/Pix-Scripting.scripting`，未提交、推送或发版）。
+- **已验证（桌面 Node + TS 转译 + 宿主替身）**：`npm test` 229/229 通过（0 失败，0 跳过）；`node scripts/syntax-check.cjs` 检查 201 个 TS/TSX 文件，0 语法错误（非全量类型检查）；`git diff --check` 无空白错误；针对改动涉及源码运行无 `scripting` 依赖的定向 TS 语义诊断均无新错。
+- **未验证（需 iPhone/iPad 真机 Scripting 宿主验收）**：横/竖排 WebView 实际排版、`[b:]`/`[i:]`/着重号展示、竖排延迟加载后插图重放与连续换话切篇效果、译文模式目录检索与 `styledText` 命中高亮渲染、沉浸阅读隐藏控制条后手势穿透与离线提示横幅布局、真机下载暂停/恢复调度与冷缓存氛围色切换。
+- **后续待办（自原 `REVIEW.md` 迁入，本轮未改动）**：
+  1. `downloadHelper.ts` / 导出器：区分暂停导致的 abort 与用户取消，避免恢复后把在途图片记作永久失败（需受控下载服务验证）。
+  2. `Hooks.tsx`：分页等待动画期间改变过滤条件是否发布旧缓冲，及尾项消费标记提前返回分支是否可靠复位。
+  3. `bottomAccessory.tsx`：详情请求返回后是否覆盖用户刚修改的追更状态（需取消守卫及状态版本保护）。
+  4. `UserDetailPage.tsx`：标签 effect 与 `loadDetail` 均调用 `fetchUserWorkTags`，用户切换需缓存隔离与旧请求取消。
+  5. `search.tsx`：热门标签并发请求需序号保护，防止旧失败覆盖新成功。
+  6. `client.ts`：OAuth token 一次性凭证重试策略需独立评估，不能仅凭 5xx 假设可安全重放。
+  7. `history.ts`：大历史数组复制与整文件持久化性能测量（保持不可变快照语义，不直接共享数组原地修改）。
+
 ## 当前发布：v1.8.14.1（2026-11-14）
 
 - 合并上游 `754d8da`（1.8.11 至 1.8.14）；保留 fork 更新地址、翻译/离线能力及既有行内加粗、斜体和注音解析。

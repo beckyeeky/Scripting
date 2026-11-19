@@ -473,3 +473,72 @@ test("接线：发送范围与对齐提示不含凭据，且明确按块对照",
   assert.equal(mismatch.length, 2)
   assert.match(mismatch.join(" "), /按块对照（非逐句对齐）/)
 })
+
+test("接线：重译 stale 段落会清除 stale 计数字段、写入 model 并解除同会话导出拦截", async () => {
+  const ctx = setupTranslation()
+  primeCache(ctx.translation.getNovelTranslationSession(input))
+  const stored = JSON.parse(fs.readFileSync(cacheFilePath(ctx.root), "utf8"))
+  stored.translatedTitle = "译名"
+  stored.translatedCaption = "译简介"
+  stored.summary = "摘要"
+  stored.glossary = "类别｜原文｜译文"
+  stored.glossarySkipped = false
+  stored.blocks = {
+    "chunk-1": { source: stored.blocks["chunk-1"].source, translation: "第一段译文。", model: stored.model },
+    "chunk-2": { source: "过期的源指纹", translation: "第二段旧译文", model: stored.model },
+  }
+  fs.writeFileSync(cacheFilePath(ctx.root), JSON.stringify(stored), "utf8")
+  ctx.translation.discardNovelTranslationSessions()
+
+  ctx.aiService.translateNovelPassage = async () => "第二段新译文。"
+  const session = ctx.translation.getNovelTranslationSession(input)
+  assert.equal(session.getSnapshot().stale, 1)
+  assert.match(novelExport.novelTranslationExportIssue(session.getSnapshot(), true) ?? "", /1 个段落/)
+
+  await session.start(["chunk-2"])
+  const updated = session.getSnapshot()
+  assert.equal(updated.stale, 0)
+  assert.equal(updated.done, 2)
+  assert.equal(updated.blocks["chunk-2"].stale, false)
+  assert.equal(updated.blocks["chunk-2"].translation, "第二段新译文。")
+  assert.equal(novelExport.novelTranslationExportIssue(updated, true), null, "重译完成后同会话应解除导出拦截")
+
+  const persisted = JSON.parse(fs.readFileSync(cacheFilePath(ctx.root), "utf8"))
+  assert.equal(persisted.blocks["chunk-2"].model, stored.model, "落盘块记录必须写入 model 指纹")
+})
+
+test("接线：锁定术语优先于系列缓存，且支持从磁盘回读冷系列词表", () => {
+  const ctx = setupTranslation()
+  const seriesInput = { ...input, seriesId: 88, text: "Alice".repeat(120) }
+  const seriesFile = `${ctx.root}/Pix-Scripting/NovelTranslations/users/1001/series-88.json`
+  fs.mkdirSync(path.dirname(seriesFile), { recursive: true })
+  const tempSession = primeCache(ctx.translation.getNovelTranslationSession(seriesInput))
+  const modelHash = JSON.parse(fs.readFileSync(cacheFilePath(ctx.root), "utf8")).model
+  fs.writeFileSync(seriesFile, JSON.stringify({
+    version: 2,
+    model: modelHash,
+    source: "",
+    mode: "original",
+    blocks: {},
+    glossary: "人物｜Alice｜爱丽丝\n地点｜Town｜小镇",
+  }), "utf8")
+  ctx.translation.discardNovelTranslationSessions()
+
+  // 冷内存会话加载时读取磁盘系列词表，并用已锁定本地术语覆盖同名条目
+  const stored = JSON.parse(fs.readFileSync(cacheFilePath(ctx.root), "utf8"))
+  stored.glossary = "人物｜Alice｜艾莉丝"
+  stored.glossaryLocked = true
+  fs.writeFileSync(cacheFilePath(ctx.root), JSON.stringify(stored), "utf8")
+  const session = ctx.translation.getNovelTranslationSession(seriesInput)
+  let snap = session.getSnapshot()
+  assert.match(snap.glossary, /人物｜Alice｜艾莉丝/)
+  assert.doesNotMatch(snap.glossary, /人物｜Alice｜爱丽丝/)
+  assert.match(snap.glossary, /地点｜Town｜小镇/)
+  assert.equal(snap.seriesGlossaryCount, 2)
+
+  // 手动编辑锁定同样以本地译名为准
+  session.setGlossary("人物｜Alice｜阿丽丝", true)
+  snap = session.getSnapshot()
+  assert.match(snap.glossary, /人物｜Alice｜阿丽丝/)
+  assert.doesNotMatch(snap.glossary, /人物｜Alice｜爱丽丝/)
+})

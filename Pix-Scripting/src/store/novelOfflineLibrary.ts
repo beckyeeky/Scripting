@@ -14,7 +14,7 @@
 import { pixivDataPath, resolveEffectiveUID } from "./dataDirectory"
 import { recoverFile, writeTextSafely } from "./safeFile"
 import { computeNovelContentVersion, stableHash, NOVEL_PARSE_VERSION } from "./novelAnchor"
-import type { PixivNovelDetail } from "../types"
+import type { PixivNovel, PixivNovelDetail } from "../types"
 
 export type OfflineImageStatus = "ok" | "missing" | "failed" | "pending"
 
@@ -589,10 +589,11 @@ export function removeOfflineImages(
  */
 export function synthesizeOfflineNovelDetail(
   record: OfflineEpisodeRecord | null | undefined,
-  fallback?: PixivNovelDetail | null
+  fallback?: PixivNovelDetail | PixivNovel | null
 ): PixivNovelDetail | null {
   if (!record || !record.novelId) return null
   const cached = fallback ?? null
+  const cachedDetail = cached && "content" in cached ? cached : null
   const user = cached?.user
     ? { ...cached.user, name: cached.user.name || record.author || "未知作者" }
     : {
@@ -616,16 +617,18 @@ export function synthesizeOfflineNovelDetail(
     total_bookmarks: cached?.total_bookmarks ?? 0,
     is_bookmarked: cached?.is_bookmarked ?? false,
     total_comments: cached?.total_comments ?? 0,
-    cover: cached?.cover,
+    cover: cached?.cover ?? undefined,
     image_urls: cached?.image_urls ?? (record.coverUrl ? { large: record.coverUrl } : null),
-    content: cached?.content ?? "",
+    content: cachedDetail?.content ?? "",
     episode_number: record.episodeNumber ?? cached?.episode_number ?? undefined,
     novel_marker: cached?.novel_marker ?? null,
     series: record.seriesId
       ? { id: record.seriesId, title: cached?.series?.title ?? undefined }
-      : cached?.series ?? null,
-    series_next: cached?.series_next ?? null,
-    series_prev: cached?.series_prev ?? null,
+      : cached?.series
+        ? { id: cached.series.id, title: cached.series.title ?? undefined }
+        : null,
+    series_next: cachedDetail && "series_next" in cachedDetail ? cachedDetail.series_next ?? null : null,
+    series_prev: cachedDetail && "series_prev" in cachedDetail ? cachedDetail.series_prev ?? null : null,
   }
 }
 

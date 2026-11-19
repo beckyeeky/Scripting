@@ -70,13 +70,15 @@ export function buildNovelTranslationPatchScript(
   anchorId?: string | null
 ): string {
   const translated: Record<string, string> = {}
-  const translatedChapters: Record<string, string> = {}
+  const translatedChaptersHtml: Record<string, string> = {}
+  const translatedChaptersText: Record<string, string> = {}
   const translatedTitle = snapshot?.mode === "translated" ? snapshot.translatedTitle ?? "" : ""
   if (snapshot?.mode === "translated") {
     for (const block of Object.values(snapshot.blocks)) {
       if (block.status !== "done" || !block.translation) continue
       if (block.kind === "chapter") {
-        translatedChapters[block.id] = block.translation
+        translatedChaptersHtml[block.id] = formatPixivRubyToHtml(block.translation)
+        translatedChaptersText[block.id] = block.translation
         continue
       }
       translated[block.id] = block.translation.split("\n").map((line) =>
@@ -88,7 +90,8 @@ export function buildNovelTranslationPatchScript(
   }
   return `(() => {
     const rendered = ${JSON.stringify(translated)};
-    const renderedChapters = ${JSON.stringify(translatedChapters)};
+    const renderedChaptersHtml = ${JSON.stringify(translatedChaptersHtml)};
+    const renderedChaptersText = ${JSON.stringify(translatedChaptersText)};
     const renderedTitle = ${JSON.stringify(translatedTitle)};
     const originals = window.__novelTranslationOriginals || (window.__novelTranslationOriginals = {});
     const titleNode = document.querySelector('.novel-header-title, .vertical-header-title');
@@ -112,9 +115,15 @@ export function buildNovelTranslationPatchScript(
       const title = node.querySelector('.chapter-title');
       if (!id || !title) return;
       const key = 'chapter:' + id;
-      if (!(key in originals)) originals[key] = title.textContent;
-      const next = renderedChapters[id] || originals[key];
-      if (title.textContent !== next) { title.textContent = next; changed = true; }
+      if ('innerHTML' in title) {
+        if (!(key in originals)) originals[key] = title.innerHTML;
+        const next = renderedChaptersHtml[id] || originals[key];
+        if (title.innerHTML !== next) { title.innerHTML = next; changed = true; }
+      } else {
+        if (!(key in originals)) originals[key] = title.textContent;
+        const next = renderedChaptersText[id] || originals[key];
+        if (title.textContent !== next) { title.textContent = next; changed = true; }
+      }
     });
     if (anchor && before && changed) {
       requestAnimationFrame(() => {
@@ -990,8 +999,8 @@ ${themeCssVars}
     -webkit-overflow-scrolling: touch;
     writing-mode: vertical-rl;
     -webkit-writing-mode: vertical-rl;
-    text-orientation: upright;
-    -webkit-text-orientation: upright;
+    text-orientation: mixed;
+    -webkit-text-orientation: mixed;
     font-family: ${fontFamily};
     font-size: ${settings.fontSize}px;
     font-weight: ${fontWeight};
@@ -1006,7 +1015,8 @@ ${themeCssVars}
     margin: 0 10px;
     white-space: pre-wrap;
     line-break: strict;
-    word-break: break-all;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
   .empty-line {
     width: 14px;
@@ -1197,23 +1207,68 @@ ${NOVEL_READER_RUNTIME_JS}
       }
     }
 
-    window.updateNovelImage = function(chunkId, dataUrl, title, author, illustId) {
-      var container = document.getElementById(chunkId);
-      if (!container) return;
-      if (illustId) {
+    function escapeInlineHtml(value) {
+      if (value == null) return "";
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    window.pendingImages = window.pendingImages || {};
+
+    function applyImageToDom(chunkId, info) {
+      if (!chunkId || !info || !info.dataUrl) return false;
+      var container = document.getElementById(chunkId) || document.querySelector('[data-chunk-id="' + chunkId + '"]');
+      if (!container) return false;
+      var safeSrc = escapeInlineHtml(info.dataUrl);
+      var safeTitle = escapeInlineHtml(info.title || "");
+      var safeAuthor = escapeInlineHtml(info.author || "");
+      var safeIllustId = Number(info.illustId);
+      if (isFinite(safeIllustId) && safeIllustId > 0) {
+        safeIllustId = Math.floor(safeIllustId);
         var captionHtml = '';
-        if (title) {
-          captionHtml = '<div class="illust-caption"><span class="illust-title">' + (title || '') + '</span>' + (author ? '<span class="illust-author"> · by ' + (author || '') + '</span>' : '') + '</div>';
+        if (safeTitle) {
+          captionHtml = '<div class="illust-caption"><span class="illust-title">' + safeTitle + '</span>' + (safeAuthor ? '<span class="illust-author"> · by ' + safeAuthor + '</span>' : '') + '</div>';
         }
-        container.innerHTML = '<div class="pixiv-illust-card" onclick="handleOpenIllust(' + illustId + ')">' +
-          '<img class="novel-img" src="' + dataUrl + '" />' +
+        container.innerHTML = '<div class="pixiv-illust-card" onclick="handleOpenIllust(' + safeIllustId + ')">' +
+          '<img class="novel-img" src="' + safeSrc + '" alt="' + (safeTitle || 'Pixiv 插画') + '" />' +
           captionHtml +
           '</div>';
       } else {
-        container.innerHTML = '<img class="novel-img" src="' + dataUrl + '" />';
+        container.innerHTML = '<img class="novel-img" src="' + safeSrc + '" alt="插图" />';
       }
       // 图片撑开高度后重新对齐续读位置；用户已滚动则绝不拉回
       realignAfterImageLoad();
+      return true;
+    }
+
+    function flushPendingImages() {
+      if (!window.pendingImages) return;
+      var keys = Object.keys(window.pendingImages);
+      for (var i = 0; i < keys.length; i++) {
+        var k = keys[i];
+        if (window.pendingImages[k]) {
+          var success = applyImageToDom(k, window.pendingImages[k]);
+          if (success) {
+            delete window.pendingImages[k];
+          }
+        }
+      }
+    }
+
+    window.updateNovelImage = function(chunkId, dataUrl, title, author, illustId) {
+      var info = { dataUrl: dataUrl, title: title, author: author, illustId: illustId };
+      window.pendingImages[chunkId] = info;
+      var success = applyImageToDom(chunkId, info);
+      if (!success) {
+        setTimeout(flushPendingImages, 100);
+        setTimeout(flushPendingImages, 300);
+        setTimeout(flushPendingImages, 800);
+        setTimeout(flushPendingImages, 1500);
+      }
     };
 
     function scrollToNovelStart() {
@@ -1296,11 +1351,13 @@ ${NOVEL_READER_RUNTIME_JS}
     };
 
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", function() { restoreProgress(); });
+      document.addEventListener("DOMContentLoaded", function() { flushPendingImages(); restoreProgress(); });
     } else {
+      flushPendingImages();
       restoreProgress();
     }
     window.addEventListener("load", function() {
+      flushPendingImages();
       restoreProgress();
       setTimeout(function() { restoreProgress(); }, 50);
       setTimeout(function() { restoreProgress(); }, 150);
@@ -1531,8 +1588,19 @@ function NovelVerticalReaderView(props: {
     return initial
   })
 
+  const lastImageNovelIdRef = useRef(novelId)
   const imageCacheRef = useRef(imageCache)
-  imageCacheRef.current = imageCache
+  if (lastImageNovelIdRef.current !== novelId) {
+    lastImageNovelIdRef.current = novelId
+    imageCacheRef.current = {}
+  }
+
+  const prevNovelIdStateRef = useRef(novelId)
+  useEffect(() => {
+    if (prevNovelIdStateRef.current === novelId) return
+    prevNovelIdStateRef.current = novelId
+    setImageCache({})
+  }, [novelId])
 
   const onProgressChangeRef = useRef(onProgressChange)
   onProgressChangeRef.current = onProgressChange
@@ -1550,10 +1618,11 @@ function NovelVerticalReaderView(props: {
   const controller = controllerRef.current
   // 暴露控制器给上层（只读用途：下发目录/检索跳转脚本）
   useEffect(() => {
-    if (!props.controllerSink) return
-    props.controllerSink.current = controller
+    const sink = props.controllerSink
+    if (!sink) return
+    sink.current = controller
     return () => {
-      props.controllerSink.current = null
+      sink.current = null
     }
   }, [controller, props.controllerSink])
 
@@ -1595,6 +1664,29 @@ function NovelVerticalReaderView(props: {
         appliedAmbientRef.current = { generation, ...snapshot }
       }
     }).catch(() => {})
+  }, [])
+
+  const replayLoadedImages = useCallback(() => {
+    const ctrl = controllerRef.current
+    if (!ctrl) return
+    const currentCached = imageCacheRef.current
+    const keys = Object.keys(currentCached)
+    if (keys.length === 0) return
+    for (const chunkId of keys) {
+      const item = currentCached[chunkId]
+      if (item?.dataUrl) {
+        const script = item.illustId
+          ? `if (window.updateNovelImage) { window.updateNovelImage(${JSON.stringify(
+              chunkId
+            )}, ${JSON.stringify(item.dataUrl)}, ${JSON.stringify(item.title || "")}, ${JSON.stringify(
+              item.author || ""
+            )}, ${item.illustId}); }`
+          : `if (window.updateNovelImage) { window.updateNovelImage(${JSON.stringify(
+              chunkId
+            )}, ${JSON.stringify(item.dataUrl)}); }`
+        void ctrl.evaluateJavaScript(script).catch(() => {})
+      }
+    }
   }, [])
 
   // 仅真正卸载才释放控制器；换作品/重建 HTML 只令旧加载与补发失效。
@@ -1692,6 +1784,7 @@ function NovelVerticalReaderView(props: {
       if (!loaded || !readerAliveRef.current || generation !== htmlGenerationRef.current) return
       readyGenerationRef.current = generation
       syncAmbient()
+      replayLoadedImages()
       void ctrl.evaluateJavaScript(buildNovelTranslationPatchScript(translationRef.current, currentChunkIdRef.current)).catch(() => {})
     })().catch(() => {})
 
@@ -1705,7 +1798,7 @@ function NovelVerticalReaderView(props: {
 
   useEffect(() => {
     const ctrl = controllerRef.current
-    if (!ctrl || !translation) return
+    if (!ctrl || !readyGenerationRef.current || readyGenerationRef.current !== htmlGenerationRef.current) return
     void ctrl.evaluateJavaScript(buildNovelTranslationPatchScript(translation, currentChunkIdRef.current)).catch(() => {})
   }, [translation])
 
@@ -1764,6 +1857,29 @@ function NovelVerticalReaderView(props: {
     void ctrl.evaluateJavaScript(script).catch(() => {})
   }, [settings])
 
+  const commitLoadedImage = useCallback(
+    (
+      chunkId: string,
+      entry: { dataUrl: string; title?: string; author?: string; illustId?: number }
+    ) => {
+      imageCacheRef.current = { ...imageCacheRef.current, [chunkId]: entry }
+      setImageCache((prev: any) => ({ ...prev, [chunkId]: entry }))
+      if (readyGenerationRef.current === htmlGenerationRef.current && readyGenerationRef.current > 0) {
+        const script = entry.illustId
+          ? `if (window.updateNovelImage) { window.updateNovelImage(${JSON.stringify(
+              chunkId
+            )}, ${JSON.stringify(entry.dataUrl)}, ${JSON.stringify(entry.title || "")}, ${JSON.stringify(
+              entry.author || ""
+            )}, ${entry.illustId}); }`
+          : `if (window.updateNovelImage) { window.updateNovelImage(${JSON.stringify(
+              chunkId
+            )}, ${JSON.stringify(entry.dataUrl)}); }`
+        void controller.evaluateJavaScript(script).catch(() => {})
+      }
+    },
+    [controller]
+  )
+
   // 异步拉取正文插图与引用的 Pixiv 插画
   useEffect(() => {
     let active = true
@@ -1776,14 +1892,7 @@ function NovelVerticalReaderView(props: {
       if (offlinePath) {
         const offlineDataUrl = getLocalImageDataUrl(offlinePath)
         if (offlineDataUrl) {
-          setImageCache((prev: any) => ({ ...prev, [chunk.id]: { dataUrl: offlineDataUrl } }))
-          void controller
-            .evaluateJavaScript(
-              `if (window.updateNovelImage) { window.updateNovelImage(${JSON.stringify(
-                chunk.id
-              )}, ${JSON.stringify(offlineDataUrl)}); }`
-            )
-            .catch(() => {})
+          commitLoadedImage(chunk.id, { dataUrl: offlineDataUrl })
           continue
         }
       }
@@ -1799,17 +1908,7 @@ function NovelVerticalReaderView(props: {
             if (!dataUrl) return
             // 该篇若已保存离线，把这次真实拿到的字节补进书库（原本待补/缺地址的插图）
             if (novelId) completePendingOfflineImage(novelId, chunk.id, path)
-            setImageCache((prev: any) => ({
-              ...prev,
-              [chunk.id]: { dataUrl },
-            }))
-            void controller
-              .evaluateJavaScript(
-                `if (window.updateNovelImage) { window.updateNovelImage(${JSON.stringify(
-                  chunk.id
-                )}, ${JSON.stringify(dataUrl)}); }`
-              )
-              .catch(() => {})
+            commitLoadedImage(chunk.id, { dataUrl })
           })
           .catch(() => {})
       } else if (chunk.type === "pixivimage" && chunk.illustId) {
@@ -1830,19 +1929,7 @@ function NovelVerticalReaderView(props: {
             const title = illust.title || `Pixiv 插画 #${illustId}`
             const author = illust.user?.name || ""
             if (novelId) completePendingOfflineImage(novelId, chunk.id, path)
-            setImageCache((prev: any) => ({
-              ...prev,
-              [chunk.id]: { dataUrl, title, author, illustId },
-            }))
-            void controller
-              .evaluateJavaScript(
-                `if (window.updateNovelImage) { window.updateNovelImage(${JSON.stringify(
-                  chunk.id
-                )}, ${JSON.stringify(dataUrl)}, ${JSON.stringify(title)}, ${JSON.stringify(
-                  author
-                )}, ${illustId}); }`
-              )
-              .catch(() => {})
+            commitLoadedImage(chunk.id, { dataUrl, title, author, illustId })
           })
           .catch(() => {})
       }
@@ -1851,7 +1938,7 @@ function NovelVerticalReaderView(props: {
     return () => {
       active = false
     }
-  }, [chunks, controller])
+  }, [chunks, commitLoadedImage, offlineImagePaths, novelId])
 
   return (
     <VStack

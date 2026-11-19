@@ -208,6 +208,7 @@ function createHarness(options = {}) {
     ...anchorExports,
     ...runtimeExports,
     ...offlineLibraryExports,
+    ...(options.offlineOverrides ?? {}),
     console: { log() {}, warn() {} },
     setTimeout: (fn) => { return 0 },
     clearTimeout() {},
@@ -223,7 +224,7 @@ function createHarness(options = {}) {
     Device: { screen: { height: 800 } },
     session: { call: (fn) => fn("fixture-token") },
     novelDetail: async (id) => ({ id, title: `新题${id}`, caption: "新简介" }),
-    novelViewerData: async () => ({ text: "新正文一\n[newpage]\n新正文二\n[newpage]\n新正文三" }),
+    novelViewerData: options.novelViewerData ?? (async () => ({ text: "新正文一\n[newpage]\n新正文二\n[newpage]\n新正文三" })),
     illustrationDetail: async () => undefined,
     getCachedNovel: () => null,
     cacheNovel() {},
@@ -254,7 +255,7 @@ function createHarness(options = {}) {
       seriesID: 10, seriesTitle: "系列", episodeNumber: 1,
       hasPrev: true, prevID: 1, hasNext: true, nextID: 3, loading: false,
     }),
-    useNovelTranslation: () => options.translation ?? ({ session: null, snapshot: null }),
+    useNovelTranslation: () => options.getTranslation ? options.getTranslation() : (options.translation ?? { session: null, snapshot: null }),
     loadNovelReaderSettings: () => ({
       layoutDirection: options.direction ?? "horizontal", pageDisplayMode: "continuous",
       fontSize: 18, fontWeight: "regular", lineSpacingLevel: 1,
@@ -546,6 +547,7 @@ for (const direction of ["horizontal", "vertical"]) {
             findNode(tree, node => node.type === "Button" && node.props.title === "重试失败段落（1）").props.action()
             assert.equal(calls[1][0], "start")
             assert.deepEqual(Array.from(calls[1][1]), ["bad"])
+            assert.equal(calls[1][2], true)
           }
           harness.handlers.onScrollState({ owner: generationOf(harness.loaded[0]), scrolling: true })
           await harness.runtime.settle()
@@ -584,4 +586,144 @@ test("自绘顶部栏的目录检索按钮能打开面板", async () => {
   const host = findNode(tree, node => node.props?.sheet?.content?.type === "NovelOutlineSearchSheet")
   assert.ok(host, "目录检索 Sheet 应存在")
   assert.equal(host.props.sheet.isPresented, true)
+})
+
+test("底栏页码控制器随 controlsVisible 禁用命中测试，离线提示横幅禁用命中并避让顶栏", async () => {
+  let failNetwork = false
+  const harness = createHarness({
+    novelViewerData: async () => {
+      if (failNetwork) throw new Error("offline")
+      return { text: "新正文一\n[newpage]\n新正文二" }
+    },
+    offlineOverrides: {
+      readOfflineEpisode: (id) => (id === 2
+        ? { novelId: 2, title: "离线二话", text: "离线第1页\n[newpage]\n离线第2页", pageCount: 2 }
+        : null),
+    },
+  })
+  await harness.runtime.settle()
+
+  let tree = harness.runtime.render()
+  let bottomBar = findNode(tree, node => node.type === "VStack" && node.props?.frame?.alignment === "bottom")
+  assert.ok(bottomBar, "多页小说应渲染底部页码栏")
+  assert.equal(bottomBar.props.allowsHitTesting, true)
+
+  // 触发控件隐藏
+  harness.handlers.onScrollState({ owner: generationOf(harness.loaded[0]), scrolling: true })
+  await harness.runtime.settle()
+  tree = harness.runtime.render()
+  bottomBar = findNode(tree, node => node.type === "VStack" && node.props?.frame?.alignment === "bottom")
+  assert.equal(bottomBar.props.allowsHitTesting, false, "隐藏工具栏时底栏容器必须禁用命中测试")
+
+  // 断网切换话数触发离线横幅
+  failNetwork = true
+  harness.handlers.onSeriesNav({ action: "next", id: 2, owner: generationOf(harness.loaded[0]) })
+  await harness.runtime.settle(12)
+  tree = harness.runtime.render()
+  const noticeWrapper = findNode(tree, node =>
+    node.type === "VStack" && node.props?.frame?.alignment === "top" &&
+    collectStrings(node).some(s => s.includes("离线阅读：本话正文来自离线书库"))
+  )
+  assert.ok(noticeWrapper, "离线换章后应渲染离线提示横幅")
+  assert.equal(noticeWrapper.props.allowsHitTesting, false, "离线提示横幅不得阻挡阅读手势")
+  assert.ok((noticeWrapper.props.padding?.top ?? 0) >= 52, "离线提示横幅应保留顶部顶栏避让内边距")
+})
+
+test("沉浸阅读器 translation 副作用受 readyGenerationRef 保护，置 null 可恢复原文", async () => {
+  const loads = []
+  let currentTranslation = {
+    mode: "translated",
+    blocks: { "chunk-0": { id: "chunk-0", kind: "text", status: "done", translation: "译文一" } },
+  }
+  const harness = createHarness({
+    loadHTML: () => new Promise((resolve) => loads.push(resolve)),
+    getTranslation: () => ({ session: null, snapshot: currentTranslation }),
+  })
+  await harness.runtime.settle()
+  assert.equal(harness.scripts.filter(s => s.includes("__novelTranslationOriginals")).length, 0,
+    "loadHTML 未完成前改变 translation 不得向未就绪文档打补丁")
+
+  currentTranslation = {
+    mode: "translated",
+    blocks: { "chunk-0": { id: "chunk-0", kind: "text", status: "done", translation: "译文二" } },
+  }
+  harness.runtime.render()
+  await harness.runtime.settle()
+  assert.equal(harness.scripts.filter(s => s.includes("__novelTranslationOriginals")).length, 0)
+
+  loads[0](true)
+  await harness.runtime.settle(12)
+  assert.equal(harness.scripts.filter(s => s.includes("__novelTranslationOriginals")).length, 1)
+
+  currentTranslation = null
+  harness.runtime.render()
+  await harness.runtime.settle()
+  const patchScripts = harness.scripts.filter(s => s.includes("__novelTranslationOriginals"))
+  assert.equal(patchScripts.length, 2, "translation 置 null 时已就绪文档必须收到恢复原文补丁")
+  assert.match(patchScripts[1], /const rendered = \{\};/)
+})
+
+test("沉浸阅读器横竖排 CSS 与 applyImageToDom XSS 转义及脚本可解析", async () => {
+  for (const direction of ["horizontal", "vertical"]) {
+    const harness = createHarness({ direction })
+    await harness.runtime.settle()
+    const html = harness.loaded[0]
+    assert.ok(html)
+
+    if (direction === "horizontal") {
+      assert.match(html, /max-width:\s*760px/)
+      assert.match(html, /white-space:\s*pre-wrap/)
+    } else {
+      assert.match(html, /text-orientation:\s*mixed/)
+      assert.match(html, /overflow-wrap:\s*break-word/)
+      assert.match(html, /word-break:\s*normal/)
+    }
+
+    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])
+    assert.ok(scripts.length >= 1)
+    let imageScript = ""
+    for (const code of scripts) {
+      new vm.Script(code)
+      if (code.includes("window.updateNovelImage")) imageScript = code
+    }
+    assert.ok(imageScript)
+
+    const container = { innerHTML: "" }
+    const win = {
+      pendingImages: {},
+      addEventListener() {},
+      innerWidth: 390,
+      innerHeight: 844,
+      scrollX: 0,
+      scrollY: 0,
+      webkit: { messageHandlers: {} },
+    }
+    const doc = {
+      readyState: "complete",
+      getElementById: (id) => (id === "img-0" ? container : null),
+      querySelector: () => null,
+      querySelectorAll: () => [],
+      addEventListener() {},
+      body: { style: {} },
+      documentElement: { style: {} },
+    }
+    vm.runInNewContext(imageScript, {
+      window: win,
+      document: doc,
+      setTimeout: () => 0,
+      clearTimeout() {},
+      requestAnimationFrame() {},
+      console: { log() {}, warn() {} },
+      Math,
+      Number,
+      String,
+      isFinite,
+    })
+    win.updateNovelImage("img-0", 'https://x.test/"<img', 'Tit<"le', "Au'<&or", 42)
+    assert.match(container.innerHTML, /onclick="handleOpenIllust\(42\)"/)
+    assert.match(container.innerHTML, /&quot;&lt;img/)
+    assert.match(container.innerHTML, /Tit&lt;&quot;le/)
+    assert.match(container.innerHTML, /Au&#39;&lt;&amp;or/)
+    assert.doesNotMatch(container.innerHTML, /Tit<"le/)
+  }
 })

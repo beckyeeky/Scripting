@@ -518,6 +518,8 @@ ${THEME_CSS_VARS}
 
   .immersive-content-wrapper {
     width: 100%;
+    max-width: 760px;
+    margin: 0 auto;
     box-sizing: border-box;
     padding-top: 68px;
     padding-bottom: 100px;
@@ -546,6 +548,7 @@ ${THEME_CSS_VARS}
 
   .paragraph {
     margin: 0 0 1.15em 0;
+    white-space: pre-wrap;
     word-wrap: break-word;
     word-break: break-word;
     text-align: justify;
@@ -875,24 +878,39 @@ ${NOVEL_READER_RUNTIME_JS}
       postNovelMessage("openLink", { url: url });
     }
 
+    function escapeInlineHtml(value) {
+      if (value == null) return "";
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
     window.pendingImages = window.pendingImages || {};
 
     function applyImageToDom(chunkId, info) {
       if (!chunkId || !info || !info.dataUrl) return false;
       var container = document.getElementById(chunkId) || document.querySelector('[data-chunk-id="' + chunkId + '"]');
       if (!container) return false;
+      var safeSrc = escapeInlineHtml(info.dataUrl);
+      var safeTitle = escapeInlineHtml(info.title || "");
+      var safeAuthor = escapeInlineHtml(info.author || "");
+      var safeIllustId = Number(info.illustId);
 
-      if (info.illustId) {
+      if (isFinite(safeIllustId) && safeIllustId > 0) {
+        safeIllustId = Math.floor(safeIllustId);
         var captionHtml = '';
-        if (info.title) {
-          captionHtml = '<div class="illust-caption"><span class="illust-title">' + (info.title || '') + '</span>' + (info.author ? '<span class="illust-author"> · by ' + (info.author || '') + '</span>' : '') + '</div>';
+        if (safeTitle) {
+          captionHtml = '<div class="illust-caption"><span class="illust-title">' + safeTitle + '</span>' + (safeAuthor ? '<span class="illust-author"> · by ' + safeAuthor + '</span>' : '') + '</div>';
         }
-        container.innerHTML = '<div class="pixiv-illust-card" onclick="handleOpenIllust(' + info.illustId + ')">' +
-          '<img class="novel-img" src="' + info.dataUrl + '" alt="' + (info.title || '插图') + '" />' +
+        container.innerHTML = '<div class="pixiv-illust-card" onclick="handleOpenIllust(' + safeIllustId + ')">' +
+          '<img class="novel-img" src="' + safeSrc + '" alt="' + (safeTitle || '插图') + '" />' +
           captionHtml +
           '</div>';
       } else {
-        container.innerHTML = '<img class="novel-img" src="' + info.dataUrl + '" alt="正文插图" />';
+        container.innerHTML = '<img class="novel-img" src="' + safeSrc + '" alt="正文插图" />';
       }
       // 插图撑开高度后重新对齐续读位置，避免迟加载把阅读位置推走
       if (typeof realignToTarget === "function") realignToTarget();
@@ -1313,8 +1331,8 @@ ${THEME_CSS_VARS}
     -webkit-overflow-scrolling: touch;
     writing-mode: vertical-rl;
     -webkit-writing-mode: vertical-rl;
-    text-orientation: upright;
-    -webkit-text-orientation: upright;
+    text-orientation: mixed;
+    -webkit-text-orientation: mixed;
     font-family: ${fontFamily};
     font-size: ${settings.fontSize}px;
     font-weight: ${fontWeight};
@@ -1351,7 +1369,8 @@ ${THEME_CSS_VARS}
     margin: 0 10px;
     white-space: pre-wrap;
     line-break: strict;
-    word-break: break-all;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
   .empty-line {
     width: 14px;
@@ -1712,24 +1731,39 @@ ${NOVEL_READER_RUNTIME_JS}
       postNovelMessage("openLink", { url: url });
     }
 
+    function escapeInlineHtml(value) {
+      if (value == null) return "";
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
     window.pendingImages = window.pendingImages || {};
 
     function applyImageToDom(chunkId, info) {
       if (!chunkId || !info || !info.dataUrl) return false;
       var container = document.getElementById(chunkId) || document.querySelector('[data-chunk-id="' + chunkId + '"]');
       if (!container) return false;
+      var safeSrc = escapeInlineHtml(info.dataUrl);
+      var safeTitle = escapeInlineHtml(info.title || "");
+      var safeAuthor = escapeInlineHtml(info.author || "");
+      var safeIllustId = Number(info.illustId);
 
-      if (info.illustId) {
+      if (isFinite(safeIllustId) && safeIllustId > 0) {
+        safeIllustId = Math.floor(safeIllustId);
         var captionHtml = '';
-        if (info.title) {
-          captionHtml = '<div class="illust-caption"><span class="illust-title">' + (info.title || '') + '</span>' + (info.author ? '<span class="illust-author"> · by ' + (info.author || '') + '</span>' : '') + '</div>';
+        if (safeTitle) {
+          captionHtml = '<div class="illust-caption"><span class="illust-title">' + safeTitle + '</span>' + (safeAuthor ? '<span class="illust-author"> · by ' + safeAuthor + '</span>' : '') + '</div>';
         }
-        container.innerHTML = '<div class="pixiv-illust-card" onclick="handleOpenIllust(' + info.illustId + ')">' +
-          '<img class="novel-img" src="' + info.dataUrl + '" alt="' + (info.title || '插图') + '" />' +
+        container.innerHTML = '<div class="pixiv-illust-card" onclick="handleOpenIllust(' + safeIllustId + ')">' +
+          '<img class="novel-img" src="' + safeSrc + '" alt="' + (safeTitle || '插图') + '" />' +
           captionHtml +
           '</div>';
       } else {
-        container.innerHTML = '<img class="novel-img" src="' + info.dataUrl + '" alt="正文插图" />';
+        container.innerHTML = '<img class="novel-img" src="' + safeSrc + '" alt="正文插图" />';
       }
       // 插图撑开高度后重新对齐续读位置，避免迟加载把阅读位置推走
       if (typeof realignToTarget === "function") realignToTarget();
@@ -2092,7 +2126,6 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
     Record<string, { dataUrl: string; title?: string; author?: string; illustId?: number }>
   >({})
   const imageCacheRef = useRef(imageCache)
-  imageCacheRef.current = imageCache
 
   // 环境光只更新当前已完成加载的文档；串行发送避免慢 JS 回包造成新旧配色倒序。
   const readerAliveRef = useRef(true)
@@ -2328,7 +2361,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
           : session.call((token) => novelDetail(targetNovelId, token))
         const viewerPromise = session.call((token) => novelViewerData(targetNovelId, token))
 
-        let detail: PixivNovelDetail | null = null
+        let detail: PixivNovelDetail | PixivNovel | null = null
         let viewerText: string | null = null
         let viewerImages: Record<string, TextEmbeddedImage> | undefined
         try {
@@ -2343,7 +2376,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
 
         const offlineFallback = !viewerText && Boolean(offlineRecord)
         if (!detail && offlineRecord) {
-          detail = synthesizeOfflineNovelDetail(offlineRecord, (cached as any) ?? null)
+          detail = synthesizeOfflineNovelDetail(offlineRecord, cached ?? null)
         }
 
         if (detail) {
@@ -2380,6 +2413,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
         setActiveCoverUrl(newCover)
         setActiveImages(newImages)
         setOfflineEpisodeNotice(offlineFallback ? "离线阅读：本话正文来自离线书库" : null)
+        imageCacheRef.current = {}
         setImageCache({})
         setCurrentPage(targetPage)
         setActiveMarkerPage(nextMarker)
@@ -2623,7 +2657,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
 
   useEffect(() => {
     const ctrl = controllerRef.current
-    if (!ctrl || !translation) return
+    if (!ctrl || !readyGenerationRef.current || readyGenerationRef.current !== htmlGenerationRef.current) return
     void ctrl.evaluateJavaScript(buildNovelTranslationPatchScript(translation, currentChunkIdRef.current)).catch(() => {})
   }, [translation])
 
@@ -2692,6 +2726,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
       if (offlinePath) {
         const offlineDataUrl = getLocalImageDataUrl(offlinePath)
         if (offlineDataUrl) {
+          imageCacheRef.current = { ...imageCacheRef.current, [chunk.id]: { dataUrl: offlineDataUrl } }
           setImageCache((prev) => ({ ...prev, [chunk.id]: { dataUrl: offlineDataUrl } }))
           const ctrl = controllerRef.current
           if (ctrl) {
@@ -2714,6 +2749,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
             if (!dataUrl) return
             // 已保存离线的篇章：把这次真实拿到的字节补齐到离线书库
             if (activeNovelId) completePendingOfflineImage(activeNovelId, chunk.id, path)
+            imageCacheRef.current = { ...imageCacheRef.current, [chunk.id]: { dataUrl } }
             setImageCache((prev) => ({ ...prev, [chunk.id]: { dataUrl } }))
             const ctrl = controllerRef.current
             if (ctrl) {
@@ -2740,14 +2776,16 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
             const illustTitle = illust.title || `Pixiv 插画 #${illustId}`
             const author = illust.user?.name || ""
             if (activeNovelId) completePendingOfflineImage(activeNovelId, chunk.id, path)
+            const entry = {
+              dataUrl,
+              title: illustTitle,
+              author,
+              illustId,
+            }
+            imageCacheRef.current = { ...imageCacheRef.current, [chunk.id]: entry }
             setImageCache((prev) => ({
               ...prev,
-              [chunk.id]: {
-                dataUrl,
-                title: illustTitle,
-                author,
-                illustId,
-              },
+              [chunk.id]: entry,
             }))
             const ctrl = controllerRef.current
             if (ctrl) {
@@ -2849,7 +2887,8 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
               ) : null}
               {translation.failed > 0 ? (
                 <Button title={`重试失败段落（${translation.failed}）`} action={() => void translationSession.start(
-                  Object.values(translation.blocks).filter((b) => b.status === "error").map((b) => b.id)
+                  Object.values(translation.blocks).filter((b) => b.status === "error").map((b) => b.id),
+                  true
                 )} />
               ) : null}
               {translation.message ? <Button title={translation.message} disabled action={() => {}} /> : null}
@@ -2896,7 +2935,11 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
 
       {/* 2b. 离线阅读标注（断网由离线书库载入的篇章，明确不宣称在线） */}
       {offlineEpisodeNotice ? (
-        <VStack frame={{ maxWidth: "infinity", maxHeight: "infinity", alignment: "top" }}>
+        <VStack
+          frame={{ maxWidth: "infinity", maxHeight: "infinity", alignment: "top" }}
+          padding={{ top: topInset + 52, horizontal: horizontalInset }}
+          allowsHitTesting={false}
+        >
           <HStack
             spacing={8}
             padding={{ horizontal: 14, vertical: 8 }}
@@ -2915,12 +2958,16 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
 
       {/* 3. 悬浮底栏：页数指示器（多页小说时渲染，带自动轻柔淡出） */}
       {totalPages > 1 ? (
-        <VStack frame={{ maxWidth: "infinity", maxHeight: "infinity", alignment: "bottom" }}>
+        <VStack
+          frame={{ maxWidth: "infinity", maxHeight: "infinity", alignment: "bottom" }}
+          allowsHitTesting={controlsVisible}
+        >
           <VStack
             padding={{ horizontal: horizontalInset, bottom: bottomInset }}
             frame={{ maxWidth: "infinity" }}
             opacity={controlsVisible ? 1 : 0}
             animation={{ animation: Animation.smooth({ duration: 0.25 }), value: controlsVisible }}
+            allowsHitTesting={controlsVisible}
           >
             <HStack alignment="center" frame={{ maxWidth: "infinity" }}>
               {/* 左侧：上一页 */}
@@ -3070,6 +3117,7 @@ export function NovelImmersiveReaderView(props: NovelImmersiveReaderViewProps) {
             <NovelOutlineSearchSheet
               title={activeTitle}
               chunks={chunks}
+              translation={translation}
               currentChunkId={currentChunkIdRef.current}
               currentPage={currentPage}
               onJump={handleOutlineSearchJump}

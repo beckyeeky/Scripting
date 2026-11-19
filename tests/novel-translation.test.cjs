@@ -940,3 +940,137 @@ test("App 真正进后台时暂停，回前台恢复；脚本最小化时不提�
   assert.equal(pauses, 2)
   assert.equal(resumes, 2)
 })
+
+test("摘要与术语失败分别记录诊断信息并可单独重试恢复，不覆盖总错误", async () => {
+  let summaryFail = true
+  let glossaryFail = true
+  const f = createStoreFixture({
+    summary: async () => {
+      if (summaryFail) throw new Error("timeout")
+      return "恢复后的摘要"
+    },
+    glossary: async () => {
+      if (glossaryFail) throw new Error("429 rate limit")
+      return "人物｜Alice｜爱丽丝"
+    },
+  })
+  const input = {
+    novelId: 91,
+    title: "标题",
+    caption: "简介",
+    text: "Alice".repeat(120),
+    blocks: [{ id: "a", text: "Alice" }],
+  }
+  const session = f.module.getNovelTranslationSession(input)
+  await session.start()
+  let snap = session.getSnapshot()
+  assert.equal(snap.summaryStatus, "error")
+  assert.match(snap.summaryError ?? "", /超时/)
+  assert.equal(snap.glossaryStatus, "error")
+  assert.match(snap.glossaryError ?? "", /限流/)
+  assert.equal(snap.done, 1)
+  assert.equal(snap.message, undefined)
+
+  summaryFail = false
+  glossaryFail = false
+  await session.start([])
+  snap = session.getSnapshot()
+  assert.equal(snap.summaryStatus, "ready")
+  assert.equal(snap.summaryError, undefined)
+  assert.equal(snap.glossaryStatus, "ready")
+  assert.equal(snap.glossaryError, undefined)
+})
+
+test("AI 清洗、三分拆分与注音解析支持 emphasismark、嵌套装饰及 &gt;", async () => {
+  const clean = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "cleanNovelTextForAI")
+  assert.equal(
+    clean("[b:［i：[[emphasismark:意識 > ﹅]]は[[rb:星 &gt; ほし]]］]"),
+    "意識は星"
+  )
+
+  const tokenize = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "tokenizeNovelPassageForSplit")
+  const tokens = tokenize("前文[[emphasismark:重點 > ﹅]]后文")
+  assert.ok(tokens.includes("[[emphasismark:重點 > ﹅]]"))
+
+  let lastReq = null
+  const translate = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "translateNovelPassage", {
+    novelTranslationTargetName: () => "简体中文",
+    validateNovelTranslation() {},
+    executeUniversalAI: async (req) => {
+      lastReq = req
+      return "翻译结果"
+    },
+  })
+  const longText = "あ".repeat(1795) + "[[emphasismark:重要語 > ﹅]]" + "い".repeat(100)
+  await translate(longText, { title: "标题" })
+  const splitUserPrompt = String(lastReq?.messages?.[0]?.content ?? "")
+  assert.doesNotMatch(splitUserPrompt, /\[\[emphasismark:重要語$/)
+
+  lastReq = null
+  await translate("[[rb:星空 &gt; ほしぞら]]と[[emphasismark:約束 > ﹅]]", { title: "标题" })
+  const rubyUserPrompt = String(lastReq?.messages?.[0]?.content ?? "")
+  assert.match(rubyUserPrompt, /星空（ほしぞら）と約束/)
+  assert.match(String(lastReq?.systemPrompt ?? ""), /不要使用 Markdown|不使用 Markdown/)
+})
+
+test("部分未译超长正文校验拒绝保留大量假名的结果，短词保留允许通过", () => {
+  const validate = loadExportedFunction("Pix-Scripting/src/api/aiService.ts", "validateNovelTranslation", {
+    translationQualityError: (reason) => { throw new Error(`译文质量检查失败：${reason}`) },
+  })
+  const longJapanese = "これは非常に長い日本語の物語の文章であり、しっかりと翻訳されるべき内容です。".repeat(2)
+  assert.throws(
+    () => validate(longJapanese, `前面翻了一点，後面還是 ${longJapanese}`, "zh-CN", "text"),
+    /大量未翻译/
+  )
+  assert.doesNotThrow(
+    () => validate(longJapanese, "这是一个完整而流畅的中文译文，保留了少量专有名词の示例。".repeat(2), "zh-CN", "text")
+  )
+})
+
+test("buildNovelTranslationPatchScript 用 innerHTML 保留章节标题行内格式并兼容纯 textContent 替身", () => {
+  const inlineMarkup = loadModule("Pix-Scripting/src/ui/novelInlineMarkup.ts", {})
+  const formatPixivRubyToHtml = loadExportedFunction("Pix-Scripting/src/ui/NovelReader.tsx", "formatPixivRubyToHtml", {
+    hasNovelInlineMarkup: inlineMarkup.hasNovelInlineMarkup,
+    formatNovelInlineHtml: inlineMarkup.formatNovelInlineHtml,
+    escapeNovelHtml: inlineMarkup.escapeNovelHtml,
+  })
+  const patchScriptFn = loadExportedFunction("Pix-Scripting/src/ui/NovelReader.tsx", "buildNovelTranslationPatchScript", {
+    formatPixivRubyToHtml,
+  })
+
+  const makeDom = (withInnerHtml) => {
+    const titleEl = withInnerHtml
+      ? { innerHTML: "<strong>Orig</strong>", textContent: "Orig" }
+      : { textContent: "Orig" }
+    const chapterNode = {
+      getAttribute: (name) => (name === "data-chunk-id" ? "chap-1" : null),
+      querySelector: (sel) => (sel === ".chapter-title" ? titleEl : null),
+    }
+    const doc = {
+      querySelector: () => null,
+      getElementById: () => null,
+      querySelectorAll: (sel) => (sel === ".chapter-block" ? [chapterNode] : []),
+    }
+    return { titleEl, doc }
+  }
+
+  const domRich = makeDom(true)
+  const winRich = {}
+  const toTranslated = patchScriptFn({
+    mode: "translated",
+    blocks: {
+      "chap-1": { id: "chap-1", kind: "chapter", status: "done", translation: "[b:第一章]" },
+    },
+  })
+  vm.runInNewContext(toTranslated, { window: winRich, document: domRich.doc, requestAnimationFrame() {} })
+  assert.equal(domRich.titleEl.innerHTML, "<strong>第一章</strong>")
+
+  const toOriginal = patchScriptFn({ mode: "original", blocks: {} })
+  vm.runInNewContext(toOriginal, { window: winRich, document: domRich.doc, requestAnimationFrame() {} })
+  assert.equal(domRich.titleEl.innerHTML, "<strong>Orig</strong>")
+
+  const domPlain = makeDom(false)
+  const winPlain = {}
+  vm.runInNewContext(toTranslated, { window: winPlain, document: domPlain.doc, requestAnimationFrame() {} })
+  assert.equal(domPlain.titleEl.textContent, "[b:第一章]")
+})

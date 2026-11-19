@@ -36,6 +36,7 @@ function loadModule() {
 
 const {
   formatNovelInlineHtml,
+  formatNovelInlineXHtml,
   formatNovelInlineText,
   buildNovelStyledContent,
   hasNovelInlineMarkup,
@@ -136,4 +137,30 @@ test("相邻同样式片段合并，避免碎片化", () => {
   const content = buildNovelStyledContent("[b:甲][b:乙]")
   // VM 数组/对象具有独立原型，转换到当前 realm 后比较实际数据。
   assert.deepEqual(JSON.parse(JSON.stringify(content)), [{ content: ["甲乙"], bold: true }])
+})
+
+test("全角与双方括号 [b:]/[i:] 统一解析渲染并保持纯文本与富文本一致", () => {
+  assert.equal(hasNovelInlineMarkup("［b：全角加粗］"), true)
+  assert.equal(hasNovelInlineMarkup("[[i:双方括号斜体]]"), true)
+  assert.equal(formatNovelInlineHtml("［b：全角加粗］"), "<strong>全角加粗</strong>")
+  assert.equal(formatNovelInlineHtml("［［i：双全角斜体］］"), "<em>双全角斜体</em>")
+  assert.equal(
+    formatNovelInlineHtml("[[b:[[rb:漢字 > かんじ]]]]"),
+    "<strong><ruby>漢字<rt>かんじ</rt></ruby></strong>"
+  )
+  assert.equal(formatNovelInlineText("［b：全角］[[i:斜体]]"), "全角斜体")
+  assert.deepEqual(JSON.parse(JSON.stringify(buildNovelStyledContent("［b：重点］"))), [
+    { content: ["重点"], bold: true },
+  ])
+})
+
+test("EPUB XHTML 输出使用标准 href 链接并完整保留加粗、斜体与着重号", () => {
+  const xhtml = formatNovelInlineXHtml(
+    "[[jumpuri:首页 > https://example.com/?a=1&b=2]] [b:加粗] [i:斜体] [[emphasismark:着重 > ﹅]]"
+  )
+  assert.match(xhtml, /<a href="https:\/\/example\.com\/\?a=1&amp;b=2">首页<\/a>/)
+  assert.doesNotMatch(xhtml, /javascript:handleLinkClick/)
+  assert.match(xhtml, /<strong>加粗<\/strong>/)
+  assert.match(xhtml, /<em>斜体<\/em>/)
+  assert.match(xhtml, /class="novel-emphasis"/)
 })

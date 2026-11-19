@@ -1,8 +1,8 @@
 /**
  * Pixiv 小说行内语法解析（纯函数，无宿主依赖）
  *
- * 支持（严格对齐 pixiv 官方「pixiv小説記法」）：
- *   [b:文本] 加粗      [i:文本] 斜体
+ * 支持（严格对齐 pixiv 官方「pixiv小説記法」，兼容半角/全角括号与冒号）：
+ *   [b:文本] / ［b：文本］ / [[b:文本]] 加粗      [i:文本] / ［i：文本］ / [[i:文本]] 斜体
  *   [[rb:汉字 > 假名]] 注音
  *   [[emphasismark:文字 > ﹅]] 着重号（傍点）
  *   [[jumpuri:标题 > URL]] 链接
@@ -34,7 +34,7 @@ type NovelInlineNode =
   | { type: "emphasis"; text: string; mark: string }
   | { type: "link"; title: string; url: string }
 
-const DECORATION_OPEN = /^\[(b|i)\s*:/i
+const DECORATION_OPEN = /^(\[{1,2}|［{1,2})(b|i)\s*[:：]/i
 const RUBY_PATTERN = /^\[\[rb:\s*([^\r\n>\]]+?)\s*(?:>|&gt;)\s*([^\]\r\n]+?)\s*\]\]/i
 const EMPHASIS_PATTERN = /^\[\[emphasismark:\s*([^\r\n>\]]+?)\s*(?:>|&gt;)\s*([^\]\r\n]*?)\s*\]\]/i
 const LINK_PATTERN = /^\[\[jumpuri:\s*([^\r\n>\]]+?)\s*(?:>|&gt;)\s*([^\]\r\n]+?)\s*\]\]/i
@@ -49,37 +49,61 @@ function lowerStartsWith(source: string, prefix: string): boolean {
   return source.slice(0, prefix.length).toLowerCase() === prefix
 }
 
-/** 找到装饰标签对应的收尾 `]`；跳过嵌套标签与 `[[...]]` 双括号块。 */
-function findDecorationClose(text: string, start: number): number {
-  let depth = 0
+function isCloseBracket(ch: string | undefined): boolean {
+  return ch === "]" || ch === "］"
+}
+
+/** 找到装饰标签对应的收尾 `]`/`］`；跳过嵌套装饰标签与 `[[...]]` 双括号块。 */
+function findDecorationClose(
+  text: string,
+  start: number,
+  expectedCloseCount: number
+): { innerEnd: number; closeEnd: number } | null {
+  const stack = [expectedCloseCount]
   let i = start
   while (i < text.length) {
-    if (text[i] === "[") {
-      if (text[i + 1] === "[") {
-        const end = text.indexOf("]]", i + 2)
-        if (end !== -1) {
-          i = end + 2
+    const ch = text[i]
+    if (ch === "[" || ch === "［") {
+      const rest = text.slice(i)
+      if (ch === "[" && text[i + 1] === "[") {
+        const inlineMatch =
+          RUBY_PATTERN.exec(rest) ??
+          EMPHASIS_PATTERN.exec(rest) ??
+          LINK_PATTERN.exec(rest)
+        if (inlineMatch) {
+          i += inlineMatch[0].length
           continue
         }
       }
-      const open = DECORATION_OPEN.exec(text.slice(i))
+      const open = DECORATION_OPEN.exec(rest)
       if (open) {
-        depth += 1
+        stack.push(open[1].length)
         i += open[0].length
         continue
       }
       i += 1
       continue
     }
-    if (text[i] === "]") {
-      if (depth === 0) return i
-      depth -= 1
+    if (isCloseBracket(ch)) {
+      const need = stack[stack.length - 1]
+      if (need === 2) {
+        if (isCloseBracket(text[i + 1])) {
+          stack.pop()
+          if (stack.length === 0) return { innerEnd: i, closeEnd: i + 2 }
+          i += 2
+          continue
+        }
+        i += 1
+        continue
+      }
+      stack.pop()
+      if (stack.length === 0) return { innerEnd: i, closeEnd: i + 1 }
       i += 1
       continue
     }
     i += 1
   }
-  return -1
+  return null
 }
 
 function parseInlineNodes(text: string): NovelInlineNode[] {
@@ -133,13 +157,13 @@ function parseInlineNodes(text: string): NovelInlineNode[] {
 
     const open = DECORATION_OPEN.exec(rest)
     if (open) {
-      const name = open[1].toLowerCase() as NovelInlineTagName
+      const name = open[2].toLowerCase() as NovelInlineTagName
       const innerStart = i + open[0].length
-      const close = findDecorationClose(text, innerStart)
-      if (close !== -1) {
+      const close = findDecorationClose(text, innerStart, open[1].length)
+      if (close !== null) {
         flush()
-        nodes.push({ type: "tag", name, children: parseInlineNodes(text.slice(innerStart, close)) })
-        i = close + 1
+        nodes.push({ type: "tag", name, children: parseInlineNodes(text.slice(innerStart, close.innerEnd)) })
+        i = close.closeEnd
         continue
       }
     }
@@ -174,7 +198,7 @@ function renderNodesToText(nodes: NovelInlineNode[]): string {
   return out
 }
 
-function renderNodesToHtml(nodes: NovelInlineNode[]): string {
+function renderNodesToHtml(nodes: NovelInlineNode[], linkMode: "webview" | "xhtml" = "webview"): string {
   let out = ""
   for (const node of nodes) {
     if (node.type === "text") {
@@ -192,12 +216,14 @@ function renderNodesToHtml(nodes: NovelInlineNode[]): string {
       continue
     }
     if (node.type === "link") {
-      const call = `javascript:handleLinkClick(${JSON.stringify(node.url)})`
-      out += `<a href="${escapeNovelHtml(call)}">${escapeNovelHtml(node.title)}</a>`
+      const href = linkMode === "xhtml"
+        ? node.url
+        : `javascript:handleLinkClick(${JSON.stringify(node.url)})`
+      out += `<a href="${escapeNovelHtml(href)}">${escapeNovelHtml(node.title)}</a>`
       continue
     }
     const tag = HTML_TAGS[node.name]
-    out += `<${tag}>${renderNodesToHtml(node.children)}</${tag}>`
+    out += `<${tag}>${renderNodesToHtml(node.children, linkMode)}</${tag}>`
   }
   return out
 }
@@ -244,7 +270,7 @@ function hasVisibleAttributes(attrs: NovelInlineAttributes): boolean {
 /** 正文里是否出现了需要特殊渲染的标记。 */
 export function hasNovelInlineMarkup(rawText: string): boolean {
   if (!rawText) return false
-  return /\[(?:b|i)\s*:|\[\[(?:rb|emphasismark|jumpuri):/i.test(rawText)
+  return /(?:\[{1,2}|［{1,2})(?:b|i)\s*[:：]|\[\[(?:rb|emphasismark|jumpuri):/i.test(rawText)
 }
 
 /** 纯文本：去掉装饰标记，注音转为 `汉字(假名)`，链接只保留标题。 */
@@ -257,7 +283,14 @@ export function formatNovelInlineText(rawText: string): string {
 export function formatNovelInlineHtml(rawText: string): string {
   if (!rawText) return ""
   if (!hasNovelInlineMarkup(rawText)) return escapeNovelHtml(rawText)
-  return renderNodesToHtml(parseInlineNodes(rawText))
+  return renderNodesToHtml(parseInlineNodes(rawText), "webview")
+}
+
+/** EPUB XHTML 正文：与阅读器共用解析器，链接输出标准 href。 */
+export function formatNovelInlineXHtml(rawText: string): string {
+  if (!rawText) return ""
+  if (!hasNovelInlineMarkup(rawText)) return escapeNovelHtml(rawText)
+  return renderNodesToHtml(parseInlineNodes(rawText), "xhtml")
 }
 
 /**

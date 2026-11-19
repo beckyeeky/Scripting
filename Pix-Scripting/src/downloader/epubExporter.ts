@@ -17,6 +17,7 @@ import { session } from "../api/session"
 import { illustrationDetail } from "../api/pixiv"
 import { imageUrlOf, pageThumbUrlOf } from "../image/imageLoader"
 import { htmlToPlainText } from "../ui/components/formatUtils"
+import { formatNovelInlineXHtml } from "../ui/novelInlineMarkup"
 import type { TaskControlToken } from "./downloadTaskManager"
 
 export interface NovelChapter {
@@ -257,6 +258,18 @@ ruby {
 rt {
   font-size: 0.55em;
 }
+strong {
+  font-weight: 700;
+}
+em {
+  font-style: italic;
+}
+.novel-emphasis {
+  text-emphasis-style: filled sesame;
+  -webkit-text-emphasis-style: filled sesame;
+  text-emphasis-position: over right;
+  -webkit-text-emphasis-position: over right;
+}
 `
 
 const MANGA_CSS = `
@@ -435,52 +448,15 @@ function formatCaptionToXHtml(rawCaption?: string, headerTitle?: string): string
 }
 
 /**
- * 将段落文本内的行内语法（Ruby 注音、jumpuri 链接）转换为标准且安全转义的 XHTML，并忽略剥离 [b:...] 加粗标记
+ * 将段落文本内的行内语法（[b:]、[i:]、[[emphasismark:]]、Ruby 注音、jumpuri 链接）转换为标准且安全转义的 XHTML
  */
 function formatInlineToXHtml(text: string): string {
   if (!text) return ""
-
-  // 忽略并剥离 [b: ...]、［b: ...］等加粗语法标记为纯文本（不渲染 strong）
-  const cleanText = text.replace(
-    /(?:\[{1,2}|［{1,2})[bB]\s*[:：]\s*((?:\[\[rb:[^\r\n]+?\]\]|[^\]］\r\n])+?)(?:\]{1,2}|］{1,2})/g,
-    "$1"
+  const normalized = text.replace(
+    /\[ruby\s+text=([^\]\r\n]+?)\]([^\r\n]*?)\[\/ruby\]/gi,
+    (_, reading: string, base: string) => `[[rb:${base}>${reading}]]`
   )
-
-  // 匹配 [[rb: 汉字 > 假名 ]]、[ruby text=假名]汉字[/ruby] 以及 [[jumpuri: 标题 > url ]]
-  const INLINE_REGEX =
-    /(\[\[rb:\s*[^>\r\n]+?\s*(?:>|&gt;)\s*[^\]\r\n]+?\s*\]\]|\[ruby\s+text=[^\]]+?\].*?\[\/ruby\]|\[\[jumpuri:\s*[^>\r\n]+?\s*(?:>|&gt;)\s*[^\]\r\n]+?\s*\]\])/gi
-
-  const parts = cleanText.split(INLINE_REGEX)
-  return parts
-    .map((part) => {
-      if (!part) return ""
-
-      // 1. [[rb: 汉字 > 假名 ]]
-      const rbMatch = part.match(
-        /^\[\[rb:\s*([^>\r\n]+?)\s*(?:>|&gt;)\s*([^\]\r\n]+?)\s*\]\]$/i
-      )
-      if (rbMatch) {
-        return `<ruby>${escapeXml(rbMatch[1].trim())}<rt>${escapeXml(rbMatch[2].trim())}</rt></ruby>`
-      }
-
-      // 2. [ruby text=假名]汉字[/ruby]
-      const rubyMatch = part.match(/^\[ruby\s+text=([^\]]+?)\](.*?)\[\/ruby\]$/i)
-      if (rubyMatch) {
-        return `<ruby>${escapeXml(rubyMatch[2].trim())}<rt>${escapeXml(rubyMatch[1].trim())}</rt></ruby>`
-      }
-
-      // 3. [[jumpuri: 标题 > url ]]
-      const jumpMatch = part.match(
-        /^\[\[jumpuri:\s*([^>\r\n]+?)\s*(?:>|&gt;)\s*([^\]\r\n]+?)\s*\]\]$/i
-      )
-      if (jumpMatch) {
-        return `<a href="${escapeXml(jumpMatch[2].trim())}">${escapeXml(jumpMatch[1].trim())}</a>`
-      }
-
-      // 普通纯文本：安全转义 XML
-      return escapeXml(part)
-    })
-    .join("")
+  return formatNovelInlineXHtml(normalized)
 }
 
 /** 只读取完整章节行，保留嵌套标记的右括号。 */

@@ -2556,6 +2556,7 @@ export function NovelDetailView(props: { novelID: number }) {
             <NovelOutlineSearchSheet
               title={current.title}
               chunks={chunksForReader}
+              translation={translation}
               currentChunkId={lastRecordedChunkRef.current}
               currentPage={currentPage}
               onJump={handleOutlineSearchJump}

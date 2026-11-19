@@ -43,14 +43,14 @@
 
 - 保留正文块 ID、章节与结构标记；会话先生成译名/简介/摘要，再整理术语，最后最多两个正文请求并发。
 - 摘要/术语失败显示状态并允许继续正文；正文失败块仅三分重试一次（超时也重试；鉴权、限流、取消与过短块不拆），子段不递归拆分。
-- 订阅快照更新详情页 `NovelTranslationStatus` 和阅读器；译文写回原正文块，可切换原文，原始文本与阅读进度不被译文覆盖。沉浸阅读器使用自绘顶部栏提供翻译菜单、目录检索与版式控制，隐藏时同时关闭命中测试，不悬浮翻译状态卡片。
+- 订阅快照更新详情页 `NovelTranslationStatus`（展开详情同时显示独立摘要/术语错误 `summaryError`/`glossaryError`）和阅读器；译文写回原正文块，可切换原文（含 `translation` 置空恢复），原始文本与阅读进度不被译文覆盖。竖排引擎 `NovelVerticalReaderView` 在 `loadHTML` 完成后重放缓存/离线插图并按 `novelId` 隔离图片缓存。沉浸阅读器使用自绘顶部栏提供翻译菜单、目录检索与版式控制，隐藏时同时关闭底栏与顶栏命中测试，离线提示横幅亦禁用命中并避让顶栏，不悬浮翻译状态卡片；`store/novelSearch.ts` 的 `resolveSearchableChunks` / `resolveOutlineTitle` 在译文模式下把本篇目录与检索语料同步切换为已完成且未失效的译文。
 - 自定义模型可持久化；缓存按 UID、小说/系列、目标语言组织，并校验模型配置、正文、标题、简介与块内容指纹，内存复用还检查块布局。模型密钥不写入译文缓存。
 - 原生助手无稳定模型标识，因此只复用当前会话。缓存写入失败保留内存结果并显示提示。
 - 主入口在 App 后台或脚本最小化时暂停翻译；回到可见前台恢复先前运行的会话。取消通过 AbortController 和任务代次阻止迟到结果覆盖。
 
 ### 单篇与系列导出
 
-单篇通过 `store/novelExport.ts` 判断译文完整性、重建源文本或生成纯文本；再交给 `downloader/epubExporter.ts`、`novelTextExporter.ts` 等输出。
+单篇通过 `store/novelExport.ts` 判断译文完整性、重建源文本或生成纯文本；再交给 `downloader/epubExporter.ts`、`novelTextExporter.ts` 等输出。EPUB 行内排版通过 `formatNovelInlineXHtml` 与阅读器共享 `ui/novelInlineMarkup.ts` 解析器（保留 `[b:]`、`[i:]`、`[[emphasismark:]]`、注音与标准 `href` 链接）。
 
 系列三个 UI 入口共用 `ui/novelSeriesDownload.ts → downloader/seriesDownloader.ts → DownloadTaskManager → epubExporter.ts → ShareSheet`。分页收集系列章节并按顺序获取正文；译文模式复用翻译会话/缓存，不自动启动翻译。缺少译名、必需简介或完整正文、正文请求失败、UID 中途变化时拒绝导出，并给出章节错误。原文模式保留既有容错行为：单章获取失败可记录后继续，不保证与译文模式同样严格。
 

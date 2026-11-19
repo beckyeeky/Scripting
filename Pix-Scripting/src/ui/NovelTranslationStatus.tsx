@@ -133,7 +133,11 @@ export function NovelTranslationStatus(props: {
       {snapshot.message ? <Text font="caption" foregroundStyle="systemRed">{snapshot.message}</Text> : null}
       {detailsOpen ? (
         <VStack alignment="leading" spacing={6} frame={{ maxWidth: "infinity" }}>
-          <Text font="caption" foregroundStyle="secondaryLabel">{contextStatus(snapshot.summaryStatus, "标题、简介与摘要")}</Text>
+          <Text font="caption" foregroundStyle="secondaryLabel">
+            {snapshot.summaryStatus === "error" && snapshot.summaryError
+              ? `${contextStatus(snapshot.summaryStatus, "标题、简介与摘要")}：${snapshot.summaryError}`
+              : contextStatus(snapshot.summaryStatus, "标题、简介与摘要")}
+          </Text>
           {snapshot.translatedTitle ? (
             <Text font="footnote">{`标题：${snapshot.translatedTitle}`}</Text>
           ) : null}
@@ -142,7 +146,7 @@ export function NovelTranslationStatus(props: {
           ) : null}
           {snapshot.summary ? <Text font="footnote" lineLimit={compact ? 5 : undefined}>{`故事摘要：${snapshot.summary}`}</Text> : null}
           <Text font="caption" foregroundStyle="secondaryLabel">
-            {`${contextStatus(snapshot.glossaryStatus, "术语表")} · ${snapshot.glossaryCount} 项${snapshot.seriesGlossaryCount ? `（系列继承 ${snapshot.seriesGlossaryCount}）` : ""}`}
+            {`${contextStatus(snapshot.glossaryStatus, "术语表")} · ${snapshot.glossaryCount} 项${snapshot.seriesGlossaryCount ? `（系列继承 ${snapshot.seriesGlossaryCount}）` : ""}${snapshot.glossaryStatus === "error" && snapshot.glossaryError ? `：${snapshot.glossaryError}` : ""}`}
           </Text>
           {snapshot.glossary ? <Text font="footnote" lineLimit={compact ? 8 : undefined}>{snapshot.glossary}</Text> : null}
           {sendScope ? (

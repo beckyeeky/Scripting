@@ -25,11 +25,14 @@ import {
 } from "../store/novelOutline"
 import {
   normalizeHits,
+  resolveOutlineTitle,
+  resolveSearchableChunks,
   searchNovelChunks,
   searchSummary,
   stepHitIndex,
   type NovelSearchHit,
 } from "../store/novelSearch"
+import type { NovelTranslationSnapshot } from "../store/novelTranslation"
 import type { AnchorChunkLike } from "../store/novelAnchor"
 import type { NovelChunkItem } from "./NovelReader"
 
@@ -47,6 +50,8 @@ export interface NovelOutlineSearchSheetProps {
   title: string
   /** 本篇（当前话）的正文块；目录与检索都只在本篇范围内进行 */
   chunks: NovelChunkItem[]
+  /** 可选译文快照；处于译文模式时同步切换目录与检索语料 */
+  translation?: NovelTranslationSnapshot | null
   /** 当前阅读块 id，用于目录高亮 */
   currentChunkId?: string | null
   currentPage?: number
@@ -65,12 +70,13 @@ export interface NovelOutlineSearchSheetProps {
  * 绝不把系列目录混进本篇目录。
  */
 export function NovelOutlineSearchSheet(props: NovelOutlineSearchSheetProps) {
-  const { title, chunks, currentChunkId, currentPage, onJump, onReturn, canReturn, onClose } = props
+  const { title, chunks, translation, currentChunkId, currentPage, onJump, onReturn, canReturn, onClose } = props
   const [tab, setTab] = useState<"outline" | "search">("outline")
   const [query, setQuery] = useState("")
   const [hitIndex, setHitIndex] = useState(-1)
 
-  const list = useMemo<AnchorChunkLike[]>(() => (Array.isArray(chunks) ? chunks : []), [chunks])
+  const effectiveTitle = useMemo(() => resolveOutlineTitle(title, translation), [title, translation])
+  const list = useMemo<AnchorChunkLike[]>(() => resolveSearchableChunks(chunks, translation), [chunks, translation])
   const outline = useMemo(() => buildEpisodeOutline(list), [list])
   const indexById = useMemo(() => {
     const map = new Map<string, number>()
@@ -126,7 +132,7 @@ export function NovelOutlineSearchSheet(props: NovelOutlineSearchSheetProps) {
         <VStack spacing={12} padding={{ horizontal: 8, bottom: 32 }} frame={{ maxWidth: "infinity" }}>
           <VStack spacing={8} frame={{ maxWidth: "infinity" }}>
             <Text font="footnote" foregroundStyle="secondaryLabel" lineLimit={2}>
-              {title}
+              {effectiveTitle}
             </Text>
             <Picker title="" value={tab} onChanged={(value: string) => setTab(value as "outline" | "search")}>
               <Text tag="outline">目录</Text>
@@ -248,13 +254,18 @@ export function NovelOutlineSearchSheet(props: NovelOutlineSearchSheetProps) {
                                 {hit.page}
                               </Text>
                               <VStack alignment="leading" spacing={2} frame={{ maxWidth: "infinity" }}>
-                                <Text font="footnote" lineLimit={3}>
-                                  {`…${hit.before}`}
-                                  <Text font="footnote" fontWeight="bold" foregroundStyle="systemOrange">
-                                    {hit.match}
-                                  </Text>
-                                  {`${hit.after}…`}
-                                </Text>
+                                <Text
+                                  font="footnote"
+                                  lineLimit={3}
+                                  styledText={{
+                                    font: "footnote",
+                                    content: [
+                                      `…${hit.before}`,
+                                      { content: hit.match, bold: true, foregroundColor: "systemOrange" },
+                                      `${hit.after}…`,
+                                    ],
+                                  } as any}
+                                />
                               </VStack>
                               {hitIndex === index ? (
                                 <Image systemName="checkmark" font="caption2" foregroundStyle="systemBlue" />

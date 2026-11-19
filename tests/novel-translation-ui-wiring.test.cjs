@@ -336,3 +336,21 @@ test("沉浸阅读器断网换篇走离线书库并如实标注", () => {
   assert.match(source, /setActiveText\(newText\)/)
   assert.match(source, /const newText = viewerText \|\| offlineRecord\?\.text \|\| ""/)
 })
+
+test("NovelTranslationStatus 展开详情后显示 summaryError 与 glossaryError", async () => {
+  const runtime = renderStatus({
+    snapshot: {
+      ...baseSnapshot,
+      summaryStatus: "error",
+      summaryError: "摘要模型超时",
+      glossaryStatus: "error",
+      glossaryError: "术语表限流",
+    },
+    session: makeSession("deepseek", baseSnapshot, [{ id: "chunk-1", original: "a", kind: "text" }]),
+  })
+  findButtonTitle(runtime.tree(), "译名、摘要与术语").props.action()
+  await runtime.settle()
+  const expanded = JSON.stringify(runtime.tree())
+  assert.match(expanded, /摘要模型超时/)
+  assert.match(expanded, /术语表限流/)
+})

@@ -5,6 +5,7 @@
  * 只在正文/章节块内检索，插图与跳页标记不参与，避免产生无法定位的命中。
  */
 import { quoteFromText, type AnchorChunkLike, type NovelReadingAnchor } from "./novelAnchor"
+import type { NovelTranslationSnapshot } from "./novelTranslation"
 
 export interface NovelSearchHit {
   chunkId: string
@@ -189,4 +190,44 @@ export function normalizeHits(hits: NovelSearchHit[] | null | undefined): NovelS
     unique.push(hit)
   }
   return unique.sort((a, b) => hitOrderKey(a) - hitOrderKey(b))
+}
+
+/**
+ * 解析供本篇目录与正文检索使用的有效块列表：
+ * 原文模式下原样返回；译文模式下将已完成且未失效的文本/章节块替换为译文，
+ * 使目录与正文检索结果与当前阅读视图保持一致。
+ */
+export function resolveSearchableChunks<T extends AnchorChunkLike>(
+  chunks: T[] | null | undefined,
+  translation?: NovelTranslationSnapshot | null
+): T[] {
+  if (!Array.isArray(chunks)) return []
+  if (translation?.mode !== "translated" || !translation.blocks) return chunks
+  let changed = false
+  const resolved = chunks.map((chunk) => {
+    const block = translation.blocks[chunk.id]
+    if (!block || block.status !== "done" || block.stale || !block.translation) return chunk
+    if (chunk.type === "chapter") {
+      changed = true
+      return { ...chunk, title: block.translation }
+    }
+    if (chunk.type === "text") {
+      changed = true
+      return { ...chunk, text: block.translation }
+    }
+    return chunk
+  })
+  return changed ? resolved : chunks
+}
+
+/** 解析目录与检索面板展示的作品标题（译文模式下优先使用译文标题） */
+export function resolveOutlineTitle(
+  title: string,
+  translation?: NovelTranslationSnapshot | null
+): string {
+  if (translation?.mode === "translated") {
+    const translated = translation.translatedTitle?.trim()
+    if (translated) return translated
+  }
+  return title
 }

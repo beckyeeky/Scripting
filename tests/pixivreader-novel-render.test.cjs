@@ -428,10 +428,14 @@ function mountNovelReaderView(options = {}) {
     constructor() {
       createdControllers.push(this)
       this.loaded = []
+      this.scripts = []
       this.handlers = {}
       this.disposed = false
     }
-    async loadHTML(html) { this.loaded.push(html) }
+    async loadHTML(html) {
+      this.loaded.push(html)
+      return options.loadHTML ? options.loadHTML(html, this) : undefined
+    }
     async evaluateJavaScript(script) { this.scripts = (this.scripts ?? []).concat([script]) }
     async addScriptMessageHandler(name, fn) { this.handlers[name] = fn }
     dispose() { this.disposed = true }
@@ -465,8 +469,8 @@ function mountNovelReaderView(options = {}) {
     "../image/imageLoader": {
       imageUrlOf: () => null,
       pageThumbUrlOf: () => null,
-      cachedFilePath: () => null,
-      loadImage: async () => null,
+      cachedFilePath: options.cachedFilePath ?? (() => null),
+      loadImage: options.loadImage ?? (async () => null),
     },
     "../downloader/photoAlbum": { saveImageToPixivAlbum: async () => true, withAlbumKeepAlive: async (fn) => fn() },
     "../store/settings": { loadSettings: () => ({}) },
@@ -485,14 +489,14 @@ function mountNovelReaderView(options = {}) {
     "../store/novelProgress": { getNovelProgress: () => undefined, recordNovelProgress: () => {} },
     "../store/novelOfflineLibrary": {
       completePendingOfflineImage: async () => null,
-      offlineImagePathMap: () => ({}),
+      offlineImagePathMap: options.offlineImagePathMap ?? (() => ({})),
     },
     "./novelReaderRuntime": {
       NOVEL_READER_RUNTIME_CSS: "/* css */",
       NOVEL_READER_RUNTIME_JS: "window.NovelReaderRuntime = {};",
     },
     "./ambient": { generateAmbientBackgroundCss: () => "transparent" },
-  })
+  }, { WebViewController: WebViewControllerStub, ...(options.globals ?? {}) })
 
   return { reader, runtime, createdControllers, translatorCalls }
 }
@@ -689,4 +693,152 @@ test("小说书签书库：首屏渲染书库区块（VStack / Spacer 已声明�
     .map((node) => JSON.stringify(node.props.children))
     .join("|")
 
+})
+
+test("竖排 NovelVerticalReaderView：loadHTML 完成后重放插图，切篇清空图片缓存且译文置 null 可恢复", async () => {
+  const EP1_B64 = Buffer.from("ep1-bytes").toString("base64")
+  const EP2_B64 = Buffer.from("ep2-bytes").toString("base64")
+  const files = {
+    "/offline/ep1.png": EP1_B64,
+    "/offline/ep2.png": EP2_B64,
+  }
+  const loads = []
+  const harness = mountNovelReaderView({
+    loadHTML: () => new Promise((resolve) => loads.push(resolve)),
+    offlineImagePathMap: (novelId) => (
+      novelId === 101
+        ? { "up-9-1": "/offline/ep1.png" }
+        : { "up-9-1": "/offline/ep2.png" }
+    ),
+    globals: {
+      FileManager: {
+        existsSync: (p) => Boolean(files[p]),
+        readAsDataSync: (p) => (files[p] ? { toBase64String: () => files[p] } : null),
+      },
+    },
+  })
+
+  let currentProps = {
+    novelId: 101,
+    title: "第一话",
+    text: "第一话正文\n[uploadedimage:9]",
+    textEmbeddedImages: { "9": { urls: { original: "https://example.com/1.png" } } },
+    translation: {
+      mode: "translated",
+      blocks: { "chunk-0": { id: "chunk-0", kind: "text", status: "done", translation: "第一话译文" } },
+    },
+  }
+  harness.runtime.mount(() => {
+    const outer = harness.reader.NovelReaderView(currentProps)
+    const vertical = flatten(outer).find((node) => typeof node.type === "function")
+    return vertical ? vertical.type(vertical.props) : outer
+  })
+
+  const ctrl = harness.createdControllers[0]
+  assert.equal(ctrl.loaded.length, 1)
+  assert.equal(ctrl.scripts.filter((s) => s.includes("__novelTranslationOriginals")).length, 0, "loadHTML 未完成前不得下发译文")
+
+  // 等待 loadHTML 完成，离线插图应通过 replayLoadedImages 重放且下发译文
+  loads[0](true)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const afterLoadReplay = ctrl.scripts.filter((s) => s.includes("window.updateNovelImage") && s.includes(EP1_B64))
+  assert.equal(afterLoadReplay.length, 1, "loadHTML 完成后必须重放已缓存的离线插图")
+  assert.equal(ctrl.scripts.filter((s) => s.includes("__novelTranslationOriginals")).length, 1)
+
+  // translation 切回 null 时，就绪文档仍收到恢复原文字幕脚本
+  currentProps = { ...currentProps, translation: null }
+  harness.runtime.render()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const patchScripts = ctrl.scripts.filter((s) => s.includes("__novelTranslationOriginals"))
+  assert.equal(patchScripts.length, 2, "translation 置 null 时必须向已就绪文档下发恢复脚本")
+  assert.match(patchScripts[1], /const rendered = \{\};/)
+
+  // 切换到第二话（相同 uploadedimage chunkId），不得串入第一话缓存字节
+  currentProps = {
+    ...currentProps,
+    novelId: 102,
+    title: "第二话",
+    text: "第二话正文\n[uploadedimage:9]",
+    translation: {
+      mode: "translated",
+      blocks: { "chunk-0": { id: "chunk-0", kind: "text", status: "done", translation: "第二话译文" } },
+    },
+  }
+  harness.runtime.render()
+  assert.equal(ctrl.loaded.length, 2)
+  assert.equal(ctrl.loaded[1].includes(EP1_B64), false, "切篇后的首帧 HTML 不得包含上一话图片缓存")
+  loads[1](true)
+  await new Promise((resolve) => setTimeout(resolve, 0))
+  const ep2Replay = ctrl.scripts.slice(-3).filter((s) => s.includes("window.updateNovelImage") && s.includes(EP2_B64))
+  assert.equal(ep2Replay.length, 1, "切篇后应重放第二话自己的插图")
+  assert.equal(ctrl.scripts.slice(-3).some((s) => s.includes(EP1_B64)), false)
+})
+
+test("竖排 HTML 内嵌脚本可被 vm.Script 解析，且 updateNovelImage 转义标题与作者", () => {
+  const harness = mountNovelReaderView()
+  harness.runtime.mount(() => {
+    const outer = harness.reader.NovelReaderView({
+      novelId: 303,
+      title: "脚本校验",
+      text: "正文段落\n[uploadedimage:5]",
+      textEmbeddedImages: { "5": { urls: { original: "https://example.com/5.png" } } },
+    })
+    const vertical = flatten(outer).find((node) => typeof node.type === "function")
+    return vertical ? vertical.type(vertical.props) : outer
+  })
+  const html = harness.createdControllers[0].loaded[0]
+  assert.ok(html, "应生成竖排 HTML 文档")
+
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1])
+  assert.ok(scripts.length >= 1)
+  let imageScript = ""
+  for (const code of scripts) {
+    new vm.Script(code)
+    if (code.includes("window.updateNovelImage")) imageScript = code
+  }
+  assert.ok(imageScript)
+
+  const container = { innerHTML: "" }
+  const win = {
+    pendingImages: {},
+    addEventListener() {},
+    scrollTo() {},
+    innerWidth: 390,
+    innerHeight: 844,
+    scrollX: 0,
+    scrollY: 0,
+    webkit: { messageHandlers: {} },
+  }
+  const doc = {
+    readyState: "complete",
+    getElementById: (id) => (id === "up-5-1" ? container : null),
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    addEventListener() {},
+    body: { style: {} },
+    documentElement: { style: {} },
+  }
+  vm.runInNewContext(imageScript, {
+    window: win,
+    document: doc,
+    NovelReaderRuntime: {
+      realignAfterContentChange() {},
+      setSettling() {},
+      noteScroll: () => false,
+    },
+    setTimeout: () => 0,
+    clearTimeout() {},
+    requestAnimationFrame() {},
+    console: { log() {}, warn() {} },
+    Math,
+    Number,
+    String,
+    isFinite,
+  })
+  win.updateNovelImage("up-5-1", 'https://x.test/"<img', 'Tit<"le', "Au'<&or", 88)
+  assert.match(container.innerHTML, /onclick="handleOpenIllust\(88\)"/)
+  assert.match(container.innerHTML, /&quot;&lt;img/)
+  assert.match(container.innerHTML, /Tit&lt;&quot;le/)
+  assert.match(container.innerHTML, /Au&#39;&lt;&amp;or/)
+  assert.doesNotMatch(container.innerHTML, /Tit<"le/)
 })

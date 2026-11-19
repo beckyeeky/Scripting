@@ -97,18 +97,27 @@ export function cleanHtmlCaption(caption: string | null | undefined): string {
  */
 export function cleanNovelTextForAI(rawText: string | null | undefined): string {
   if (!rawText) return ""
-  return rawText
+  let cleaned = rawText
     .replace(/\[\[jumpimage:\s*\d+\s*\]\]/gi, "")
     .replace(/\[pixivimage:\s*\d+(?:-\d+)?\s*\]/gi, "")
     .replace(/\[uploadedimage:\s*\d+\s*\]/gi, "")
     .replace(
-      /\[\[rb:\s*([^\r\n>]+?)\s*(?:>|&gt;)\s*([^\r\n\]]+?)\s*\]\]/g,
+      /\[\[rb:\s*([^\r\n>\]]+?)\s*(?:>|&gt;)\s*([^\r\n\]]+?)\s*\]\]/gi,
       (_, kanji: string) => kanji.trim()
     )
     .replace(
-      /(?:\[{1,2}|［{1,2})[bB]\s*[:：]\s*((?:\[\[rb:[^\r\n]+?\]\]|[^\]］\r\n])+?)(?:\]{1,2}|］{1,2})/g,
+      /\[\[emphasismark:\s*([^\r\n>\]]+?)\s*(?:>|&gt;)\s*[^\]\r\n]*?\s*\]\]/gi,
+      (_, text: string) => text.trim()
+    )
+  for (let pass = 0; pass < 3; pass++) {
+    const next = cleaned.replace(
+      /(?:\[{1,2}|［{1,2})[bBiI]\s*[:：]\s*((?:\[\[rb:[^\r\n]+?\]\]|[^\]］\r\n])+?)(?:\]{1,2}|］{1,2})/g,
       "$1"
     )
+    if (next === cleaned) break
+    cleaned = next
+  }
+  return cleaned
     .replace(/\r\n/g, "\n")
     .replace(/\n{4,}/g, "\n\n\n")
     .trim()
@@ -518,6 +527,22 @@ export function validateNovelTranslation(
   if (sourceLength >= 40 && foreignScript.test(original) && original.trim() === output) {
     translationQualityError("译文与外语原文完全相同")
   }
+  const countMatches = (text: string, pattern: RegExp): number => text.match(pattern)?.length ?? 0
+  if (kind === "text") {
+    if (targetLanguage === "zh-CN" || targetLanguage === "zh-TW") {
+      const sourceKana = countMatches(original, /[\u3040-\u309f\u30a0-\u30ff]/g)
+      const outputKana = countMatches(output, /[\u3040-\u309f\u30a0-\u30ff]/g)
+      if (sourceKana >= 40 && outputKana >= 30 && outputKana / sourceKana >= 0.65) {
+        translationQualityError("译文包含大量未翻译的原文内容")
+      }
+    } else if (targetLanguage === "en") {
+      const sourceNonLatin = countMatches(original, /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/g)
+      const outputNonLatin = countMatches(output, /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/g)
+      if (sourceNonLatin >= 40 && outputNonLatin >= 30 && outputNonLatin / sourceNonLatin >= 0.65) {
+        translationQualityError("译文包含大量未翻译的原文内容")
+      }
+    }
+  }
   // 小说本来就可能连续重复台词。按源文重复组的次数预算逐组匹配，
   // 只拦新增/放大的重复；短句不能先过滤，否则夹在长句之间的短句会被误删。
   const repeatRuns = (text: string, minLength: number): number[] => {
@@ -548,7 +573,7 @@ type SplitNovelPassageRetry = {
 
 function tokenizeNovelPassageForSplit(text: string): string[] {
   const tokens: string[] = []
-  const protectedPattern = /\[\[(?:jumpuri|rb):[^\]]+\]\]|\[(?:uploadedimage|pixivimage|jump|newpage|chapter)\s*[:：]?[^\]]*\]/gi
+  const protectedPattern = /\[\[(?:jumpuri|rb|emphasismark):[^\]]+\]\]|\[(?:uploadedimage|pixivimage|jump|newpage|chapter)\s*[:：]?[^\]]*\]/gi
   let cursor = 0
   for (const match of text.matchAll(protectedPattern)) {
     const index = match.index ?? cursor
@@ -625,8 +650,8 @@ export async function translateNovelPassage(
       splitAt = Math.max(...["。", "！", "？", "!", "?"].map((mark) => original.lastIndexOf(mark, 1800)))
       splitAt = splitAt >= 600 ? splitAt + 1 : 1800
     }
-    // 不在 Pixiv 的注音/链接标记中间截断。
-    for (const match of original.matchAll(/\[\[(?:jumpuri|rb):[^\]]+\]\]/gi)) {
+    // 不在 Pixiv 的注音/着重号/链接标记中间截断。
+    for (const match of original.matchAll(/\[\[(?:jumpuri|rb|emphasismark):[^\]]+\]\]/gi)) {
       const start = match.index ?? 0
       if (start < splitAt && start + match[0].length > splitAt) {
         splitAt = start >= 600 ? start : start + match[0].length
@@ -650,7 +675,8 @@ export async function translateNovelPassage(
       const index = protectedLinks.push(link) - 1
       return `__PIXIV_LINK_${index}__`
     })
-    .replace(/\[\[rb:\s*([^>]+?)\s*>\s*([^\]]+?)\s*\]\]/g, (_, text: string, ruby: string) => `${text.trim()}（${ruby.trim()}）`)
+    .replace(/\[\[rb:\s*([^\r\n>\]]+?)\s*(?:>|&gt;)\s*([^\]\r\n]+?)\s*\]\]/gi, (_, text: string, ruby: string) => `${text.trim()}（${ruby.trim()}）`)
+    .replace(/\[\[emphasismark:\s*([^\r\n>\]]+?)\s*(?:>|&gt;)\s*[^\]\r\n]*?\s*\]\]/gi, (_, text: string) => text.trim())
 
   const prompt = [
     `作品：《${options.title}》`,
@@ -659,7 +685,7 @@ export async function translateNovelPassage(
     `请将以下${options.kind === "chapter" ? "章节标题" : "小说正文"}完整翻译成${targetName}，只输出译文。保留原段落换行与 __PIXIV_LINK_N__ 占位符：\n${source}`,
   ].filter(Boolean).join("\n\n")
   const translated = (await executeUniversalAI({
-    systemPrompt: `你是 Pixiv 小说翻译者。准确翻译为${targetName}，保持人物、对话、叙事和章节标题风格，不添加解释、额外标题或译者注。绝不能删除或修改 __PIXIV_LINK_N__ 占位符。`,
+    systemPrompt: `你是 Pixiv 小说翻译者。准确翻译为${targetName}，保持人物、对话、叙事和章节标题风格，不添加解释、额外标题或译者注，不使用 Markdown 加粗或斜体标记（如 ** 或 *）。绝不能删除或修改 __PIXIV_LINK_N__ 占位符。`,
     messages: [{ role: "user", content: prompt }],
     temperature: 0.2,
     disableThinking: true,
