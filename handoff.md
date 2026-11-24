@@ -1,5 +1,20 @@
 # 项目交接
 
+## 当前发布：v1.8.14.4（2026-11-24）
+
+- **跨设备同步统一模块（`Pix-Scripting/src/store/crossDeviceSync.ts`）**：
+  - 统一协调 iCloud 同步与无 iCloud 跨设备迁移，覆盖：程序设置（`AppSettings`）、小说阅读器设置（`NovelReaderSettings`）、插画/漫画/小说浏览历史、搜索历史、小说阅读进度、屏蔽列表（标签与画师）及 Pixivision 特辑收藏。
+  - 为 `settings.ts`、`novelReaderSettings.ts`、`blocklist.ts`、`pixivisionBookmarks.ts` 补充云端热重载（`sync*FromCloud`）与合并/替换接口（`replaceNovelReaderSettings`、`mergeBlocklistData`、`mergePixivisionBookmarks`），解决运行时内存缓存不感知他端 iCloud 更新的问题；`historySync.ts` 导出 `getHistoryLastSyncTime`/`getHistorySyncState`。
+  - 在 `Pix-Scripting/index.tsx`（`scenePhase === "active"` 与 `Script.onResume`）和 `Pix-Scripting/home_screen_default_ui.tsx` 接入 `triggerFullResumeSync()`。
+  - 提供版本化 JSON 同步数据包导出（`exportCrossDeviceSnapshotJson`）与合并导入（`importCrossDeviceSnapshot`）：导出时剔除设备本地目录书签 `downloadCustomDirectoryBookmark`/`downloadCustomDirectoryPath`，不含登录令牌与 AI 密钥；导入时保留本机目录书签、按时间戳合并历史/进度/搜索历史并尊重删除标记与清空水位线。
+- **设置页「跨设备同步」面板（`Pix-Scripting/src/ui/settings.tsx`）**：
+  - 新增「跨设备同步」折叠区，展示 iCloud 同步状态、上次同步时间与同步范围概览，提供「立即与 iCloud 同步」、「导出同步数据包（文件）」、「复制同步数据到剪贴板」、「从文件导入同步数据」与「从剪贴板导入同步数据」入口。
+- **版本与发布包校验**：`Pix-Scripting/script.json`、`Pix-Scripting/src/config.ts`、`README.md` 与包内元数据均为 `1.8.14.4`，`remoteResource.url` 指向 `feature/pixivreader-port`；`Release/Pix-Scripting.scripting` 大小 861350 字节，SHA-256 `0b36dfa44891b2469b0434893b825d586bf5ce27d7427906e50fd2f2a6eec2fe`，包内 204 个文件与工作树 `Pix-Scripting/` 逐字节一致，ZIP 完整性通过（Windows 无 `zip`/`unzip`，使用等价 Python `zipfile` 压缩与逐字节校验构建）。
+- **测试与验证（桌面 Node + TS 转译 + 宿主替身）**：
+  - 新增 `tests/cross-device-sync.test.cjs` 3 项回归，覆盖跨设备 JSON 导出/导入合并与本地书签保留、iCloud 多端热重载通知及异常包校验；更新 `tests/novel-translation.test.cjs` 中 `index.tsx` 入口替身。
+  - `npm test` 235/235 通过（0 失败，0 跳过）；`node scripts/syntax-check.cjs` 检查 203 个 TS/TSX 文件，0 语法错误（非全量类型检查）；`git diff --check` 无空白错误。
+- **未验证（需 iPhone/iPad 真机 Scripting 宿主验收）**：真机 iCloud Drive 跨设备实时拉取与热更新、「导出同步数据包（文件）」的 `ShareSheet` 分享与「从文件导入同步数据」的 `DocumentPicker` 选择交互。
+
 ## 当前发布：v1.8.14.3（2026-11-24）
 
 - **撤回误发至 `main` 的 `1.8.15`**：已删除误发布至 `main` 的 `v1.8.15` GitHub Release 与远端/本地标签，并将本地 `main` 与 `origin/main` 恢复至 `754d8da`（与 `upstream/main` 一致）。所有新功能改在 `feature/pixivreader-port` 按四段版本号 `1.8.14.3` 发布。

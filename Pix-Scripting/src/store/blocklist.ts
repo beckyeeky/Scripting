@@ -52,6 +52,26 @@ export async function prepareBlocklistStorage(userId?: string | number | null): 
   }
 }
 
+export async function syncBlocklistFromCloud(userId?: string | number | null): Promise<boolean> {
+  if (!FileManager.isiCloudEnabled) return false
+  await prepareBlocklistStorage(userId)
+  const path = blocklistFilePath(userId)
+  try {
+    recoverFile(path)
+    if (!FileManager.existsSync(path)) return false
+    const raw = FileManager.readAsStringSync(path, "utf-8")
+    const parsed = parseBlocklist(JSON.parse(raw))
+    if (cachedBlocklist && JSON.stringify(cachedBlocklist) === JSON.stringify(parsed)) {
+      return false
+    }
+    cachedBlocklist = parsed
+    emitChanged()
+    return true
+  } catch {
+    return false
+  }
+}
+
 function parseBlocklist(stored: Partial<BlocklistData> & Record<string, unknown>): BlocklistData {
   return {
     blockedTags: Array.isArray(stored?.blockedTags)
@@ -194,4 +214,40 @@ export function clearBlockedTags(): BlocklistData {
 
 export function clearBlockedUsers(): BlocklistData {
   return updateBlocklist({ blockedUsers: [] })
+}
+
+export function mergeBlocklistData(incoming: Partial<BlocklistData> & Record<string, unknown>): {
+  data: BlocklistData
+  addedTags: number
+  addedUsers: number
+} {
+  const normalized = parseBlocklist(incoming)
+  const current = loadBlocklist()
+  const tagSet = new Set(current.blockedTags)
+  let addedTags = 0
+  for (const tag of normalized.blockedTags) {
+    if (!tagSet.has(tag)) {
+      tagSet.add(tag)
+      addedTags++
+    }
+  }
+  const userMap = new Map<number, BlockedUser>()
+  for (const u of current.blockedUsers) {
+    userMap.set(u.id, u)
+  }
+  let addedUsers = 0
+  for (const u of normalized.blockedUsers) {
+    if (!userMap.has(u.id)) {
+      userMap.set(u.id, u)
+      addedUsers++
+    }
+  }
+  if (addedTags === 0 && addedUsers === 0) {
+    return { data: current, addedTags: 0, addedUsers: 0 }
+  }
+  const next = updateBlocklist({
+    blockedTags: Array.from(tagSet),
+    blockedUsers: Array.from(userMap.values()),
+  })
+  return { data: next, addedTags, addedUsers }
 }

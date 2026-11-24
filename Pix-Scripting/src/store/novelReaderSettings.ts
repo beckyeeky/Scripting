@@ -75,6 +75,37 @@ export async function prepareNovelReaderStorage(): Promise<void> {
   }
 }
 
+export async function syncNovelReaderSettingsFromCloud(): Promise<boolean> {
+  if (!FileManager.isiCloudEnabled) return false
+  await prepareNovelReaderStorage()
+  const path = getSettingsPath()
+  try {
+    recoverFile(path)
+    if (!FileManager.existsSync(path)) return false
+    const raw = FileManager.readAsStringSync(path, "utf-8")
+    if (!raw) return false
+    const parsed = JSON.parse(raw) as Partial<NovelReaderSettings>
+    const translationTargetLanguage = NOVEL_TRANSLATION_TARGETS.some(
+      (target) => target.id === parsed.translationTargetLanguage
+    )
+      ? (parsed.translationTargetLanguage as NovelTranslationTargetLanguage)
+      : DEFAULT_NOVEL_READER_SETTINGS.translationTargetLanguage
+    const next: NovelReaderSettings = {
+      ...DEFAULT_NOVEL_READER_SETTINGS,
+      ...parsed,
+      translationTargetLanguage,
+    }
+    if (cachedSettings && JSON.stringify(cachedSettings) === JSON.stringify(next)) {
+      return false
+    }
+    cachedSettings = next
+    notifySettingsChanged(next)
+    return true
+  } catch {
+    return false
+  }
+}
+
 let cachedSettings: NovelReaderSettings | null = null
 const listeners = new Set<(settings: NovelReaderSettings) => void>()
 
@@ -161,6 +192,35 @@ export function saveNovelReaderSettings(
 
   cachedSettings = updated
   scheduleSettingsPersist(updated)
+  notifySettingsChanged(updated)
+  return updated
+}
+
+export function replaceNovelReaderSettings(
+  partial: Partial<NovelReaderSettings>
+): NovelReaderSettings {
+  if (saveTimer !== null) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  const current = loadNovelReaderSettings()
+  const translationTargetLanguage = NOVEL_TRANSLATION_TARGETS.some(
+    (target) => target.id === partial.translationTargetLanguage
+  )
+    ? (partial.translationTargetLanguage as NovelTranslationTargetLanguage)
+    : current.translationTargetLanguage
+  const updated: NovelReaderSettings = {
+    ...DEFAULT_NOVEL_READER_SETTINGS,
+    ...current,
+    ...partial,
+    translationTargetLanguage,
+  }
+  cachedSettings = updated
+  try {
+    writeTextSafely(getSettingsPath(), JSON.stringify(updated, null, 2))
+  } catch {
+    // 写入异常不阻塞 UI
+  }
   notifySettingsChanged(updated)
   return updated
 }

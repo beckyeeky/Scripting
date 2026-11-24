@@ -84,6 +84,16 @@ import { editAIShowSettings, syncWebCookies } from "../api/pixiv"
 import { clearNovelTranslationCache, novelTranslationCacheUsage } from "../store/novelTranslation"
 import { session } from "../api/session"
 import { clearUgoiraCache, ugoiraCacheUsageBytes } from "../ugoira/ugoira"
+import {
+  exportCrossDeviceSnapshotJson,
+  getCrossDeviceSyncOverview,
+  importCrossDeviceSnapshot,
+  onCrossDeviceSyncChanged,
+  parseCrossDeviceSnapshot,
+  syncAllCrossDeviceDataNow,
+  type CrossDeviceImportSummary,
+  type CrossDeviceSyncOverview,
+} from "../store/crossDeviceSync"
 import { useTimedFlag } from "./Hooks"
 
 declare const Dialog: any
@@ -102,6 +112,7 @@ interface SectionExpandedState {
   network: boolean
   download: boolean
   history: boolean
+  sync: boolean
   cache: boolean
   debug: boolean
 }
@@ -118,6 +129,7 @@ const DEFAULT_EXPANDED_STATE: SectionExpandedState = {
   network: false,
   download: false,
   history: false,
+  sync: false,
   cache: false,
   debug: false,
 }
@@ -147,6 +159,11 @@ export function SettingsView() {
   const [cacheCleared, setCacheCleared] = useTimedFlag()
   const [historyTotal, setHistoryTotal] = useState<number>(() => historyCount())
   const [historyCleared, setHistoryCleared] = useTimedFlag()
+  const [syncOverview, setSyncOverview] = useState<CrossDeviceSyncOverview>(() => getCrossDeviceSyncOverview())
+  const [syncingNow, setSyncingNow] = useState(false)
+  const [syncExporting, setSyncExporting] = useState(false)
+  const [syncImporting, setSyncImporting] = useState(false)
+  const [syncSuccess, setSyncSuccess] = useTimedFlag()
   const [syncingWebCookie, setSyncingWebCookie] = useState(false)
   const [widgetRefreshed, setWidgetRefreshed] = useTimedFlag()
   const [, setWebCookieVersion] = useState(0)
@@ -178,6 +195,7 @@ export function SettingsView() {
       network: true,
       download: true,
       history: true,
+      sync: true,
       cache: true,
       debug: true,
     })
@@ -196,6 +214,7 @@ export function SettingsView() {
       network: false,
       download: false,
       history: false,
+      sync: false,
       cache: false,
       debug: false,
     })
@@ -222,27 +241,39 @@ export function SettingsView() {
     setHistoryTotal(historyCount())
   }
 
+  function refreshSyncOverview() {
+    setSyncOverview(getCrossDeviceSyncOverview())
+  }
+
   useEffect(() => {
     refreshCacheSize()
     refreshHistoryTotal()
+    refreshSyncOverview()
     const unsubscribeSettings = onSettingsChanged(() => {
       setSettings(loadSettings())
+      refreshSyncOverview()
       // 占用在进入设置、修改额度和清空时刷新；外观等无关变更不递归扫描动图。
     })
     const unsubscribeBlocklist = onBlocklistChanged(() => {
       setBlocklist(loadBlocklist())
+      refreshSyncOverview()
     })
     const unsubscribeHistory = onHistoryChanged(() => {
       refreshHistoryTotal()
+      refreshSyncOverview()
     })
     const unsubscribeCustomAI = onCustomAIConfigChanged((updated) => {
       setAiProfile({ ...updated })
+    })
+    const unsubscribeSync = onCrossDeviceSyncChanged(() => {
+      refreshSyncOverview()
     })
     return () => {
       unsubscribeSettings()
       unsubscribeBlocklist()
       unsubscribeHistory()
       unsubscribeCustomAI()
+      unsubscribeSync()
     }
   }, [])
 
@@ -274,6 +305,205 @@ export function SettingsView() {
       setSettingsReset()
       setExperimentalImmersionKey((k) => k + 1)
       setActiveSheet("highlights")
+    }
+  }
+
+  function formatSyncTimestamp(ts: number): string {
+    if (!ts || ts <= 0) return "尚未同步"
+    const diffMs = Date.now() - ts
+    if (diffMs < 60 * 1000) return "刚刚"
+    const d = new Date(ts)
+    const pad = (n: number) => String(n).padStart(2, "0")
+    return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+
+  function formatImportSummaryMessage(summary: CrossDeviceImportSummary): string {
+    const parts: string[] = []
+    if (summary.appliedAppSettings) parts.push("应用设置已更新")
+    if (summary.appliedReaderSettings) parts.push("阅读器设置已更新")
+    const histTotal =
+      summary.mergedHistoryItems.illustration +
+      summary.mergedHistoryItems.manga +
+      summary.mergedHistoryItems.novel
+    if (histTotal > 0) parts.push(`合并浏览记录 ${histTotal} 条`)
+    if (summary.mergedNovelProgress > 0) parts.push(`合并小说进度 ${summary.mergedNovelProgress} 条`)
+    if (summary.mergedSearchHistory > 0) parts.push(`合并搜索记录 ${summary.mergedSearchHistory} 条`)
+    if (summary.addedBlockedTags > 0 || summary.addedBlockedUsers > 0) {
+      parts.push(`新增屏蔽 ${summary.addedBlockedTags} 个标签 / ${summary.addedBlockedUsers} 位画师`)
+    }
+    if (summary.mergedPixivisionBookmarks > 0) {
+      parts.push(`合并特辑收藏 ${summary.mergedPixivisionBookmarks} 条`)
+    }
+    return parts.length > 0 ? parts.join("；") : "数据已与当前设备一致，无需更新。"
+  }
+
+  async function handleSyncNow() {
+    if (syncingNow) return
+    setSyncingNow(true)
+    try {
+      const res = await syncAllCrossDeviceDataNow()
+      refreshSyncOverview()
+      setSettings(loadSettings())
+      setBlocklist(loadBlocklist())
+      refreshHistoryTotal()
+      if (res.ok) {
+        try {
+          triggerHaptic("success")
+        } catch {}
+        setSyncSuccess()
+      } else if (typeof Dialog !== "undefined" && typeof Dialog.alert === "function") {
+        await Dialog.alert({
+          title: "同步未完成",
+          message: res.error || "请确认当前设备已登录 iCloud 并开启 Scripting 的 iCloud Drive 权限。",
+        })
+      }
+    } catch (e: any) {
+      if (typeof Dialog !== "undefined" && typeof Dialog.alert === "function") {
+        await Dialog.alert({
+          title: "同步失败",
+          message: e?.message ?? String(e),
+        })
+      }
+    } finally {
+      setSyncingNow(false)
+    }
+  }
+
+  async function handleExportSyncData(mode: "file" | "clipboard") {
+    if (syncExporting) return
+    setSyncExporting(true)
+    try {
+      const json = exportCrossDeviceSnapshotJson()
+      if (mode === "clipboard") {
+        if (typeof Pasteboard !== "undefined" && typeof Pasteboard.setString === "function") {
+          await Pasteboard.setString(json)
+          try {
+            triggerHaptic("success")
+          } catch {}
+          if (typeof Dialog !== "undefined" && typeof Dialog.alert === "function") {
+            await Dialog.alert({
+              title: "已复制到剪贴板",
+              message: "跨设备同步数据包（含程序设置、阅读器设置、历史记录、小说进度与屏蔽列表，不含登录令牌与密钥）已复制。",
+            })
+          }
+        }
+        return
+      }
+
+      const tempDir = `${FileManager.temporaryDirectory}/pix_sync_export`
+      if (!FileManager.existsSync(tempDir)) {
+        FileManager.createDirectorySync(tempDir, true)
+      }
+      const d = new Date()
+      const pad = (n: number) => String(n).padStart(2, "0")
+      const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}`
+      const filePath = `${tempDir}/Pix-Scripting-Sync-${stamp}.json`
+      FileManager.writeAsStringSync(filePath, json)
+      if (typeof ShareSheet !== "undefined" && typeof ShareSheet.present === "function") {
+        await ShareSheet.present([filePath])
+      } else if (typeof Pasteboard !== "undefined" && typeof Pasteboard.setString === "function") {
+        await Pasteboard.setString(json)
+      }
+    } catch (e: any) {
+      if (typeof Dialog !== "undefined" && typeof Dialog.alert === "function") {
+        await Dialog.alert({
+          title: "导出失败",
+          message: e?.message ?? String(e),
+        })
+      }
+    } finally {
+      setSyncExporting(false)
+    }
+  }
+
+  async function confirmAndImportSyncJson(rawJson: string) {
+    const bundle = parseCrossDeviceSnapshot(rawJson)
+    const exportedLabel = bundle.exportedAt ? formatSyncTimestamp(bundle.exportedAt) : "未知时间"
+    const histCount =
+      (bundle.history?.illustration?.length ?? 0) +
+      (bundle.history?.manga?.length ?? 0) +
+      (bundle.history?.novel?.length ?? 0)
+    const confirmed =
+      typeof Dialog !== "undefined" && typeof Dialog.confirm === "function"
+        ? await Dialog.confirm({
+            title: "导入跨设备同步数据",
+            message: `数据包导出时间：${exportedLabel}（账号 ${bundle.uid}）。将应用程序设置与阅读器设置，并与本机合并 ${histCount} 条浏览记录、${bundle.novelProgress?.length ?? 0} 条小说进度及屏蔽列表。`,
+            confirmLabel: "确认导入",
+            cancelLabel: "取消",
+          })
+        : true
+    if (!confirmed) return
+
+    const summary = importCrossDeviceSnapshot(rawJson)
+    setSettings(loadSettings())
+    setBlocklist(loadBlocklist())
+    refreshHistoryTotal()
+    refreshSyncOverview()
+    try {
+      triggerHaptic("success")
+    } catch {}
+    if (typeof Dialog !== "undefined" && typeof Dialog.alert === "function") {
+      await Dialog.alert({
+        title: "导入完成",
+        message: formatImportSummaryMessage(summary),
+      })
+    }
+  }
+
+  async function handleImportSyncFromFile() {
+    if (syncImporting) return
+    setSyncImporting(true)
+    try {
+      const picker: any = typeof DocumentPicker !== "undefined" ? DocumentPicker : null
+      let pickedPaths: string[] | null = null
+      if (picker && typeof picker.pickFiles === "function") {
+        const res = await picker.pickFiles({ types: ["public.json", "public.text", "public.item"] })
+        if (Array.isArray(res)) pickedPaths = res
+        else if (res && Array.isArray(res.paths)) pickedPaths = res.paths
+        else if (typeof res === "string") pickedPaths = [res]
+      } else if (picker && typeof picker.open === "function") {
+        const res = await picker.open(["public.json", "public.item"])
+        if (Array.isArray(res)) pickedPaths = res
+      } else {
+        throw new Error("当前宿主环境不支持文件选择器，请使用「从剪贴板导入」。")
+      }
+      const targetPath = pickedPaths?.[0]
+      if (!targetPath) return
+      const content = FileManager.readAsStringSync(targetPath, "utf-8")
+      await confirmAndImportSyncJson(content)
+    } catch (e: any) {
+      if (typeof Dialog !== "undefined" && typeof Dialog.alert === "function") {
+        await Dialog.alert({
+          title: "导入失败",
+          message: e?.message ?? String(e),
+        })
+      }
+    } finally {
+      setSyncImporting(false)
+    }
+  }
+
+  async function handleImportSyncFromClipboard() {
+    if (syncImporting) return
+    setSyncImporting(true)
+    try {
+      const text =
+        typeof Pasteboard !== "undefined" && typeof Pasteboard.getString === "function"
+          ? await Pasteboard.getString()
+          : ""
+      if (!text || !text.trim()) {
+        throw new Error("剪贴板中没有可导入的同步数据。")
+      }
+      await confirmAndImportSyncJson(text)
+    } catch (e: any) {
+      if (typeof Dialog !== "undefined" && typeof Dialog.alert === "function") {
+        await Dialog.alert({
+          title: "导入失败",
+          message: e?.message ?? String(e),
+        })
+      }
+    } finally {
+      setSyncImporting(false)
     }
   }
 
@@ -1985,7 +2215,117 @@ export function SettingsView() {
         </DisclosureGroup>
       </Section>
 
-      {/* 10. 缓存管理 */}
+      {/* 10. 跨设备同步 */}
+      <Section>
+        <DisclosureGroup
+          isExpanded={expanded.sync}
+          onChanged={(v) => setExpandedKey("sync", v)}
+          label={
+            <HStack spacing={10} alignment="center">
+              <Image systemName="icloud.and.arrow.up.and.down" font="body" foregroundStyle="systemBlue" frame={{ width: 24, alignment: "center" }} />
+              <Text font="headline">跨设备同步</Text>
+              <Spacer />
+              {!expanded.sync ? (
+                <Text font="footnote" foregroundStyle="tertiaryLabel">
+                  {syncOverview.icloudEnabled
+                    ? formatSyncTimestamp(syncOverview.lastSyncTime)
+                    : "仅本地"}
+                </Text>
+              ) : null}
+            </HStack>
+          }
+        >
+          <HStack spacing={8}>
+            <Text font="body">iCloud 自动同步</Text>
+            <Spacer />
+            <Text
+              font="body"
+              foregroundStyle={syncOverview.icloudEnabled ? "systemGreen" : "secondaryLabel"}
+            >
+              {syncOverview.icloudEnabled ? "已开启" : "未开启"}
+            </Text>
+          </HStack>
+
+          <HStack spacing={8}>
+            <Text font="body">上次同步时间</Text>
+            <Spacer />
+            <Text font="body" foregroundStyle={customTint ?? "secondaryLabel"}>
+              {formatSyncTimestamp(syncOverview.lastSyncTime)}
+            </Text>
+          </HStack>
+
+          <VStack alignment="leading" spacing={4}>
+            <Text font="caption" foregroundStyle="secondaryLabel">
+              {`同步范围：程序设置、小说阅读器设置、浏览记录（${syncOverview.historyCounts.total} 条）、搜索记录（${syncOverview.searchHistoryCount} 条）、小说进度（${syncOverview.novelProgressCount} 条）、屏蔽列表（${syncOverview.blockedTagsCount + syncOverview.blockedUsersCount} 项）与特辑收藏（${syncOverview.pixivisionBookmarksCount} 条）。`}
+            </Text>
+            <Text font="caption" foregroundStyle="tertiaryLabel">
+              自定义 AI 配置通过系统 iCloud 钥匙串同步；导出数据包不包含登录令牌与 API 密钥。
+            </Text>
+          </VStack>
+
+          <Button
+            action={() => void handleSyncNow()}
+            disabled={!syncOverview.icloudEnabled || syncingNow}
+          >
+            <HStack spacing={8} alignment="center">
+              <Image
+                systemName={syncSuccess ? "checkmark.icloud" : "arrow.triangle.2.circlepath"}
+                foregroundStyle={syncSuccess ? "systemGreen" : customTint ?? "systemBlue"}
+              />
+              <Text font="body">
+                {syncingNow ? "正在同步…" : syncSuccess ? "已同步最新数据" : "立即与 iCloud 同步"}
+              </Text>
+              <Spacer />
+            </HStack>
+          </Button>
+
+          <Button
+            action={() => void handleExportSyncData("file")}
+            disabled={syncExporting}
+          >
+            <HStack spacing={8} alignment="center">
+              <Image systemName="square.and.arrow.up" foregroundStyle={customTint ?? "systemBlue"} />
+              <Text font="body">{syncExporting ? "正在生成…" : "导出同步数据包（文件）"}</Text>
+              <Spacer />
+            </HStack>
+          </Button>
+
+          <Button
+            action={() => void handleExportSyncData("clipboard")}
+            disabled={syncExporting}
+          >
+            <HStack spacing={8} alignment="center">
+              <Image systemName="doc.on.doc" foregroundStyle={customTint ?? "systemBlue"} />
+              <Text font="body">复制同步数据到剪贴板</Text>
+              <Spacer />
+            </HStack>
+          </Button>
+
+          <Button
+            action={() => void handleImportSyncFromFile()}
+            disabled={syncImporting}
+          >
+            <HStack spacing={8} alignment="center">
+              <Image systemName="square.and.arrow.down" foregroundStyle={customTint ?? "systemOrange"} />
+              <Text font="body">{syncImporting ? "正在导入…" : "从文件导入同步数据"}</Text>
+              <Spacer />
+            </HStack>
+          </Button>
+
+          <Button
+            action={() => void handleImportSyncFromClipboard()}
+            disabled={syncImporting}
+          >
+            <HStack spacing={8} alignment="center">
+              <Image systemName="doc.on.clipboard" foregroundStyle={customTint ?? "systemOrange"} />
+              <Text font="body">从剪贴板导入同步数据</Text>
+              <Spacer />
+            </HStack>
+          </Button>
+        </DisclosureGroup>
+      </Section>
+
+      {/* 11. 缓存管理 */}
       <Section>
         <DisclosureGroup
           isExpanded={expanded.cache}

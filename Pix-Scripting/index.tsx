@@ -7,7 +7,7 @@ import {
   seedIfRoute,
   startBackgroundServices,
 } from "./src/bootstrap"
-import { triggerResumeSync } from "./src/store/historySync"
+import { triggerFullResumeSync } from "./src/store/crossDeviceSync"
 import { requestPixivRoute } from "./src/store/routeNavigation"
 import { DownloadTaskManager } from "./src/downloader/downloadTaskManager"
 import { discardNovelTranslationSessions, pauseAllNovelTranslations, resumeMinimizedNovelTranslations } from "./src/store/novelTranslation"
@@ -31,7 +31,10 @@ async function main() {
     stopAI = onCustomAIConfigChanged(() => discardNovelTranslationSessions())
     sceneListener = (phase: ScenePhase) => {
       if (phase === "background") pauseAllNovelTranslations()
-      else if (phase === "active" && !Script.isMinimized()) resumeMinimizedNovelTranslations()
+      else if (phase === "active" && !Script.isMinimized()) {
+        resumeMinimizedNovelTranslations()
+        triggerFullResumeSync()
+      }
     }
     AppEvents.scenePhase.addListener(sceneListener)
     const startupRoute =
@@ -58,7 +61,7 @@ async function main() {
       try {
         DownloadTaskManager.checkPendingSignals()
       } catch {}
-      triggerResumeSync()
+      triggerFullResumeSync()
     })
     Script.onMinimize(() => {
       pauseAllNovelTranslations()

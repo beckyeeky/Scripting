@@ -9,7 +9,7 @@ import {
   flushAllCaches,
   seedIfRoute,
 } from "./src/bootstrap"
-import { triggerResumeSync } from "./src/store/historySync"
+import { triggerFullResumeSync } from "./src/store/crossDeviceSync"
 import { abortAllAITasks } from "./src/api/aiService"
 import { requestPixivRoute } from "./src/store/routeNavigation"
 import { useIsFullScreen } from "./src/ui/FullScreenState"
@@ -47,7 +47,7 @@ export default function HomeScreenEntry() {
       switch (event) {
         case "selected":
           // 切回首页 Tab：触发轻量增量同步
-          triggerResumeSync()
+          triggerFullResumeSync()
           break
         case "reselected":
           // 再次点击首页 Tab：保持原生交互
@@ -74,7 +74,7 @@ export default function HomeScreenEntry() {
       try {
         DownloadTaskManager.checkPendingSignals()
       } catch {}
-      triggerResumeSync()
+      triggerFullResumeSync()
     })
 
     return () => {

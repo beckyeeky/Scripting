@@ -94,6 +94,14 @@ function syncStateFilePath(userId?: string | number | null): string {
   return `${pixivHistoryDirectory(userId)}/${SYNC_STATE_FILE}`
 }
 
+export function getHistoryLastSyncTime(userId?: string | number | null): number {
+  return loadSyncState(userId).lastSyncTime
+}
+
+export function getHistorySyncState(userId?: string | number | null): HistorySyncState {
+  return loadSyncState(userId)
+}
+
 function loadSyncState(userId?: string | number | null): HistorySyncState {
   const path = syncStateFilePath(userId)
   try {

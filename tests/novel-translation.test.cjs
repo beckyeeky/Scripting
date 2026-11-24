@@ -915,7 +915,7 @@ test("App 真正进后台时暂停，回前台恢复；脚本最小化时不提�
     "./src/ui/appRoot": { RootView() {} },
     "./src/bootstrap": { bootstrapStorage: async () => {}, cleanupAppResources() {},
       flushAllCaches() {}, seedIfRoute() {}, startBackgroundServices() {} },
-    "./src/store/historySync": { triggerResumeSync() {} },
+    "./src/store/crossDeviceSync": { triggerFullResumeSync() {} },
     "./src/store/routeNavigation": { requestPixivRoute() {} },
     "./src/downloader/downloadTaskManager": { DownloadTaskManager: { checkPendingSignals() {} } },
     "./src/store/novelTranslation": {

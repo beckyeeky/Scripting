@@ -472,6 +472,35 @@ export async function prepareSettingsStorage(): Promise<void> {
   }
 }
 
+export async function syncSettingsFromCloud(): Promise<boolean> {
+  if (!FileManager.isiCloudEnabled) return false
+  await prepareSettingsStorage()
+  const path = settingsFilePath()
+  try {
+    recoverFile(path)
+    if (!FileManager.existsSync(path)) return false
+    const raw = FileManager.readAsStringSync(path, "utf-8")
+    const decoded = JSON.parse(raw)
+    if (typeof decoded !== "object" || decoded === null) return false
+    const parsed = parseSettings(decoded as Partial<AppSettings> & Record<string, unknown>)
+    const localBookmark = cachedSettings?.downloadCustomDirectoryBookmark ?? null
+    const localPath = cachedSettings?.downloadCustomDirectoryPath ?? null
+    const next: AppSettings = {
+      ...parsed,
+      downloadCustomDirectoryBookmark: localBookmark ?? parsed.downloadCustomDirectoryBookmark,
+      downloadCustomDirectoryPath: localPath ?? parsed.downloadCustomDirectoryPath,
+    }
+    if (cachedSettings && JSON.stringify(cachedSettings) === JSON.stringify(next)) {
+      return false
+    }
+    cachedSettings = next
+    emitChanged()
+    return true
+  } catch {
+    return false
+  }
+}
+
 function isOneOf<T extends string>(value: unknown, values: readonly T[]): value is T {
   return typeof value === "string" && values.includes(value as T)
 }

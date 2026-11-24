@@ -58,6 +58,7 @@
 
 - `store/dataDirectory.ts` 集中定义数据路径：本地 Documents 保存缓存、系列映射、译文与按账号隔离的历史/进度。
 - 历史、搜索记录与进度由 `historySync.ts` 同步到账号专属 iCloud 目录；浏览/搜索历史使用删除标记与分类清空水位线合并，单条删除标记按 30 天清理，重新搜索较新时可恢复。设置、屏蔽、阅读器配置、Pixivision 收藏使用各自云目录，iCloud 不可用时回退本地。
+- `store/crossDeviceSync.ts` 聚合跨设备同步能力：统一调度历史/进度/搜索历史同步与设置、阅读器设置、屏蔽列表、Pixivision 收藏的 iCloud 热重载（在主入口恢复、Tab 切回及设置页「立即同步」触发），并提供无 iCloud 环境下的 JSON 同步数据包导出与增量合并导入（导出时剔除设备本地目录安全书签与路径，不含登录令牌与 AI 密钥）。
 - Widget 数据池优先使用 App Group 共享目录，意图与主程序共享数据；下载意图通过 `downloader/TaskSignal.ts` 传递控制信号。
 - 不应假设所有 store 都按账号隔离或都同步 iCloud；改动需核对具体模块路径与写入逻辑。
 
