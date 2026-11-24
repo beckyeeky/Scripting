@@ -23,6 +23,9 @@ export interface GeneralAIConfig {
   noKeyRequired?: boolean
   supportsVision: boolean
   temperature?: number
+  oauthRefreshToken?: string
+  oauthExpiresAt?: number
+  oauthAccountEmail?: string
 }
 
 export interface ImageGenAIConfig {
@@ -43,6 +46,9 @@ export interface PresetSavedConfig {
   supportsVision?: boolean
   noKeyRequired?: boolean
   temperature?: number
+  oauthRefreshToken?: string
+  oauthExpiresAt?: number
+  oauthAccountEmail?: string
 }
 
 export interface CustomAIProfile {
@@ -63,6 +69,7 @@ export interface AIPreset {
   supportsVision: boolean
   description: string
   apiKeyUrl?: string
+  authMode?: "api-key" | "oauth"
 }
 
 /**
@@ -234,6 +241,17 @@ export const AI_PRESETS: AIPreset[] = [
     apiKeyUrl: "https://console.anthropic.com/settings/keys",
   },
   {
+    id: "grok-oauth",
+    name: "Grok (OAuth)",
+    provider: "xAI",
+    protocol: "openai-responses",
+    defaultEndpoint: "https://api.x.ai",
+    defaultModel: "grok-4",
+    supportsVision: true,
+    description: "通过 xAI OAuth 设备码授权登录使用 Grok 模型（仅走 OAuth）",
+    authMode: "oauth",
+  },
+  {
     id: "openrouter",
     name: "OpenRouter",
     provider: "OpenRouter",
@@ -353,9 +371,21 @@ function validateAndSanitizeProfile(raw: unknown): CustomAIProfile {
     endpoint: rawEndpoint,
     model: typeof generalRaw.model === "string" ? generalRaw.model.trim() : "",
     apiKey: typeof generalRaw.apiKey === "string" ? generalRaw.apiKey.trim() : "",
-    noKeyRequired: Boolean(generalRaw.noKeyRequired),
+    noKeyRequired: preset === "grok-oauth" ? false : Boolean(generalRaw.noKeyRequired),
     supportsVision: Boolean(generalRaw.supportsVision),
     temperature: typeof generalRaw.temperature === "number" ? generalRaw.temperature : 0.7,
+    oauthRefreshToken:
+      typeof generalRaw.oauthRefreshToken === "string" && generalRaw.oauthRefreshToken.trim()
+        ? generalRaw.oauthRefreshToken.trim()
+        : undefined,
+    oauthExpiresAt:
+      typeof generalRaw.oauthExpiresAt === "number" && Number.isFinite(generalRaw.oauthExpiresAt)
+        ? generalRaw.oauthExpiresAt
+        : undefined,
+    oauthAccountEmail:
+      typeof generalRaw.oauthAccountEmail === "string" && generalRaw.oauthAccountEmail.trim()
+        ? generalRaw.oauthAccountEmail.trim()
+        : undefined,
   }
 
   const presetConfigsRaw = obj.presetConfigs || {}
@@ -376,8 +406,20 @@ function validateAndSanitizeProfile(raw: unknown): CustomAIProfile {
           endpoint: itemEndpoint,
           protocol: item.protocol,
           supportsVision: typeof item.supportsVision === "boolean" ? item.supportsVision : undefined,
-          noKeyRequired: typeof item.noKeyRequired === "boolean" ? item.noKeyRequired : undefined,
+          noKeyRequired: k === "grok-oauth" ? false : (typeof item.noKeyRequired === "boolean" ? item.noKeyRequired : undefined),
           temperature: typeof item.temperature === "number" ? item.temperature : undefined,
+          oauthRefreshToken:
+            typeof item.oauthRefreshToken === "string" && item.oauthRefreshToken.trim()
+              ? item.oauthRefreshToken.trim()
+              : undefined,
+          oauthExpiresAt:
+            typeof item.oauthExpiresAt === "number" && Number.isFinite(item.oauthExpiresAt)
+              ? item.oauthExpiresAt
+              : undefined,
+          oauthAccountEmail:
+            typeof item.oauthAccountEmail === "string" && item.oauthAccountEmail.trim()
+              ? item.oauthAccountEmail.trim()
+              : undefined,
         }
       }
     }
@@ -393,6 +435,9 @@ function validateAndSanitizeProfile(raw: unknown): CustomAIProfile {
       supportsVision: general.supportsVision,
       noKeyRequired: general.noKeyRequired,
       temperature: general.temperature,
+      oauthRefreshToken: general.oauthRefreshToken,
+      oauthExpiresAt: general.oauthExpiresAt,
+      oauthAccountEmail: general.oauthAccountEmail,
     }
   } else {
     if (general.apiKey && !presetConfigs[activePresetKey].apiKey) {
@@ -400,6 +445,15 @@ function validateAndSanitizeProfile(raw: unknown): CustomAIProfile {
     }
     if (general.model && !presetConfigs[activePresetKey].model) {
       presetConfigs[activePresetKey].model = general.model
+    }
+    if (general.oauthRefreshToken && !presetConfigs[activePresetKey].oauthRefreshToken) {
+      presetConfigs[activePresetKey].oauthRefreshToken = general.oauthRefreshToken
+    }
+    if (general.oauthExpiresAt != null && presetConfigs[activePresetKey].oauthExpiresAt == null) {
+      presetConfigs[activePresetKey].oauthExpiresAt = general.oauthExpiresAt
+    }
+    if (general.oauthAccountEmail && !presetConfigs[activePresetKey].oauthAccountEmail) {
+      presetConfigs[activePresetKey].oauthAccountEmail = general.oauthAccountEmail
     }
   }
 
@@ -536,6 +590,9 @@ export function updateCustomAIProfile(
     supportsVision: newGeneral.supportsVision,
     noKeyRequired: newGeneral.noKeyRequired,
     temperature: newGeneral.temperature,
+    oauthRefreshToken: newGeneral.oauthRefreshToken,
+    oauthExpiresAt: newGeneral.oauthExpiresAt,
+    oauthAccountEmail: newGeneral.oauthAccountEmail,
   }
 
   const updated: CustomAIProfile = {
@@ -569,6 +626,9 @@ export function switchCustomAIPreset(newPresetId: string): CustomAIProfile {
       supportsVision: current.general.supportsVision,
       noKeyRequired: current.general.noKeyRequired,
       temperature: current.general.temperature,
+      oauthRefreshToken: current.general.oauthRefreshToken,
+      oauthExpiresAt: current.general.oauthExpiresAt,
+      oauthAccountEmail: current.general.oauthAccountEmail,
     },
   }
 
@@ -589,9 +649,12 @@ export function switchCustomAIPreset(newPresetId: string): CustomAIProfile {
     endpoint: savedTarget.endpoint ?? "",
     model: savedTarget.model ?? targetPresetMeta?.defaultModel ?? "",
     apiKey: savedTarget.apiKey ?? "",
-    noKeyRequired: Boolean(savedTarget.noKeyRequired),
+    noKeyRequired: targetPresetMeta?.authMode === "oauth" ? false : Boolean(savedTarget.noKeyRequired),
     supportsVision: targetSupportsVision,
     temperature: typeof savedTarget.temperature === "number" ? savedTarget.temperature : 0.7,
+    oauthRefreshToken: savedTarget.oauthRefreshToken,
+    oauthExpiresAt: savedTarget.oauthExpiresAt,
+    oauthAccountEmail: savedTarget.oauthAccountEmail,
   }
 
   presetConfigs[newPresetId] = {
@@ -602,6 +665,9 @@ export function switchCustomAIPreset(newPresetId: string): CustomAIProfile {
     supportsVision: newGeneral.supportsVision,
     noKeyRequired: newGeneral.noKeyRequired,
     temperature: newGeneral.temperature,
+    oauthRefreshToken: newGeneral.oauthRefreshToken,
+    oauthExpiresAt: newGeneral.oauthExpiresAt,
+    oauthAccountEmail: newGeneral.oauthAccountEmail,
   }
 
   const updated: CustomAIProfile = {
@@ -674,7 +740,10 @@ export function isCustomAIConfigured(): boolean {
   if (!profile.enabled) return false
   const gen = profile.general
   const effectiveEndpoint = getEffectiveGeneralEndpoint(gen)
-  const hasKey = gen.noKeyRequired || Boolean(gen.apiKey)
+  const hasKey =
+    gen.noKeyRequired ||
+    Boolean(gen.apiKey) ||
+    (gen.preset === "grok-oauth" && Boolean(gen.oauthRefreshToken))
   return Boolean(effectiveEndpoint && gen.model && hasKey)
 }
 

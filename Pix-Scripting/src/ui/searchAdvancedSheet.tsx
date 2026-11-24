@@ -24,14 +24,15 @@ import { compileSearchQuery, searchAutocomplete, stripBookmarkFilterFromWord } f
 import { session } from "../api/session"
 import { sheetTopBar } from "./components/pageChrome"
 import { SheetScaffold } from "./components/SheetScaffold"
-import type {
-  AdvancedSearchParams,
-  BookmarkThreshold,
-  PixivAutocompleteTag,
-  SearchCategory,
-  SearchMediaFilter,
-  SearchScope,
-  SearchSort,
+import {
+  NOVEL_MIN_TEXT_LENGTH_THRESHOLD,
+  type AdvancedSearchParams,
+  type BookmarkThreshold,
+  type PixivAutocompleteTag,
+  type SearchCategory,
+  type SearchMediaFilter,
+  type SearchScope,
+  type SearchSort,
 } from "../types"
 import { loadSettings, type AppSettings } from "../store/settings"
 import { triggerHaptic } from "../platform/haptics"
@@ -288,6 +289,7 @@ export function getDefaultAdvancedSearchParams(
     includeR18: resolvedSettings.showR18,
     includeR18G: resolvedSettings.showR18 && resolvedSettings.showR18G,
     includeAI: resolvedSettings.showAI,
+    minTextLength: 0,
   }
 }
 
@@ -363,6 +365,9 @@ export function SearchAdvancedSheet(props: {
   const [includeAI, setIncludeAI] = useState<boolean>(() =>
     currentParams.includeAI ?? settings.showAI
   )
+  const [minTextLength, setMinTextLength] = useState<number>(
+    currentParams.minTextLength ?? 0
+  )
   // 智能一次性自动聚焦：若初始词条为空（从热门/未搜索进入），首次打开自动聚焦唤起键盘；
   // 挂载后或输入发生变化时立即关闭自动聚焦，防止后续滚动到底部时被虚拟列表反复唤起键盘。
   const [shouldAutoFocus, setShouldAutoFocus] = useState<boolean>(
@@ -395,6 +400,7 @@ export function SearchAdvancedSheet(props: {
     setIncludeR18(currentParams.includeR18 ?? settings.showR18)
     setIncludeR18G(currentParams.includeR18G ?? (settings.showR18 && settings.showR18G))
     setIncludeAI(currentParams.includeAI ?? settings.showAI)
+    setMinTextLength(currentParams.minTextLength ?? 0)
     if (!currentParams.word?.trim()) {
       setShouldAutoFocus(true)
     }
@@ -498,6 +504,7 @@ export function SearchAdvancedSheet(props: {
       if (target === "text" || target === "keyword") {
         setTarget("partial_match_for_tags")
       }
+      setMinTextLength(0)
     }
   }
 
@@ -516,6 +523,7 @@ export function SearchAdvancedSheet(props: {
     setIncludeR18(settings.showR18)
     setIncludeR18G(settings.showR18 && settings.showR18G)
     setIncludeAI(settings.showAI)
+    setMinTextLength(defaults.minTextLength ?? 0)
   }
 
   function handleApply() {
@@ -552,6 +560,7 @@ export function SearchAdvancedSheet(props: {
       includeR18,
       includeR18G,
       includeAI,
+      minTextLength: category === "novel" ? minTextLength : 0,
     })
   }
 
@@ -892,6 +901,27 @@ export function SearchAdvancedSheet(props: {
             <Text tag="100000">至少 100,000 收藏</Text>
           </Picker>
         </Section>
+
+        {isNovel ? (
+          <Section
+            header={<Text>字数筛选</Text>}
+            footer={
+              minTextLength > 0 ? (
+                <Text font="caption" foregroundStyle="secondaryLabel">
+                  依据 Pixiv 自带字数统计过滤，仅显示 {minTextLength.toLocaleString()} 字以上的小说。
+                </Text>
+              ) : undefined
+            }
+          >
+            <Toggle
+              title={`仅看 ${NOVEL_MIN_TEXT_LENGTH_THRESHOLD.toLocaleString()} 字以上`}
+              value={minTextLength >= NOVEL_MIN_TEXT_LENGTH_THRESHOLD}
+              onChanged={(val: boolean) =>
+                setMinTextLength(val ? NOVEL_MIN_TEXT_LENGTH_THRESHOLD : 0)
+              }
+            />
+          </Section>
+        ) : null}
 
         <Section
           header={

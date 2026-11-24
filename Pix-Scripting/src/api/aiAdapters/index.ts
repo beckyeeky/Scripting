@@ -20,6 +20,7 @@ import {
   inferPresetModelProtocol,
   inferPresetModelSupportsVision,
 } from "./models"
+import { ensureFreshGrokAccessToken, GROK_OAUTH_PRESET_ID } from "../grokOAuth"
 
 export * from "./types"
 export * from "./sseParser"
@@ -55,7 +56,11 @@ export async function streamCustomChat(
   config: GeneralAIConfig,
   request: AdapterRequest
 ): Promise<AdapterResponse> {
-  const routedConfig = resolveGeneralAIConfigRoute(config)
+  let routedConfig = resolveGeneralAIConfigRoute(config)
+  if (routedConfig.preset === GROK_OAUTH_PRESET_ID) {
+    const freshToken = await ensureFreshGrokAccessToken(routedConfig)
+    routedConfig = { ...routedConfig, apiKey: freshToken }
+  }
   switch (routedConfig.protocol) {
     case "openai-responses":
       return requestOpenAIResponses(routedConfig, request)
@@ -78,11 +83,17 @@ export async function testCustomAIConnection(
 ): Promise<TestResult> {
   const routedConfig = resolveGeneralAIConfigRoute(config)
   const effectiveEndpoint = getEffectiveGeneralEndpoint(routedConfig)
-  if (!effectiveEndpoint || !routedConfig.model || (!routedConfig.noKeyRequired && !routedConfig.apiKey)) {
+  const isGrokOAuth = routedConfig.preset === GROK_OAUTH_PRESET_ID
+  const hasAuth = isGrokOAuth
+    ? Boolean(routedConfig.apiKey || routedConfig.oauthRefreshToken)
+    : Boolean(routedConfig.noKeyRequired || routedConfig.apiKey)
+  if (!effectiveEndpoint || !routedConfig.model || !hasAuth) {
     return {
       success: false,
       latencyMs: 0,
-      error: "请先填写完整的模型名称与 API 密钥",
+      error: isGrokOAuth
+        ? "请先完成 Grok OAuth 授权登录并填写模型名称"
+        : "请先填写完整的模型名称与 API 密钥",
     }
   }
 

@@ -76,6 +76,7 @@ function loadSearchAdvancedSheet(settings = { showR18: true, showR18G: false, sh
         "./components/pageChrome": { sheetTopBar: () => ({}) },
         "./components/SheetScaffold": { SheetScaffold: "SheetScaffold" },
         "../platform/haptics": { triggerHaptic() {} },
+        "../types": { NOVEL_MIN_TEXT_LENGTH_THRESHOLD: 8000 },
       }
       if (!(id in mocks)) throw new Error(`missing test double: ${id}`)
       return mocks[id]
@@ -253,4 +254,41 @@ test("高级搜索自动补全替换末尾词并保留之前的表达式", async
   suggestion.props.action()
   tree = harness.render(props)
   assert.equal(findAll(tree, "TextField").find(node => node.props.title === "关键词").props.value, "初音 or 桜花 ")
+})
+
+test("小说高级搜索提供 8000 字以上过滤开关，非小说范围隐藏", () => {
+  const harness = loadSearchAdvancedSheet()
+  let applied = null
+  const novelProps = {
+    currentParams: harness.getDefaultAdvancedSearchParams("novel", "测试小说"),
+    settings: { hideNovels: false, showR18: true, showR18G: false, showAI: true },
+    onApply(next) { applied = next },
+    onCancel() {},
+  }
+  assert.equal(novelProps.currentParams.minTextLength, 0)
+
+  let tree = harness.render(novelProps)
+  let lengthToggle = findAll(tree, "Toggle").find(node => node.props.title === "仅看 8,000 字以上")
+  assert.ok(lengthToggle, "小说范围应显示 8,000 字以上开关")
+  assert.equal(lengthToggle.props.value, false)
+
+  lengthToggle.props.onChanged(true)
+  tree = harness.render(novelProps)
+  lengthToggle = findAll(tree, "Toggle").find(node => node.props.title === "仅看 8,000 字以上")
+  assert.equal(lengthToggle.props.value, true)
+
+  const listNode = findAll(tree, "List")[0]
+  const searchBtn = listNode.props.toolbar.topBarTrailing.find(node => node.props.title === "搜索")
+  searchBtn.props.action()
+  assert.equal(applied.minTextLength, 8000)
+
+  const illustHarness = loadSearchAdvancedSheet()
+  const illustTree = illustHarness.render({
+    currentParams: illustHarness.getDefaultAdvancedSearchParams("illust", "插画"),
+    settings: { hideNovels: false, showR18: true, showR18G: false, showAI: true },
+    onApply() {},
+    onCancel() {},
+  })
+  const hiddenToggle = findAll(illustTree, "Toggle").find(node => node.props.title === "仅看 8,000 字以上")
+  assert.equal(hiddenToggle, undefined, "插画范围不应显示小说字数开关")
 })

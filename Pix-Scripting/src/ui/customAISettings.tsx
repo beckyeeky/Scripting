@@ -1,4 +1,5 @@
 import {
+  AbortController,
   Button,
   Group,
   HStack,
@@ -15,6 +16,7 @@ import {
   Toggle,
   useEffect,
   useMemo,
+  useRef,
   useState,
   ZStack,
 } from "scripting"
@@ -60,6 +62,13 @@ import {
   type RemoteModelItem,
   type TestResult,
 } from "../api/aiAdapters"
+import {
+  ensureFreshGrokAccessToken,
+  GROK_OAUTH_PRESET_ID,
+  pollGrokDeviceToken,
+  startGrokDeviceAuthorization,
+  type GrokDeviceAuthSession,
+} from "../api/grokOAuth"
 
 declare const Pasteboard: any
 declare const Safari: any
@@ -98,6 +107,11 @@ export function CustomAISettingsView() {
   const [testingImage, setTestingImage] = useState(false)
   const [imageTestResult, setImageTestResult] = useState<TestResult | null>(null)
 
+  const [grokDeviceSession, setGrokDeviceSession] = useState<GrokDeviceAuthSession | null>(null)
+  const [grokAuthBusy, setGrokAuthBusy] = useState(false)
+  const [grokAuthError, setGrokAuthError] = useState<string | null>(null)
+  const grokAbortRef = useRef<AbortController | null>(null)
+
   useEffect(() => {
     const unsub = onCustomAIConfigChanged((updated) => {
       setProfile({ ...updated })
@@ -112,6 +126,9 @@ export function CustomAISettingsView() {
       unsub()
       unsubSettings()
       unsubNovelReader()
+      try {
+        grokAbortRef.current?.abort()
+      } catch {}
     }
   }, [])
 
@@ -141,7 +158,16 @@ export function CustomAISettingsView() {
    * 测试通用模型可用性
    */
   async function handleTestGeneralModel() {
-    if (!profile.general.noKeyRequired && !profile.general.apiKey) {
+    const isOAuth = profile.general.preset === GROK_OAUTH_PRESET_ID
+    const hasOAuthCreds = Boolean(profile.general.apiKey || profile.general.oauthRefreshToken)
+    if (isOAuth && !hasOAuthCreds) {
+      void Dialog.alert({
+        title: "请先完成 Grok OAuth 登录",
+        message: "请先使用 Grok OAuth 授权登录后再进行连接测试。",
+      })
+      return
+    }
+    if (!isOAuth && !profile.general.noKeyRequired && !profile.general.apiKey) {
       void Dialog.alert({
         title: "请输入 API 密钥",
         message: "请先填入或粘贴有效的 API Key 后再进行连接测试。",
@@ -270,6 +296,13 @@ export function CustomAISettingsView() {
   function applyPreset(presetId: string) {
     if (!presetId) return
     triggerHaptic("selection")
+    try {
+      grokAbortRef.current?.abort()
+    } catch {}
+    grokAbortRef.current = null
+    setGrokDeviceSession(null)
+    setGrokAuthBusy(false)
+    setGrokAuthError(null)
     const next = switchCustomAIPreset(presetId)
     setProfile(next)
     setGeneralTestResult(null)
@@ -287,6 +320,11 @@ export function CustomAISettingsView() {
   }, [profile.general.preset])
 
   const selectedPresetId = currentPreset?.id || ""
+  const isOAuthPreset = currentPreset?.authMode === "oauth"
+  const isGrokLoggedIn = Boolean(profile.general.apiKey || profile.general.oauthRefreshToken)
+  const hasGeneralAuth = isOAuthPreset
+    ? isGrokLoggedIn
+    : Boolean(profile.general.apiKey || profile.general.noKeyRequired)
 
   const defaultGeneralEndpointPlaceholder = useMemo(() => {
     if (profile.general.preset === "custom") return "https://api.example.com"
@@ -343,11 +381,183 @@ export function CustomAISettingsView() {
     }
   }
 
+  function openGrokVerificationPage(targetUrl: string) {
+    void (async () => {
+      try {
+        await Safari.present(targetUrl, false)
+      } catch {
+        try {
+          void Safari.openURL(targetUrl)
+        } catch {}
+      }
+    })()
+  }
+
+  async function handleStartGrokOAuth() {
+    try {
+      grokAbortRef.current?.abort()
+    } catch {}
+    const controller = new AbortController()
+    grokAbortRef.current = controller
+    setGrokAuthBusy(true)
+    setGrokAuthError(null)
+    setGeneralTestResult(null)
+    triggerHaptic("light")
+
+    try {
+      const deviceSession = await startGrokDeviceAuthorization()
+      if (grokAbortRef.current !== controller || controller.signal.aborted) {
+        return
+      }
+      setGrokDeviceSession(deviceSession)
+      try {
+        await Pasteboard.setString(deviceSession.userCode)
+      } catch {}
+
+      const authUrl = deviceSession.verificationUriComplete || deviceSession.verificationUri
+      openGrokVerificationPage(authUrl)
+
+      const tokenData = await pollGrokDeviceToken(deviceSession, controller.signal)
+      if (grokAbortRef.current !== controller || controller.signal.aborted) {
+        return
+      }
+
+      const nextProfile = updateCustomAIProfile({
+        general: {
+          ...profile.general,
+          preset: GROK_OAUTH_PRESET_ID,
+          apiKey: tokenData.accessToken,
+          oauthRefreshToken: tokenData.refreshToken,
+          oauthExpiresAt: tokenData.expiresAt,
+          oauthAccountEmail: tokenData.email,
+          noKeyRequired: false,
+        },
+      })
+      setProfile(nextProfile)
+      setGrokDeviceSession(null)
+      triggerHaptic("success")
+
+      const effectiveEndpoint = getEffectiveGeneralEndpoint(nextProfile.general)
+      if (effectiveEndpoint) {
+        setFetchingModels(true)
+        setFetchError(null)
+        const startTime = Date.now()
+        try {
+          const res = await fetchRemoteModelList(
+            nextProfile.general.protocol,
+            effectiveEndpoint,
+            tokenData.accessToken,
+            GROK_OAUTH_PRESET_ID,
+            false
+          )
+          setFetchLatency(Date.now() - startTime)
+          if (res.success && res.models.length > 0) {
+            setRemoteModels(res.models)
+            const hasCurrent = res.models.some((m) => m.id === nextProfile.general.model)
+            if (!hasCurrent || !nextProfile.general.model) {
+              const firstModel = res.models[0]
+              const updated = updateCustomAIProfile({
+                general: {
+                  ...nextProfile.general,
+                  model: firstModel.id,
+                  ...(typeof firstModel.supportsVision === "boolean"
+                    ? { supportsVision: firstModel.supportsVision }
+                    : {}),
+                },
+              })
+              setProfile(updated)
+            }
+          }
+        } catch {
+          // 登录成功后模型拉取失败不阻塞登录态保存
+        } finally {
+          setFetchingModels(false)
+        }
+      }
+    } catch (err: any) {
+      if (grokAbortRef.current === controller && !controller.signal.aborted) {
+        setGrokAuthError(err?.message || "Grok OAuth 授权失败")
+        triggerHaptic("error")
+      }
+    } finally {
+      if (grokAbortRef.current === controller) {
+        grokAbortRef.current = null
+        setGrokAuthBusy(false)
+        setGrokDeviceSession(null)
+      }
+    }
+  }
+
+  function handleCancelGrokOAuth() {
+    try {
+      grokAbortRef.current?.abort()
+    } catch {}
+    grokAbortRef.current = null
+    setGrokDeviceSession(null)
+    setGrokAuthBusy(false)
+  }
+
+  async function handleRefreshGrokToken() {
+    setGrokAuthBusy(true)
+    setGrokAuthError(null)
+    triggerHaptic("light")
+    try {
+      await ensureFreshGrokAccessToken(profile.general, true)
+      setProfile(loadCustomAIProfile())
+      triggerHaptic("success")
+    } catch (err: any) {
+      const msg = err?.message || "刷新 Grok OAuth 令牌失败"
+      setGrokAuthError(msg)
+      triggerHaptic("error")
+      void Dialog.alert({
+        title: "刷新令牌失败",
+        message: msg,
+      })
+    } finally {
+      setGrokAuthBusy(false)
+    }
+  }
+
+  async function handleLogoutGrokOAuth() {
+    const confirmed = await Dialog.confirm({
+      title: "退出 Grok OAuth 登录",
+      message: "退出后将清除当前保存的 Grok OAuth 访问令牌和刷新令牌，确定继续吗？",
+      confirmLabel: "退出登录",
+      cancelLabel: "取消",
+    })
+    if (!confirmed) return
+    try {
+      grokAbortRef.current?.abort()
+    } catch {}
+    grokAbortRef.current = null
+    setGrokDeviceSession(null)
+    setGrokAuthBusy(false)
+    setGrokAuthError(null)
+    updateGeneral({
+      apiKey: "",
+      oauthRefreshToken: undefined,
+      oauthExpiresAt: undefined,
+      oauthAccountEmail: undefined,
+    })
+    setRemoteModels([])
+    setFetchError(null)
+    setFetchLatency(null)
+    setGeneralTestResult(null)
+    triggerHaptic("warning")
+  }
+
   /**
    * 校验 API Key 并拉取远程可用模型列表
    */
   async function handleFetchRemoteModels() {
-    if (!profile.general.noKeyRequired && !profile.general.apiKey) {
+    if (isOAuthPreset && !isGrokLoggedIn) {
+      void Dialog.alert({
+        title: "请先完成 Grok OAuth 登录",
+        message: "请先点击「使用 Grok OAuth 登录」完成授权后再拉取模型列表。",
+      })
+      return
+    }
+    if (!isOAuthPreset && !profile.general.noKeyRequired && !profile.general.apiKey) {
       void Dialog.alert({
         title: "请输入 API 密钥",
         message: "请先填入或粘贴有效的 API Key 后再进行连接验证。",
@@ -370,10 +580,15 @@ export function CustomAISettingsView() {
 
     const startTime = Date.now()
     try {
+      let effectiveApiKey = profile.general.apiKey
+      if (isOAuthPreset) {
+        effectiveApiKey = await ensureFreshGrokAccessToken(profile.general)
+        setProfile(loadCustomAIProfile())
+      }
       const res = await fetchRemoteModelList(
         profile.general.protocol,
         effectiveEndpoint,
-        profile.general.apiKey,
+        effectiveApiKey,
         profile.general.preset,
         profile.general.noKeyRequired
       )
@@ -535,6 +750,7 @@ export function CustomAISettingsView() {
     if (raw === "OpenCode Go") return "OC Go"
     if (raw === "Google Gemini") return "Gemini"
     if (raw === "Anthropic Claude" || raw === "Anthropic") return "Claude"
+    if (raw === "Grok (OAuth)") return "Grok"
     return raw
   }, [profile])
 
@@ -607,7 +823,7 @@ export function CustomAISettingsView() {
             <Text foregroundStyle="secondaryLabel">
               {`已连接 · 延迟 ${fetchLatency}ms · 可用模型 ${remoteModels.length} 个`}
             </Text>
-          ) : currentPreset?.apiKeyUrl && !profile.general.noKeyRequired ? (
+          ) : !isOAuthPreset && currentPreset?.apiKeyUrl && !profile.general.noKeyRequired ? (
             <HStack spacing={4} alignment="center">
               <Spacer />
               <Button buttonStyle="plain" action={handleOpenApiKeyConsole}>
@@ -633,42 +849,141 @@ export function CustomAISettingsView() {
           ))}
         </Picker>
 
-        {!profile.general.noKeyRequired ? (
-          <HStack spacing={10} alignment="center">
-            {showKeyText ? (
-              <TextField
-                title="API 密钥"
-                prompt="在此粘贴 sk-..."
-                value={profile.general.apiKey}
-                onChanged={(val) => updateGeneral({ apiKey: val })}
-                autocorrectionDisabled={true}
-                textInputAutocapitalization="never"
-              />
+        {isOAuthPreset ? (
+          <>
+            <HStack spacing={10} alignment="center">
+              <Text font="body">Grok OAuth</Text>
+              <Spacer />
+              {isGrokLoggedIn ? (
+                <HStack spacing={4} alignment="center">
+                  <Image systemName="checkmark.circle.fill" foregroundStyle="systemGreen" />
+                  <Text font="caption" foregroundStyle="systemGreen" lineLimit={1}>
+                    {profile.general.oauthAccountEmail
+                      ? `已登录 (${profile.general.oauthAccountEmail})`
+                      : "已登录"}
+                  </Text>
+                </HStack>
+              ) : (
+                <Text font="caption" foregroundStyle="secondaryLabel">
+                  未登录
+                </Text>
+              )}
+            </HStack>
+
+            {grokDeviceSession ? (
+              <>
+                <HStack spacing={10} alignment="center">
+                  <Text font="body">授权码</Text>
+                  <Spacer />
+                  <Text font="body" fontWeight="semibold">
+                    {grokDeviceSession.userCode}
+                  </Text>
+                  <Button
+                    buttonStyle="plain"
+                    action={async () => {
+                      try {
+                        await Pasteboard.setString(grokDeviceSession.userCode)
+                        triggerHaptic("selection")
+                      } catch {}
+                    }}
+                  >
+                    <Text font="caption" foregroundStyle="systemBlue">
+                      复制
+                    </Text>
+                  </Button>
+                </HStack>
+
+                <HStack spacing={12} alignment="center">
+                  <Button
+                    title="打开授权页面"
+                    systemImage="safari"
+                    action={() =>
+                      openGrokVerificationPage(
+                        grokDeviceSession.verificationUriComplete || grokDeviceSession.verificationUri
+                      )
+                    }
+                  />
+                  <Spacer />
+                  <Button
+                    title="取消"
+                    role="destructive"
+                    action={handleCancelGrokOAuth}
+                  />
+                </HStack>
+              </>
+            ) : isGrokLoggedIn ? (
+              <HStack spacing={12} alignment="center">
+                {profile.general.oauthRefreshToken ? (
+                  <Button
+                    title={grokAuthBusy ? "刷新中…" : "刷新令牌"}
+                    systemImage="arrow.clockwise"
+                    disabled={grokAuthBusy}
+                    action={() => void handleRefreshGrokToken()}
+                  />
+                ) : null}
+                <Spacer />
+                <Button
+                  title="退出 Grok 登录"
+                  role="destructive"
+                  disabled={grokAuthBusy}
+                  action={() => void handleLogoutGrokOAuth()}
+                />
+              </HStack>
             ) : (
-              <SecureField
-                title="API 密钥"
-                prompt="在此粘贴 sk-..."
-                value={profile.general.apiKey}
-                onChanged={(val) => updateGeneral({ apiKey: val })}
+              <Button
+                title={grokAuthBusy ? "等待授权…" : "使用 Grok OAuth 登录"}
+                systemImage="person.badge.key"
+                disabled={grokAuthBusy}
+                action={() => void handleStartGrokOAuth()}
               />
             )}
-            <Button buttonStyle="plain" action={() => handlePasteApiKey(false)}>
-              <Image systemName="doc.on.clipboard" foregroundStyle="systemBlue" />
-            </Button>
-            <Button buttonStyle="plain" action={() => setShowKeyText(!showKeyText)}>
-              <Image
-                systemName={showKeyText ? "eye.slash" : "eye"}
-                foregroundStyle="secondaryLabel"
-              />
-            </Button>
-          </HStack>
-        ) : null}
 
-        <Toggle
-          title="无需密钥"
-          value={Boolean(profile.general.noKeyRequired)}
-          onChanged={(val) => updateGeneral({ noKeyRequired: val })}
-        />
+            {grokAuthError ? (
+              <Text font="caption" foregroundStyle="systemRed">
+                {grokAuthError}
+              </Text>
+            ) : null}
+          </>
+        ) : (
+          <>
+            {!profile.general.noKeyRequired ? (
+              <HStack spacing={10} alignment="center">
+                {showKeyText ? (
+                  <TextField
+                    title="API 密钥"
+                    prompt="在此粘贴 sk-..."
+                    value={profile.general.apiKey}
+                    onChanged={(val) => updateGeneral({ apiKey: val })}
+                    autocorrectionDisabled={true}
+                    textInputAutocapitalization="never"
+                  />
+                ) : (
+                  <SecureField
+                    title="API 密钥"
+                    prompt="在此粘贴 sk-..."
+                    value={profile.general.apiKey}
+                    onChanged={(val) => updateGeneral({ apiKey: val })}
+                  />
+                )}
+                <Button buttonStyle="plain" action={() => handlePasteApiKey(false)}>
+                  <Image systemName="doc.on.clipboard" foregroundStyle="systemBlue" />
+                </Button>
+                <Button buttonStyle="plain" action={() => setShowKeyText(!showKeyText)}>
+                  <Image
+                    systemName={showKeyText ? "eye.slash" : "eye"}
+                    foregroundStyle="secondaryLabel"
+                  />
+                </Button>
+              </HStack>
+            ) : null}
+
+            <Toggle
+              title="无需密钥"
+              value={Boolean(profile.general.noKeyRequired)}
+              onChanged={(val) => updateGeneral({ noKeyRequired: val })}
+            />
+          </>
+        )}
 
         <Picker
           title="API 协议"
@@ -738,12 +1053,12 @@ export function CustomAISettingsView() {
             />
             <Button
               buttonStyle="plain"
-              disabled={fetchingModels || (!profile.general.apiKey && !profile.general.noKeyRequired)}
+              disabled={fetchingModels || !hasGeneralAuth}
               action={handleFetchRemoteModels}
             >
               <Image
                 systemName={fetchingModels ? "arrow.triangle.2.circlepath" : "icloud.and.arrow.down"}
-                foregroundStyle={profile.general.apiKey || profile.general.noKeyRequired ? "systemBlue" : "secondaryLabel"}
+                foregroundStyle={hasGeneralAuth ? "systemBlue" : "secondaryLabel"}
               />
             </Button>
           </HStack>
@@ -803,14 +1118,12 @@ export function CustomAISettingsView() {
           ) : null}
           <Button
             buttonStyle="plain"
-            disabled={testingGeneral || (!profile.general.apiKey && !profile.general.noKeyRequired)}
+            disabled={testingGeneral || !hasGeneralAuth}
             action={handleTestGeneralModel}
           >
             <Image
               systemName={testingGeneral ? "arrow.triangle.2.circlepath" : "bolt.fill"}
-              foregroundStyle={
-                profile.general.apiKey || profile.general.noKeyRequired ? "systemOrange" : "secondaryLabel"
-              }
+              foregroundStyle={hasGeneralAuth ? "systemOrange" : "secondaryLabel"}
             />
           </Button>
         </HStack>

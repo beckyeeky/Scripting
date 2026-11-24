@@ -652,6 +652,12 @@ export function SearchView(props: {
             if (novel.novel_ai_type === 2) return false
           }
 
+          if ((advancedParams.minTextLength ?? 0) > 0) {
+            if ((novel.text_length ?? 0) < (advancedParams.minTextLength ?? 0)) {
+              return false
+            }
+          }
+
           return true
         })
       )
@@ -1190,6 +1196,16 @@ export function SearchView(props: {
           })),
       })
     }
+    if (scope === "novel" && (advancedParams.minTextLength ?? 0) > 0) {
+      badges.push({
+        key: "minTextLength",
+        icon: "doc.text",
+        iconColor: "systemOrange",
+        label: `≥${advancedParams.minTextLength!.toLocaleString()} 字`,
+        onClear: () =>
+          setAdvancedParams((prev) => ({ ...prev, minTextLength: 0 })),
+      })
+    }
     return badges
   }, [advancedParams, scope])
 
@@ -1432,6 +1448,7 @@ export function SearchView(props: {
                             datePresetLabel: undefined,
                             mediaFilter: "all",
                             category: categoryFromParams(scope, "all"),
+                            minTextLength: 0,
                           }))
                         }}
                       >
@@ -1606,7 +1623,8 @@ export function SearchView(props: {
                 loadSettings().showR18G &&
                 advancedParams.includeR18G === false
             ) ||
-            Boolean(loadSettings().showAI && advancedParams.includeAI === false),
+            Boolean(loadSettings().showAI && advancedParams.includeAI === false) ||
+            Boolean(scope === "novel" && (advancedParams.minTextLength ?? 0) > 0),
           onAdvanced: () => {
             setIsAdvancedSheetOpen(true)
           },

@@ -1,6 +1,22 @@
 # 项目交接
 
-## 当前发布：v1.8.14.2（2026-11-19）
+## 当前发布：v1.8.14.3（2026-11-24）
+
+- **撤回误发至 `main` 的 `1.8.15`**：已删除误发布至 `main` 的 `v1.8.15` GitHub Release 与远端/本地标签，并将本地 `main` 与 `origin/main` 恢复至 `754d8da`（与 `upstream/main` 一致）。所有新功能改在 `feature/pixivreader-port` 按四段版本号 `1.8.14.3` 发布。
+- **小说按字数过滤（8,000 字以上开关）**：
+  - `Pix-Scripting/src/types.ts` 新增 `NOVEL_MIN_TEXT_LENGTH_THRESHOLD = 8000` 及 `AdvancedSearchParams.minTextLength`。
+  - `Pix-Scripting/src/ui/searchAdvancedSheet.tsx` 在「小说」范围下新增「字数筛选 / 仅看 8,000 字以上」开关，切换非小说范围或重置时自动清零。
+  - `Pix-Scripting/src/ui/search.tsx` 与 `Pix-Scripting/src/ui/TagFeedPage.tsx` 依据 Pixiv 小说接口自带的 `text_length` 过滤短于阈值的小说（配合 `usePagedList` 自动多页探测），并在搜索结果页顶部筛选胶囊、重置按钮及工具栏高亮接入 `≥8,000 字` 状态。
+- **Grok OAuth 登录接入（仅走 OAuth）**：
+  - 新增 `Pix-Scripting/src/api/grokOAuth.ts`，实现 xAI OIDC Discovery（`https://auth.x.ai/.well-known/openid-configuration`）+ RFC 8628 Device Authorization Grant 设备码授权轮询 + single-flight `refresh_token` 自动续期。
+  - `Pix-Scripting/src/store/customAI.ts` 在 `AI_PRESETS` 新增 `grok-oauth`（`Grok (OAuth)`，`authMode: "oauth"`，默认端点 `https://api.x.ai`，默认模型 `grok-4`），在配置与预设隔离中保存 `oauthRefreshToken`/`oauthExpiresAt`/`oauthAccountEmail`。
+  - `Pix-Scripting/src/api/aiAdapters/index.ts` 在 `streamCustomChat` 前自动调用 `ensureFreshGrokAccessToken`，并适配 `testCustomAIConnection` 的 OAuth 登录态校验。
+  - `Pix-Scripting/src/ui/customAISettings.tsx` 为 `grok-oauth` 隐藏 API Key 输入框、「无需密钥」开关与控制台链接，提供设备码一键复制、Safari 授权跳转、轮询取消、手动刷新令牌与退出登录交互。
+- **版本与发布包校验**：`Pix-Scripting/script.json`、`Pix-Scripting/src/config.ts`、`README.md` 与包内元数据均为 `1.8.14.3`，`remoteResource.url` 指向 `feature/pixivreader-port`；`Release/Pix-Scripting.scripting` 大小 852778 字节，SHA-256 `3e541aaa58f35e2803e5c8ca615442d63d91f978ef863e181270c8e1005dfbd4`，包内 203 个文件与工作树 `Pix-Scripting/` 逐字节一致，ZIP 完整性通过（Windows 无 `zip`/`unzip`/`rg`，使用等价 Python `zipfile` 压缩与逐字节校验构建）。
+- **已验证（桌面 Node + TS 转译 + 宿主替身）**：`npm test` 232/232 通过（含新增 `tests/grok-oauth.test.cjs` 2 项及 `tests/search-advanced-date-range.test.cjs` 8,000 字以上开关回归 1 项，0 失败，0 跳过）；`node scripts/syntax-check.cjs` 检查 202 个 TS/TSX 文件，0 语法错误（非全量类型检查）；`git diff --check` 无空白错误。
+- **未验证（需 iPhone/iPad 真机 Scripting 宿主验收）**：搜索/标签页开启「仅看 8,000 字以上」后的实际多页探测与卡片表现；Grok OAuth 在 iOS Safari 弹窗授权、剪贴板自动复制、`accounts.x.ai` 实际换取 Token 与模型拉取/对话表现（且具体推理权限受 xAI 服务端账号订阅权益约束）；以及 1.8.14.2 遗留的阅读器/下载真机验收项。
+
+## 历史发布：v1.8.14.2（2026-11-19）
 
 - **Fork 清理与上游同步核对**：将本地 `main` 与 `origin/main` 从 `0a3eb31` 快进至 `upstream/main`（`754d8da`，Pix-Scripting 1.8.14）；确认当前工作分支 `feature/pixivreader-port` 已在 `ff47c27` 合入 `754d8da`（相对于上游 0 落后）。清理 `beckyeeky/Scripting` 仓库 24 个陈旧 GitHub Release（仅保留 `v1.8.14.1-pixivreader` 与 `v1.8.10.1-pixivreader`，不删除 git tag）。
 - **行内标记与 EPUB 文本渲染统一**：

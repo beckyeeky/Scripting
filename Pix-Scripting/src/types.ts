@@ -667,6 +667,8 @@ export type BookmarkThreshold =
   | 50000
   | 100000
 
+export const NOVEL_MIN_TEXT_LENGTH_THRESHOLD = 8000
+
 export interface SearchOptions {
   target: string
   sort: string
@@ -694,6 +696,7 @@ export interface AdvancedSearchParams {
   includeR18?: boolean
   includeR18G?: boolean
   includeAI?: boolean
+  minTextLength?: number
 }
 
 export interface PixivTagInfoResponse {

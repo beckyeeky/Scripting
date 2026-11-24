@@ -89,6 +89,7 @@ function defaultTagIllustAdvancedParams(tag: string): AdvancedSearchParams {
     includeR18: settings.showR18,
     includeR18G: settings.showR18 && settings.showR18G,
     includeAI: settings.showAI,
+    minTextLength: 0,
   }
 }
 
@@ -112,6 +113,7 @@ function defaultTagNovelAdvancedParams(tag: string): AdvancedSearchParams {
     includeR18: settings.showR18,
     includeR18G: settings.showR18 && settings.showR18G,
     includeAI: settings.showAI,
+    minTextLength: 0,
   }
 }
 
@@ -383,6 +385,7 @@ function TagNovelFeed(props: { tag: string }) {
   const hasAdvancedFilters =
     advancedParams.bookmarkThreshold > 0 ||
     advancedParams.useDateRange ||
+    (advancedParams.minTextLength ?? 0) > 0 ||
     (advancedParams.target !== "exact_match_for_tags" &&
       advancedParams.target !== "partial_match_for_tags")
 
@@ -473,6 +476,11 @@ function TagNovelFeed(props: { tag: string }) {
           }
           if (advancedParams.includeAI === false) {
             if (novel.novel_ai_type === 2) return false
+          }
+          if ((advancedParams.minTextLength ?? 0) > 0) {
+            if ((novel.text_length ?? 0) < (advancedParams.minTextLength ?? 0)) {
+              return false
+            }
           }
           return true
         })
