@@ -164,21 +164,33 @@ export function ZStack(props: Record<string, any>) {
     bottom: { justifyContent: "flex-end", alignItems: "center" },
     bottomTrailing: { justifyContent: "flex-end", alignItems: "flex-end" },
   }
+  const alignStyle = alignMap[props.alignment] ?? { justifyContent: "center", alignItems: "center" }
   const style: ViewStyle = {
     position: "relative",
-    ...(alignMap[props.alignment] ?? { justifyContent: "center", alignItems: "center" }),
+    ...((props.ignoresSafeArea && !props.frame?.width && !props.frame?.height)
+      ? { flex: 1, width: "100%", height: "100%" }
+      : {}),
+    ...alignStyle,
     ...buildViewStyle(props, isDark, "zstack"),
   }
-  const children = React.Children.toArray(props.children)
+  const rawChildren = React.Children.toArray(sanitizeViewChildren(props.children)).filter(
+    (c) => c !== null && c !== undefined && typeof c !== "boolean",
+  )
   const el = (
     <View style={style} pointerEvents={props.allowsHitTesting === false ? "none" : "box-none"}>
-      {children.map((child, idx) => {
-        if (!React.isValidElement(child)) return sanitizeViewChildren(child)
-        if (idx === 0 && children.length > 1) {
-          return child
-        }
-        return child
-      })}
+      {rawChildren.map((child, idx) =>
+        idx === 0 ? (
+          child
+        ) : (
+          <View
+            key={`zlayer-${idx}`}
+            style={[StyleSheet.absoluteFillObject, alignStyle]}
+            pointerEvents="box-none"
+          >
+            {child}
+          </View>
+        ),
+      )}
     </View>
   )
   return withScopedThemeAndChrome(props, useModifierRender(props, el))

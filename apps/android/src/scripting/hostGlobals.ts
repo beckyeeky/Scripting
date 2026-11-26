@@ -1011,8 +1011,23 @@ export const ScriptingAssistant = {
   },
 }
 
+function createGlassInstance(style: string, tintColor?: string, isInteractive = false) {
+  return {
+    style,
+    tintColor,
+    isInteractive,
+    tint(color?: string) {
+      return createGlassInstance(style, color, isInteractive)
+    },
+    interactive(enabled: boolean = true) {
+      return createGlassInstance(style, tintColor, Boolean(enabled))
+    },
+  }
+}
+
 export const ScriptingUIGlass = {
-  regular: () => ({ style: "regular" }),
+  regular: () => createGlassInstance("regular"),
+  clear: () => createGlassInstance("clear"),
 }
 
 export const ScriptingAnimation = {

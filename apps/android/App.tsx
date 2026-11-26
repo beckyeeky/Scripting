@@ -48,6 +48,66 @@ import { ThemeContext } from "./src/scripting/theme"
 
 const { PixSystemBridge } = NativeModules
 
+interface RootErrorBoundaryProps {
+  isDark: boolean
+  tint: string
+  onOpenImport: () => void
+  children: React.ReactNode
+}
+
+interface RootErrorBoundaryState {
+  error: Error | null
+  resetKey: number
+}
+
+class RootErrorBoundary extends React.Component<RootErrorBoundaryProps, RootErrorBoundaryState> {
+  state: RootErrorBoundaryState = { error: null, resetKey: 0 }
+
+  static getDerivedStateFromError(error: Error): Partial<RootErrorBoundaryState> {
+    return { error }
+  }
+
+  componentDidCatch(error: Error) {
+    console.error("RootView render error:", error)
+  }
+
+  render() {
+    if (this.state.error) {
+      const { isDark, tint, onOpenImport } = this.props
+      return (
+        <View style={[styles.splash, { padding: 24, backgroundColor: isDark ? "#000000" : "#F2F2F7" }]}>
+          <Text style={[styles.brand, { fontSize: 22, color: isDark ? "#FFFFFF" : "#111827" }]}>
+            界面渲染异常
+          </Text>
+          <Text style={{ marginTop: 10, fontSize: 13, color: isDark ? "#9CA3AF" : "#4B5563", textAlign: "center" }}>
+            {this.state.error?.message || String(this.state.error)}
+          </Text>
+          <TouchableOpacity
+            onPress={() => this.setState((prev) => ({ error: null, resetKey: prev.resetKey + 1 }))}
+            style={[styles.importPill, { marginTop: 20, backgroundColor: tint, borderColor: tint }]}
+          >
+            <Text style={{ color: "#FFFFFF", fontSize: 15, fontWeight: "600" }}>重新加载界面</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={onOpenImport}
+            style={[
+              styles.importPill,
+              {
+                marginTop: 12,
+                backgroundColor: isDark ? "rgba(28,28,30,0.88)" : "rgba(255,255,255,0.92)",
+                borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.10)",
+              },
+            ]}
+          >
+            <Text style={[styles.importPillText, { color: tint }]}>导入配置 / Token</Text>
+          </TouchableOpacity>
+        </View>
+      )
+    }
+    return <React.Fragment key={`root-${this.state.resetKey}`}>{this.props.children}</React.Fragment>
+  }
+}
+
 function parseDeepLinkRoute(rawUrl: string | null | undefined): string | null {
   if (!rawUrl) return null
   if (rawUrl.startsWith("pix-scripting://")) {
@@ -203,7 +263,13 @@ export default function App(): React.JSX.Element {
           </View>
         ) : (
           <View style={styles.root}>
-            <RootView />
+            <RootErrorBoundary
+              isDark={isDark}
+              tint={tint}
+              onOpenImport={() => setImportModalVisible(true)}
+            >
+              <RootView />
+            </RootErrorBoundary>
             {!loggedIn ? (
               <View style={styles.importPillWrap} pointerEvents="box-none">
                 <TouchableOpacity
@@ -237,10 +303,13 @@ export default function App(): React.JSX.Element {
           }}
           onImported={async (msg, authChanged) => {
             setSettings(loadSettings())
+            const hadSharedPayload = Boolean(sharedImportJson || sharedImportZip)
             if (authChanged) {
               setLoggedIn(session.isAuthenticated)
-            }
-            if (sharedImportJson || sharedImportZip) {
+              setImportModalVisible(false)
+              setSharedImportJson(null)
+              setSharedImportZip(null)
+            } else if (hadSharedPayload) {
               setImportModalVisible(false)
               setSharedImportJson(null)
               setSharedImportZip(null)

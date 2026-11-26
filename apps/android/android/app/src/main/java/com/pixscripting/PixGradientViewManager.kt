@@ -8,6 +8,7 @@ import android.graphics.Paint
 import android.graphics.Shader
 import android.view.View
 import com.facebook.react.bridge.ReadableArray
+import com.facebook.react.bridge.ReadableType
 import com.facebook.react.uimanager.SimpleViewManager
 import com.facebook.react.uimanager.ThemedReactContext
 import com.facebook.react.uimanager.annotations.ReactProp
@@ -24,11 +25,15 @@ class PixGradientView(context: Context) : View(context) {
   fun setGradientColors(arr: ReadableArray?) {
     if (arr == null || arr.size() == 0) {
       colors = intArrayOf(Color.TRANSPARENT, Color.TRANSPARENT)
-    } else if (arr.size() == 1) {
-      val c = arr.getInt(0)
-      colors = intArrayOf(c, c)
     } else {
-      colors = IntArray(arr.size()) { idx -> arr.getInt(idx) }
+      val parsed = IntArray(arr.size()) { idx ->
+        when (arr.getType(idx)) {
+          ReadableType.Number -> arr.getDouble(idx).toLong().toInt()
+          ReadableType.String -> runCatching { Color.parseColor(arr.getString(idx)) }.getOrDefault(Color.TRANSPARENT)
+          else -> Color.TRANSPARENT
+        }
+      }
+      colors = if (parsed.size == 1) intArrayOf(parsed[0], parsed[0]) else parsed
     }
     shader = null
     invalidate()
@@ -88,7 +93,7 @@ class PixGradientViewManager : SimpleViewManager<PixGradientView>() {
   override fun createViewInstance(reactContext: ThemedReactContext): PixGradientView =
     PixGradientView(reactContext)
 
-  @ReactProp(name = "colors", customType = "ColorArray")
+  @ReactProp(name = "colors")
   fun setColors(view: PixGradientView, colors: ReadableArray?) {
     view.setGradientColors(colors)
   }

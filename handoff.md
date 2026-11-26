@@ -1,6 +1,16 @@
 # 项目交接
 
-## 当前进度：Android 完整移植预览版 v1.8.14.4-alpha.1（2026-11-26，分支 `feat/android-app`）
+## 当前进度：Android 完整移植预览版 v1.8.14.4-alpha.2（2026-11-26，分支 `feat/android-app`）
+
+- **v1.8.14.4-alpha.2 白屏修复（2026-11-26）**：
+  - 针对实机导入 iOS 配置与 Token 登录后出现白屏完成全链路排查与修复：
+    1. `apps/android/src/scripting/hostGlobals.ts` 补齐 `UIGlass.regular()` / `UIGlass.clear()` 的 `.tint()` 与 `.interactive()` 链式方法，修复开启自定义玻璃色调/交互及加载 `IllustCard` `BookmarkButton` 时的未捕获 `TypeError`，并在 `apps/android/src/scripting/modifiers.tsx` 提取 `glass.tintColor`。
+    2. `apps/android/android/app/src/main/java/com/pixscripting/PixGradientViewManager.kt` 移除 `@ReactProp(name = "colors")` 的 `customType = "ColorArray"` 并按 `ReadableType` 兼容数字/字符串颜色；`apps/android/src/scripting/gradients.tsx` 对 `processColor` 结果兜底数值化，消除不透明渐变在 Android UI 线程的 `UnexpectedNativeTypeException`。
+    3. `apps/android/src/scripting/components.tsx` 修复 `ZStack` 使用 `StyleSheet.absoluteFillObject` 叠放次级图层与 `ignoresSafeArea` 全屏拉伸。
+    4. `apps/android/App.tsx` 增加 `RootErrorBoundary` 异常兜底与恢复按钮，并在 Token 登录成功后自动关闭导入弹窗，避免与首页引导 `Modal` 冲突。
+  - `apps/android/tests/scripting-runtime-render.test.cjs` 新增登录后完整 `RootView` + 5 Tab + `IllustFlowFeed` + `NovelCard` + `SplitShell` + 6 种氛围光渲染回归。
+  - 合入 `pixiv_refined_v2_android` 桌面启动图标资源包（替换 `mipmap-{mdpi,hdpi,xhdpi,xxhdpi,xxxhdpi}/ic_launcher.png`、`play_store_512.png` 并移除旧 `ic_launcher_round.png` 与 `AndroidManifest.xml` 中的 `android:roundIcon`）。
+  - 升级 `apps/android/version.properties` 至 `versionName=1.8.14.4-alpha.2`（`versionCode=2`）及新增 `docs/releases/android-1.8.14.4-alpha.2.md`。
 
 - **Android 独立工程（`apps/android/`）**：
   - 参照 `mirror-isle` Android 架构搭建 React Native `0.76.7` + Hermes + Kotlin（compileSdk 35 / targetSdk 34 / minSdk 24，Gradle `8.10.2`）工程；通过 `apps/android/metro.config.js` 的 `watchFolders` 与 `extraNodeModules` 将 `"scripting"` 直接映射至 `apps/android/src/scripting/index.ts`，零修改完整复用 `Pix-Scripting/src/` 全部业务逻辑、UI 树、小说文库本 WebView 引擎、AI 翻译与离线书库（`Pix-Scripting/` 与 `Release/Pix-Scripting.scripting` 保持未改动）。

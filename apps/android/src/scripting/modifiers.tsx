@@ -98,8 +98,9 @@ export function resolveGlassBackground(glassEffect: any, isDark: boolean): ViewS
     glassEffect.shape ?? glassEffect,
     glassEffect.cornerRadius ?? 14,
   )
-  const tint = glassEffect.tint
-    ? resolveColor(glassEffect.tint, isDark)
+  const rawTint = glassEffect?.glass?.tintColor ?? glassEffect?.tint
+  const tint = rawTint
+    ? resolveColor(rawTint, isDark)
     : undefined
   return {
     backgroundColor: tint || (isDark ? "rgba(38, 38, 42, 0.82)" : "rgba(255, 255, 255, 0.84)"),

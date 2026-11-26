@@ -50,7 +50,10 @@ export function GradientFillView({
   const [ex, ey] = resolvePoint(fill.endPoint, [0.5, 1])
 
   if (NativeGradientView && resolvedColors.length > 0) {
-    const processed = resolvedColors.map((c) => processColor(c))
+    const processed = resolvedColors.map((c) => {
+      const v = processColor(c)
+      return typeof v === "number" ? v : 0
+    })
     return (
       <NativeGradientView
         colors={processed}
