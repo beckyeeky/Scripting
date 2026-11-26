@@ -39,13 +39,15 @@ jobs:
 
       - name: Install root TypeScript and run iOS core regression tests
         run: |
-          npm ci
+          sed -i 's|http://mirrors.tencentyun.com/npm/|https://registry.npmjs.org/|g' package-lock.json
+          npm ci --no-audit --no-fund
+          git checkout -- package-lock.json
           npm test
           node scripts/syntax-check.cjs
 
       - name: Install Android app dependencies, typecheck, and run Android tests
         run: |
-          npm --prefix apps/android ci
+          npm --prefix apps/android ci --no-audit --no-fund
           npm --prefix apps/android run typecheck
           node --test apps/android/tests/*.test.cjs
 
