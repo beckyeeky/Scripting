@@ -16,13 +16,19 @@
 - **签名与构建产物**：
   - 新增 `apps/android/build-preview.sh`（使用 `MIRROR_ISLE_ANDROID_SIGNING_DIR` 默认 `/home/beck/.local/share/mirror-isle-android-signing/preview.p12` 与 `preview.pass`，校验 `preview-cert.sha256`）、CI 工作流 `.github/workflows/android-apk.yml`（Debug APK + 全量校验）、CD 工作流 `.github/workflows/android-release.yml`（`android-v*` 标签自动签名发布 `--prerelease --latest=false`）及发布说明 `docs/releases/android-1.8.14.4-alpha.1.md`。
   - 已生成 Debug 包 `apps/android/dist/Pix-Scripting-debug.apk`（`110,073,680` 字节）与签名预览包 `apps/android/dist/android-v1.8.14.4-alpha.1/Pix-Scripting-Android.apk`（`49,366,135` 字节，包名 `com.pixscripting.preview`，`versionCode=1`，`versionName=1.8.14.4-alpha.1`），SHA-256 `a045b942bed51ca60a377007692dceba5545803735f7ca3ac4edd5afe88393c9`。
-- **已验证（桌面 Node + TypeScript + Metro + Gradle + APK 校验）**：
+- **正式发布与 GitHub Actions CI/CD（`beckyeeky/Scripting`）**：
+  - 已推送分支 `feat/android-app`（发布提交 `7fab0efbd239d94335d9efab3307c26a4e9acd38`）及匹配标签 `android-v1.8.14.4-alpha.1`（指向该提交；发布后本交接记录单独提交，不移动标签）。
+  - **GitHub Prerelease**：`https://github.com/beckyeeky/Scripting/releases/tag/android-v1.8.14.4-alpha.1`（`isPrerelease: true`，`isDraft: false`，`--latest=false` 保留 iOS `v1.8.14.4-pixivreader` 为 `Latest`）。
+  - **CI (`Build Android APK`)**：Run [`45820729160`](https://github.com/beckyeeky/Scripting/actions/runs/45820729160)（attempt 2，修复根 `package-lock.json` 内网镜像替换与 `fetch-depth: 0` 后，并重跑越过 Maven Central 偶发 429 限流）结论 `success`。
+  - **CD (`Release Android APK`)**：Run [`45820733703`](https://github.com/beckyeeky/Scripting/actions/runs/45820733703) 使用仓库 Secrets `ANDROID_SIGNING_P12_BASE64` / `ANDROID_SIGNING_PASSWORD` 自动签名并发布产物，结论 `success`。
+  - **Release 产物回下载校验**：下载 `Pix-Scripting-Android.apk`（`49,366,135` 字节）与 `SHA256SUMS`（`92` 字节）通过 `sha256sum -c SHA256SUMS`（`a045b942bed51ca60a377007692dceba5545803735f7ca3ac4edd5afe88393c9`）及 `apksigner verify --print-certs`（`CN=Mirror Isle Android Preview`，证书 SHA-256 `17de3888a127e14152e9c3f0e2bcfe7dbc93a4dde03352004afeb7f0a4f85795`）。
+- **已验证（桌面 Node + TypeScript + Metro + Gradle + APK 校验 + 云端 CI/CD）**：
   - `npm --prefix apps/android run typecheck`：0 错误。
   - `node --test apps/android/tests/*.test.cjs`：8/8 通过（WHATWG `URL`、MD5/SHA-256、4 种 iOS 配置导入、185 个 SF Symbols 与 `scripting` 导出全覆盖）。
   - `npm --prefix apps/android run bundle:check`：Metro 离线打包通过。
   - `npm test`：既有 iOS 回归 235/235 通过；`node scripts/syntax-check.cjs`：203 个 TS/TSX 文件 0 语法错误。
-  - `(cd apps/android/android && bash ./gradlew :app:assembleDebug --no-daemon)` 与 `bash apps/android/build-preview.sh` 通过；`zipalign -c`、`unzip -tq`、`aapt dump badging`、`sha256sum -c` 及 `apksigner verify`（证书摘要 `17de3888a127e14152e9c3f0e2bcfe7dbc93a4dde03352004afeb7f0a4f85795`）全部通过。
-  - `git diff --check` 无空白错误；未提交、未推送、未发布 Release。
+  - `(cd apps/android/android && bash ./gradlew :app:assembleDebug --no-daemon)`、`bash apps/android/build-preview.sh` 与 GitHub Actions Linux 构建全部通过；`zipalign -c`、`unzip -tq`、`aapt dump badging`、`sha256sum -c` 及 `apksigner verify` 全部通过。
+  - `git diff --check`（非 `.bat` 文本）无空白错误。
 - **未验证（需 Android 真机验收）**：
   - APK 在 Android 真机安装启动、PKCE WebView 登录与 Cookie 提取、Refresh Token 与自定义网关配置；
   - 瀑布流/详情大图/环境光渲染、小说横排与竖排 WebView 排版/翻译原位替换/目录高亮、Ugoira 逐帧播放与 MP4/GIF 导出、`MediaStore` 相册保存、`SAF` 导入 iOS `.json`/`.zip` 备份、`FileProvider` 分享及硬件返回键导航。
