@@ -1,5 +1,32 @@
 # 项目交接
 
+## 当前进度：Android 完整移植预览版 v1.8.14.4-alpha.1（2026-11-26，分支 `feat/android-app`）
+
+- **Android 独立工程（`apps/android/`）**：
+  - 参照 `mirror-isle` Android 架构搭建 React Native `0.76.7` + Hermes + Kotlin（compileSdk 35 / targetSdk 34 / minSdk 24，Gradle `8.10.2`）工程；通过 `apps/android/metro.config.js` 的 `watchFolders` 与 `extraNodeModules` 将 `"scripting"` 直接映射至 `apps/android/src/scripting/index.ts`，零修改完整复用 `Pix-Scripting/src/` 全部业务逻辑、UI 树、小说文库本 WebView 引擎、AI 翻译与离线书库（`Pix-Scripting/` 与 `Release/Pix-Scripting.scripting` 保持未改动）。
+  - **JS 宿主运行时（`apps/android/src/scripting/`）**：实现 spec-compliant `URL`/`URLSearchParams`、`TextEncoder`/`TextDecoder`、`AbortController`、`Data` 与 MD5/SHA-256 `Crypto`、`fetch` + SSE 流式 `Response.body.getReader()`、185 个 SF Symbols 映射（`sfSymbols.tsx`）、iOS 语义色板与字体（`theme.ts`）、`NavigationStack` / `TabView`（底栏 + `tabViewBottomAccessory` + 分页模式）/ `List` / `Menu` / `Picker` / `WebView` / `TimelineCanvas` / `Dialog` / `DocumentPicker` / `ShareSheet` / `Photos` 等完整组件与宿主全局 API。
+  - **Kotlin 原生模块（`apps/android/android/app/src/main/java/com/pixscripting/`）**：
+    - `PixCredentialStore`：Android Keystore `AES/GCM/NoPadding` 256 位加密存储（本地与同步命名空间，写入回读校验与失败回滚）。
+    - `PixFileSystemModule`：同步沙盒文件系统、递归列目录、ZIP 解压与 EPUB 规范打包（`mimetype` `STORED` 首位写入）。
+    - `PixHttpModule`：并发 `HttpURLConnection`、自定义请求头、超时/中止、大文件响应（`> 128 KB`）临时落盘与实时 SSE 分片推送。
+    - `PixWebViewManager` / `PixSystemBridgeModule`：内嵌阅读器 WebView（注入 `window.webkit.messageHandlers` Proxy）、PKCE OAuth 登录弹窗 WebView（拦截 `pixiv://account/login` 与 Cookie 提取）、离屏封面合成 WebView、SAF 文件选取、`FileProvider` 分享与通知进度。
+    - `PixImageMediaModule`：同步图片尺寸与 `0..1` 氛围色盘采样、`MediaStore` 相册保存、OCR 气泡渲染、`MediaCodec` `YUV420Flexible` 硬件编码 MP4 与 GIF89a 编码。
+- **原 iOS 版配置导入（`apps/android/src/import/`）**：
+  - 登录页底部提供「导入 iOS 配置 / Token」入口，支持 Android 系统「分享」（`.json`/`.zip`/链接），并挂接「设置 → 跨设备同步 → 从文件导入同步数据」：支持 `Pix-Scripting-Sync-*.json`、iCloud 原始 `settings.json` / `novel_reader_settings.json` / `blocklist.json`、`CustomAIProfile`、SauceNAO 密钥数组、整包 `Pix-Scripting.zip` 目录备份及 Pixiv Refresh Token 登录，自动剥离 iOS 目录书签。
+- **签名与构建产物**：
+  - 新增 `apps/android/build-preview.sh`（使用 `MIRROR_ISLE_ANDROID_SIGNING_DIR` 默认 `/home/beck/.local/share/mirror-isle-android-signing/preview.p12` 与 `preview.pass`，校验 `preview-cert.sha256`）、CI 工作流 `.github/workflows/android-apk.yml`（Debug APK + 全量校验）、CD 工作流 `.github/workflows/android-release.yml`（`android-v*` 标签自动签名发布 `--prerelease --latest=false`）及发布说明 `docs/releases/android-1.8.14.4-alpha.1.md`。
+  - 已生成 Debug 包 `apps/android/dist/Pix-Scripting-debug.apk`（`110,073,680` 字节）与签名预览包 `apps/android/dist/android-v1.8.14.4-alpha.1/Pix-Scripting-Android.apk`（`49,366,135` 字节，包名 `com.pixscripting.preview`，`versionCode=1`，`versionName=1.8.14.4-alpha.1`），SHA-256 `a045b942bed51ca60a377007692dceba5545803735f7ca3ac4edd5afe88393c9`。
+- **已验证（桌面 Node + TypeScript + Metro + Gradle + APK 校验）**：
+  - `npm --prefix apps/android run typecheck`：0 错误。
+  - `node --test apps/android/tests/*.test.cjs`：8/8 通过（WHATWG `URL`、MD5/SHA-256、4 种 iOS 配置导入、185 个 SF Symbols 与 `scripting` 导出全覆盖）。
+  - `npm --prefix apps/android run bundle:check`：Metro 离线打包通过。
+  - `npm test`：既有 iOS 回归 235/235 通过；`node scripts/syntax-check.cjs`：203 个 TS/TSX 文件 0 语法错误。
+  - `(cd apps/android/android && bash ./gradlew :app:assembleDebug --no-daemon)` 与 `bash apps/android/build-preview.sh` 通过；`zipalign -c`、`unzip -tq`、`aapt dump badging`、`sha256sum -c` 及 `apksigner verify`（证书摘要 `17de3888a127e14152e9c3f0e2bcfe7dbc93a4dde03352004afeb7f0a4f85795`）全部通过。
+  - `git diff --check` 无空白错误；未提交、未推送、未发布 Release。
+- **未验证（需 Android 真机验收）**：
+  - APK 在 Android 真机安装启动、PKCE WebView 登录与 Cookie 提取、Refresh Token 与自定义网关配置；
+  - 瀑布流/详情大图/环境光渲染、小说横排与竖排 WebView 排版/翻译原位替换/目录高亮、Ugoira 逐帧播放与 MP4/GIF 导出、`MediaStore` 相册保存、`SAF` 导入 iOS `.json`/`.zip` 备份、`FileProvider` 分享及硬件返回键导航。
+
 ## 当前发布：v1.8.14.4（2026-11-24）
 
 - **跨设备同步统一模块（`Pix-Scripting/src/store/crossDeviceSync.ts`）**：

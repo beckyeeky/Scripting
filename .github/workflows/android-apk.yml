@@ -1,0 +1,81 @@
+name: Build Android APK
+
+on:
+  push:
+    branches:
+      - feat/android-app
+      - 'feat/android-*'
+  pull_request:
+    paths:
+      - 'apps/android/**'
+      - 'Pix-Scripting/**'
+      - '.github/workflows/android-apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.21.1"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/android/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
+
+      - name: Install root TypeScript and run iOS core regression tests
+        run: |
+          npm ci
+          npm test
+          node scripts/syntax-check.cjs
+
+      - name: Install Android app dependencies, typecheck, and run Android tests
+        run: |
+          npm --prefix apps/android ci
+          npm --prefix apps/android run typecheck
+          node --test apps/android/tests/*.test.cjs
+          npm --prefix apps/android run bundle:check
+
+      - name: Build standalone debug APK
+        run: |
+          cd apps/android/android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Prepare APK artifact and SHA-256 checksum
+        run: |
+          mkdir -p apps/android/dist
+          apk_path="apps/android/android/app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$apk_path"
+          cp "$apk_path" apps/android/dist/Pix-Scripting-debug.apk
+          cd apps/android/dist
+          sha256sum Pix-Scripting-debug.apk > SHA256SUMS
+          sha256sum -c SHA256SUMS
+          ls -lh Pix-Scripting-debug.apk SHA256SUMS
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pix-scripting-android-debug-apk
+          path: apps/android/dist/*
+          if-no-files-found: error

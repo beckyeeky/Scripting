@@ -1,0 +1,16 @@
+{
+  "extends": "@react-native/typescript-config/tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "strictNullChecks": false,
+    "noImplicitAny": false,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "types": ["react-native"],
+    "baseUrl": ".",
+    "paths": {
+      "scripting": ["./src/scripting/index.ts"]
+    }
+  },
+  "include": ["index.js", "App.tsx", "src/**/*"]
+}

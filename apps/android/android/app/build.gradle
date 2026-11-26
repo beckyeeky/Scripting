@@ -1,0 +1,55 @@
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+
+react {
+    /* Bundle JS into debug APK so CI artifacts run standalone without Metro */
+    debuggableVariants = []
+    autolinkLibrariesWithApp()
+}
+
+def appVersion = new Properties()
+file("../../version.properties").withInputStream { appVersion.load(it) }
+
+def enableProguardInReleaseBuilds = false
+def jscFlavor = 'org.webkit:android-jsc:+'
+
+android {
+    ndkVersion rootProject.ext.ndkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    compileSdk rootProject.ext.compileSdkVersion
+
+    namespace "com.pixscripting"
+    buildFeatures {
+        buildConfig true
+    }
+    defaultConfig {
+        applicationId "com.pixscripting"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode appVersion.getProperty("versionCode").toInteger()
+        versionName appVersion.getProperty("versionName")
+        buildConfigField("boolean", "USE_METRO_DEV_SERVER", (System.getenv("RN_USE_METRO") == "true").toString())
+    }
+    buildTypes {
+        debug {
+        }
+        release {
+            applicationIdSuffix ".preview"
+            buildConfigField("boolean", "USE_METRO_DEV_SERVER", "false")
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+        }
+    }
+}
+
+dependencies {
+    implementation("com.facebook.react:react-android")
+    implementation("androidx.work:work-runtime:2.9.1")
+
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+}

@@ -1,0 +1,116 @@
+name: Release Android APK
+
+on:
+  push:
+    tags:
+      - 'android-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-android-apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.21.1"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            apps/android/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
+
+      - name: Install root TypeScript and run iOS core regression tests
+        run: |
+          npm ci
+          npm test
+          node scripts/syntax-check.cjs
+
+      - name: Install Android app dependencies, typecheck, and run Android tests
+        run: |
+          npm --prefix apps/android ci
+          npm --prefix apps/android run typecheck
+          node --test apps/android/tests/*.test.cjs
+
+      - name: Materialize Android preview signing credentials
+        env:
+          ANDROID_SIGNING_P12_BASE64: ${{ secrets.ANDROID_SIGNING_P12_BASE64 }}
+          ANDROID_SIGNING_PASSWORD: ${{ secrets.ANDROID_SIGNING_PASSWORD }}
+        run: |
+          set +x
+          umask 077
+          if [[ -z "$ANDROID_SIGNING_P12_BASE64" || -z "$ANDROID_SIGNING_PASSWORD" ]]; then
+            echo "Missing ANDROID_SIGNING_P12_BASE64 or ANDROID_SIGNING_PASSWORD secret" >&2
+            exit 1
+          fi
+          signing_dir="$RUNNER_TEMP/signing"
+          mkdir -p "$signing_dir"
+          printf '%s' "$ANDROID_SIGNING_P12_BASE64" | tr -d '[:space:]' | base64 -d > "$signing_dir/preview.p12"
+          printf '%s' "$ANDROID_SIGNING_PASSWORD" > "$signing_dir/preview.pass"
+          chmod 600 "$signing_dir/preview.p12" "$signing_dir/preview.pass"
+
+      - name: Build and verify signed preview APK
+        run: |
+          MIRROR_ISLE_ANDROID_SIGNING_DIR="$RUNNER_TEMP/signing" bash apps/android/build-preview.sh
+
+      - name: Upload signed preview APK workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pix-scripting-android-preview-apk
+          path: apps/android/dist/android-v*/*
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Publish GitHub prerelease
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(sed -n 's/^versionName=//p' apps/android/version.properties)"
+          expected_tag="android-v${version}"
+          if [[ "${GITHUB_REF_NAME}" != "$expected_tag" ]]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match version.properties ($expected_tag)" >&2
+            exit 1
+          fi
+          dest="apps/android/dist/android-v${version}"
+          test -s "$dest/Pix-Scripting-Android.apk"
+          test -s "$dest/SHA256SUMS"
+          notes_file="docs/releases/android-${version}.md"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$dest/Pix-Scripting-Android.apk" "$dest/SHA256SUMS" \
+              --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --prerelease --latest=false --title "Pix-Scripting Android $version"
+          else
+            if [[ -f "$notes_file" ]]; then
+              gh release create "$GITHUB_REF_NAME" "$dest/Pix-Scripting-Android.apk" "$dest/SHA256SUMS" \
+                --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false \
+                --title "Pix-Scripting Android $version" --notes-file "$notes_file"
+            else
+              gh release create "$GITHUB_REF_NAME" "$dest/Pix-Scripting-Android.apk" "$dest/SHA256SUMS" \
+                --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false \
+                --title "Pix-Scripting Android $version" --generate-notes
+            fi
+          fi
+
+      - name: Cleanup signing credentials
+        if: always()
+        run: |
+          rm -rf "$RUNNER_TEMP/signing"

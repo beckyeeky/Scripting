@@ -97,3 +97,15 @@
 - `ui/components/PrivacyShield.tsx` 订阅 `AppEvents.scenePhase` 和设置变化，在隐私开关启用且场景 inactive/background 时绘制材质遮罩，卸载时移除订阅；根页面、大图查看器与沉浸阅读器分别挂载。
 - `ui/components/SheetScaffold.tsx` 为上游迁移的 Sheet 统一管理导航容器、自适应展开档位和隐私遮罩。本分支新增的小说专用面板尚未统一迁移，不能视为所有独立弹窗均已具备遮罩。
 - `store/userFollow.ts` 的本地缓存优先于作品详情快照，权威关注详情通过广播更新多处入口。
+
+## Android 移植架构（`apps/android/`，分支 `feat/android-app`）
+
+- **运行边界**：`apps/android/` 为 React Native `0.76.7` + Hermes + Kotlin（compileSdk 35 / targetSdk 34 / minSdk 24）独立工程；通过 `metro.config.js` 的 `watchFolders` 与 `extraNodeModules` 直接映射 `"scripting"` 至 `apps/android/src/scripting/index.ts`，在不改动 `Pix-Scripting/` 源码的前提下完整复用全部业务模块、阅读器、翻译与界面结构。
+- **JS 运行时与 UI 映射（`apps/android/src/scripting/`）**：
+  - `polyfills.ts` / `dataAndCrypto.ts`：提供完整 WHATWG `URL`/`URLSearchParams`、`TextEncoder`/`TextDecoder`、`AbortController`、`Data` 二进制抽象与 RFC 1321 MD5 / FIPS 180-4 SHA-256。
+  - `fetchAndHttp.ts`：对接原生 `PixHttpModule`，支持 Pixiv 自定义请求头（`Referer`、`X-Client-Time`、`X-Client-Hash`）、重定向拦截、超时/中止及 SSE 流式分片读取（`getReader()`）。
+  - `hostGlobals.ts`：实现同步 `FileManager`、`Keychain`、`Storage`、`UIImage`、`Device`、`AppEvents`、`Script`、`Dialog`、`DocumentPicker`、`ShareSheet`、`Pasteboard`、`Safari`、`Photos`、`HapticFeedback`、`WebViewController`、`Archive`、`Shell` 与通知提示。
+  - `theme.ts` / `sfSymbols.tsx` / `modifiers.tsx` / `overlays.tsx` / `navigation.tsx` / `components.tsx`：映射 iOS 语义色板、185 个 SF Symbols、`NavigationStack` / `TabView` / `List` / `Menu` / `Picker` / `WebView` / `TimelineCanvas` 等组件与 Android 硬件返回键协调。
+- **Kotlin 原生桥接（`apps/android/android/app/src/main/java/com/pixscripting/`）**：
+  - `PixCredentialStore`（Android Keystore `AES/GCM/NoPadding` 256 位加密存储与写入回读校验）、`PixFileSystemModule`（同步沙盒文件、ZIP 解压与 EPUB 合规打包）、`PixHttpModule`（并发 HTTP 与大文件落盘流控）、`PixWebViewManager`（内置阅读器 WebView 与 `window.webkit.messageHandlers` 代理注入）、`PixImageMediaModule`（图片尺寸/色盘采样、MediaStore 相册保存、OCR 气泡渲染、`MediaCodec` H.264 硬件编码 MP4 与 GIF89a 编码）、`PixSystemBridgeModule`（PKCE 登录弹窗 WebView 与 Cookie 提取、SAF 文件选取、`FileProvider` 分享与通知进度）。
+- **iOS 配置导入（`apps/android/src/import/`）**：支持通过登录页入口、系统分享或「设置 → 跨设备同步」导入 `Pix-Scripting-Sync-*.json`、原始 `settings.json` / `novel_reader_settings.json` / `blocklist.json`、`CustomAIProfile`、整包 `.zip` 备份及 Pixiv Refresh Token。

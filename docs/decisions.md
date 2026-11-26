@@ -113,3 +113,11 @@
 - 原因：功能开发分支与最终发布分支不同，原校验只接受「当前分支 == URL 分支」，会阻止在开发分支上完成打包与逐字节校验。
 - 影响：`remoteResource.url` 在 v1.7.13.5 指向 `feature/pixivreader-port`；发布流程须显式传入目标分支。
 - 依据：`scripts/build-release.sh`、`scripts/verify-release-package.sh`。
+
+## D015：Android 端通过 `"scripting"` 运行时兼容层直接复用 `Pix-Scripting/`
+
+- 状态：已实现（分支 `feat/android-app`）。
+- 选择：在 `apps/android/` 建立基于 React Native `0.76.7` + Kotlin 原生模块的 `"scripting"` 宿主运行时与 SwiftUI-to-RN 组件映射层，通过 Metro `watchFolders` 直接挂载 `Pix-Scripting/src/`，不复制或重写 5.8 万行 `Pix-Scripting/src/ui/` 界面代码；在 `apps/android/src/import/` 提供 iOS 同步包、原始 JSON 与 `.zip` 目录备份的兼容导入。
+- 原因：最大化保持与 iOS 版一致的界面布局、小说文库本 WebView 引擎、翻译台账、离线书库与跨设备同步语义，同时零修改保留 iOS 版 `.scripting` 构建与既有 235 项桌面回归测试。
+- 影响：所有 Android 原生差异（Android Keystore 加密凭据、大文件 HTTP 临时落盘、PKCE WebView 弹窗与 Cookie 提取、Ugoira 原生 MP4/GIF 编码、SAF 文件选择与 `FileProvider` 分享）收敛在 `apps/android/`，仍需 Android 真机验收真实渲染、网络代理与系统分享交互。
+- 依据：`apps/android/metro.config.js`、`apps/android/src/scripting/`、`apps/android/src/import/`、`apps/android/android/app/src/main/java/com/pixscripting/`。
