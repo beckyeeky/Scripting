@@ -73,7 +73,9 @@ export function NovelAISheet({
           signal: ctrl.signal,
           pageInfo: usePage ? { current: currentPage, total: totalPages } : undefined,
           onChunk: (chunk) => {
-            setOutput((prev) => prev + chunk)
+            // onChunk 传的是本次请求的累计正文快照（与 iOS aiSheet 的 throttler.flush 语义一致），
+            // 这里必须整体替换；用 prev + chunk 拼接会把累计文本反复累加，表现为正文从头反复刷。
+            setOutput(chunk)
           },
         })
         if (res && !ctrl.signal.aborted) {
@@ -83,7 +85,7 @@ export function NovelAISheet({
         const res = await streamContinueNovel(text, instruction, {
           signal: ctrl.signal,
           onChunk: (chunk) => {
-            setOutput((prev) => prev + chunk)
+            setOutput(chunk)
           },
         })
         if (res && !ctrl.signal.aborted) {

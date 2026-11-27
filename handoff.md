@@ -1,6 +1,14 @@
 # 项目交接
 
-## 当前发布：Android 原生 RN 界面架构重构 v1.8.14.4-alpha.3（2026-11-27，分支 `feat/android-app`，已发布）
+## 当前发布：Android 预览版 v1.8.14.4-alpha.4（2026-11-27，分支 `feat/android-app`）
+
+- **修复小说 AI 导读正文反复刷屏**：`apps/android/src/app/features/novel/NovelAISheet.tsx` 的 `onChunk` 把累计正文快照当成增量分片用 `prev + chunk` 拼接，导致每个分片都把当前全文追加一遍，表现为正文不断从头重来、越刷越长（看起来像无限循环提交）。改为整体替换为最新累计快照，导读总结与 AI 续写两条链路同时修正；与 iOS `aiSheet` 的 `throttler.flush` 语义保持一致。
+- **回归测试**：新增 `apps/android/tests/novel-ai-sheet-streaming.test.cjs`（24 项 Android 测试中的 1 项），在流式进行中断言中途正文等于最后一次累计快照；修复前该用例失败（重复拼接），修复后通过。
+- **门禁**：`npm test` 235/235；`node scripts/syntax-check.cjs` 203 文件 0 语法错误；`npm --prefix apps/android run typecheck` 0 错误；Android 测试 24/24；Metro bundle 通过（2.6 MB）。
+- **版本**：`apps/android/version.properties` 升至 `1.8.14.4-alpha.4`（`versionCode=4`），新增 `docs/releases/android-1.8.14.4-alpha.4.md`。
+- **未验证**：真机上的流式观感、停止按钮、全文/单页切换与缓存行为。
+
+## 上一发布：Android 原生 RN 界面架构重构 v1.8.14.4-alpha.3（2026-11-27，分支 `feat/android-app`，已发布）
 
 - **发布结果**：提交 `beea15bb8d46778806ebb762faaeafc0dce5313d`，标签 `android-v1.8.14.4-alpha.3`，Prerelease `https://github.com/beckyeeky/Scripting/releases/tag/android-v1.8.14.4-alpha.3`（`isPrerelease=true`、`isDraft=false`、`--latest=false`，iOS `v1.8.14.4-pixivreader` 仍为 Latest）。
 - **门禁结果**：`npm test` 235/235；`node scripts/syntax-check.cjs` 203 个文件 0 语法错误；`npm --prefix apps/android run typecheck` 0 错误；`node --test apps/android/tests/*.test.cjs` 23/23；Metro `bundle` 打包成功（2.6 MB）。GitHub CI Run `45927356547` 与 CD Run `45928022714` 均 `success`。
