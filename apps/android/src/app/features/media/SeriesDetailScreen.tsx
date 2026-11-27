@@ -54,6 +54,7 @@ import {
 import { useAppNav } from "../../navigation/NavContext"
 import { useOverlay } from "../../overlay/OverlayHost"
 import { useAppTheme } from "../../theme/ThemeProvider"
+import { deliverExportFile, exportDeliveryMessage } from "../../../scripting/exportDirectory"
 import { copyToClipboard, shareItems, stripHtmlToText } from "./mediaHelpers"
 
 function mapSeriesItemToIllust(
@@ -344,10 +345,13 @@ export function SeriesDetailScreen({
         const out = await downloadEntireMangaSeries(seriesID, detailTitle, fmt, (msg) =>
           setTaskStatus(msg),
         )
-        overlay.showToast(
-          out ? `漫画系列 ${fmt.toUpperCase()} 导出完成` : "导出未完成",
-          out ? "success" : "error",
-        )
+        if (out) {
+          const delivery = await deliverExportFile(out, { fallback: "none" })
+          const message = exportDeliveryMessage(delivery)
+          overlay.showToast(message?.text ?? `漫画系列 ${fmt.toUpperCase()} 导出完成`, message?.tone ?? "success")
+        } else {
+          overlay.showToast("导出未完成", "error")
+        }
       } catch (err: any) {
         overlay.showToast(err?.message ?? "系列导出失败", "error")
       } finally {
@@ -377,10 +381,13 @@ export function SeriesDetailScreen({
             (msg) => setTaskStatus(msg),
             { mode },
           )
-          overlay.showToast(
-            out ? "小说系列 EPUB 导出完成" : "导出未完成",
-            out ? "success" : "error",
-          )
+          if (out) {
+            const delivery = await deliverExportFile(out, { fallback: "none" })
+            const message = exportDeliveryMessage(delivery)
+            overlay.showToast(message?.text ?? "小说系列 EPUB 导出完成", message?.tone ?? "success")
+          } else {
+            overlay.showToast("导出未完成", "error")
+          }
         } catch (err: any) {
           overlay.showToast(err?.message ?? "EPUB 导出失败", "error")
         } finally {

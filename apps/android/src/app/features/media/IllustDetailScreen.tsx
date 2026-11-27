@@ -23,7 +23,7 @@ import { exportMangaToCbz } from "../../../../../../Pix-Scripting/src/downloader
 import { exportMangaToEpub } from "../../../../../../Pix-Scripting/src/downloader/epubExporter"
 import { exportIllustToZip } from "../../../../../../Pix-Scripting/src/downloader/illustZipExporter"
 import { downloadIllustToAlbum } from "../../../../../../Pix-Scripting/src/downloader/photoAlbum"
-import { exportUgoiraToAlbum, exportUgoiraZip } from "../../../../../../Pix-Scripting/src/downloader/ugoiraExporter"
+import { exportUgoiraZip } from "../../../../../../Pix-Scripting/src/downloader/ugoiraExporter"
 import {
   imageUrlOf,
   resolveIllustUnderlayUrl,
@@ -56,6 +56,8 @@ import {
   ScreenHeader,
 } from "../../components"
 import { useAppNav } from "../../navigation/NavContext"
+import { deliverExportFile, exportDeliveryMessage } from "../../../scripting/exportDirectory"
+import { exportUgoiraToDirectoryOrAlbum } from "../../../scripting/ugoiraExport"
 import { useOverlay } from "../../overlay/OverlayHost"
 import { effectiveBottomInset, useSafeInsets } from "../../theme/insets"
 import { useAppTheme } from "../../theme/ThemeProvider"
@@ -337,19 +339,29 @@ export function IllustDetailScreen({
       if (choice == null) return
       setDownloadStatus("正在准备动图导出…")
       try {
-        const res =
-          choice === 0
-            ? await exportUgoiraToAlbum(illust, (msg) => setDownloadStatus(msg), "mp4")
-            : choice === 1
-              ? await exportUgoiraToAlbum(illust, (msg) => setDownloadStatus(msg), "gif")
-              : await exportUgoiraZip(illust, (msg) => setDownloadStatus(msg))
-        if (res.success) {
-          overlay.showToast(
-            choice === 2 ? "已保存动图原始 ZIP" : "已保存动图至系统相册",
-            "success",
-          )
+        if (choice === 2) {
+          const res = await exportUgoiraZip(illust, (msg) => setDownloadStatus(msg))
+          if (res.success && res.mp4Path) {
+            const delivery = await deliverExportFile(res.mp4Path, { fallback: "none" })
+            const message = exportDeliveryMessage(delivery)
+            overlay.showToast(message?.text ?? "已保存动图原始 ZIP", message?.tone ?? "success")
+          } else {
+            overlay.showToast(res.error || "导出失败", "error")
+          }
         } else {
-          overlay.showToast(res.error || "导出失败", "error")
+          const res = await exportUgoiraToDirectoryOrAlbum(
+            illust,
+            (msg) => setDownloadStatus(msg),
+            choice === 0 ? "mp4" : "gif",
+          )
+          if (res.success) {
+            overlay.showToast(
+              res.message ?? (res.destination === "saf" ? "已保存到自定义导出目录" : "已保存动图至系统相册"),
+              "success",
+            )
+          } else {
+            overlay.showToast(res.error || "导出失败", "error")
+          }
         }
       } catch (err: any) {
         overlay.showToast(err?.message ?? "导出失败", "error")
@@ -387,7 +399,9 @@ export function IllustDetailScreen({
           onProgress: (msg) => setDownloadStatus(msg),
         })
         if (res.success && res.path) {
-          overlay.showToast("ZIP 导出完成", "success")
+          const delivery = await deliverExportFile(res.path, { fallback: "none" })
+          const message = exportDeliveryMessage(delivery)
+          overlay.showToast(message?.text ?? "ZIP 导出完成", message?.tone ?? "success")
         } else {
           overlay.showToast(res.error || "ZIP 导出失败", "error")
         }
@@ -406,7 +420,9 @@ export function IllustDetailScreen({
           onProgress: (msg) => setDownloadStatus(msg),
         })
         if (res.success && res.path) {
-          overlay.showToast("CBZ 漫画导出完成", "success")
+          const delivery = await deliverExportFile(res.path, { fallback: "none" })
+          const message = exportDeliveryMessage(delivery)
+          overlay.showToast(message?.text ?? "CBZ 漫画导出完成", message?.tone ?? "success")
         } else {
           overlay.showToast(res.error || "CBZ 导出失败", "error")
         }
@@ -425,7 +441,9 @@ export function IllustDetailScreen({
           onProgress: (msg) => setDownloadStatus(msg),
         })
         if (res.success && res.path) {
-          overlay.showToast("EPUB 电子书导出完成", "success")
+          const delivery = await deliverExportFile(res.path, { fallback: "none" })
+          const message = exportDeliveryMessage(delivery)
+          overlay.showToast(message?.text ?? "EPUB 电子书导出完成", message?.tone ?? "success")
         } else {
           overlay.showToast(res.error || "EPUB 导出失败", "error")
         }

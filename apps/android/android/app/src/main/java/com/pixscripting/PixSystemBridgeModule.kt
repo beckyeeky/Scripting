@@ -16,6 +16,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.provider.DocumentsContract
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -23,6 +24,7 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.MimeTypeMap
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
@@ -61,6 +63,10 @@ private const val REQ_PICK_DIR = 9103
 private const val DOWNLOAD_CHANNEL_ID = "pix_scripting_downloads"
 private const val NOTIFICATION_PERMISSION_REQUEST = 4311
 private const val PIXIV_OAUTH_CALLBACK_PATH = "/web/v1/users/auth/pixiv/callback"
+private const val EXPORT_DIR_PREFS = "pix_export_directory"
+private const val EXPORT_DIR_URI_KEY = "tree_uri"
+private const val EXPORT_DIR_NAME_KEY = "display_name"
+private const val EXPORT_DIR_MAX_NAME_LENGTH = 80
 
 class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
@@ -70,6 +76,9 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
   private var pendingPickerMode: Int = 0
   private var activeAuthDialog: Dialog? = null
   private val headlessWebViews = ConcurrentHashMap<String, WebView>()
+  private val exportDirPrefs by lazy {
+    reactContext.getSharedPreferences(EXPORT_DIR_PREFS, Context.MODE_PRIVATE)
+  }
 
   init {
     reactContext.addActivityEventListener(object : BaseActivityEventListener() {
@@ -94,6 +103,9 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
               )
             }
+            // 授权失败也记录 URI：设置页会通过 getExportDirectory 报告“授权已失效”，
+            // 让用户重新选择，而不是静默写不进去。
+            runCatching { rememberExportDirectory(treeUri) }
             promise.resolve(treeUri.toString())
           } else {
             promise.resolve(null)
@@ -370,6 +382,266 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
     launchPicker(REQ_PICK_DIR, Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
       addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
     }, promise)
+  }
+
+  // ---------- Custom export directory (Storage Access Framework) ----------
+
+  private fun fallbackTreeName(treeUri: Uri): String {
+    val documentId = runCatching { DocumentsContract.getTreeDocumentId(treeUri) }.getOrNull().orEmpty()
+    val tail = documentId.substringAfterLast(':').ifEmpty { documentId }
+    return tail.substringAfterLast('/').ifEmpty { "导出目录" }
+  }
+
+  private fun resolveTreeDisplayName(treeUri: Uri): String? = runCatching {
+    val documentUri = DocumentsContract.buildDocumentUriUsingTree(
+      treeUri,
+      DocumentsContract.getTreeDocumentId(treeUri),
+    )
+    reactContext.contentResolver.query(
+      documentUri,
+      arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+      null,
+      null,
+      null,
+    )?.use { cursor ->
+      if (cursor.moveToFirst()) cursor.getString(0) else null
+    }
+  }.getOrNull()
+
+  private fun rememberExportDirectory(treeUri: Uri) {
+    val previous = exportDirPrefs.getString(EXPORT_DIR_URI_KEY, null)
+    if (!previous.isNullOrBlank() && previous != treeUri.toString()) {
+      runCatching {
+        reactContext.contentResolver.releasePersistableUriPermission(
+          Uri.parse(previous),
+          Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+        )
+      }
+    }
+    val displayName = (resolveTreeDisplayName(treeUri) ?: fallbackTreeName(treeUri))
+      .trim()
+      .ifEmpty { "导出目录" }
+    exportDirPrefs.edit()
+      .putString(EXPORT_DIR_URI_KEY, treeUri.toString())
+      .putString(EXPORT_DIR_NAME_KEY, displayName)
+      .apply()
+  }
+
+  private fun listExportChildNames(treeUri: Uri): Set<String> {
+    val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+      treeUri,
+      DocumentsContract.getTreeDocumentId(treeUri),
+    )
+    val names = HashSet<String>()
+    reactContext.contentResolver.query(
+      childrenUri,
+      arrayOf(DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+      null,
+      null,
+      null,
+    )?.use { cursor ->
+      while (cursor.moveToNext()) {
+        cursor.getString(0)?.trim()?.lowercase()?.let { if (it.isNotEmpty()) names.add(it) }
+      }
+    }
+    return names
+  }
+
+  private fun splitExportName(rawName: String): Pair<String, String> {
+    val base = rawName.trim().substringAfterLast('/').substringAfterLast('\\')
+    val cleaned = base
+      .replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001F\\u007F]"), "_")
+      .replace(Regex("_+"), "_")
+      .trim()
+      .trim('.', ' ', '_')
+    if (cleaned.isEmpty()) return "export" to "bin"
+
+    val dot = cleaned.lastIndexOf('.')
+    val hasExtension = dot > 0
+    var extension = if (hasExtension) cleaned.substring(dot + 1).lowercase() else ""
+    if (!extension.matches(Regex("^[a-z0-9]{1,10}$"))) extension = "bin"
+    var stem = if (hasExtension) cleaned.substring(0, dot) else cleaned
+    stem = stem.trim('.', ' ', '_').ifEmpty { "export" }
+    val maxStem = (EXPORT_DIR_MAX_NAME_LENGTH - extension.length - 1).coerceAtLeast(1)
+    return stem.take(maxStem) to extension
+  }
+
+  /** 重名时生成 "name (1).ext"、"name (2).ext"…，与 JS 侧 nextAvailableFileName 对齐 */
+  private fun uniqueExportName(desired: String, existing: Set<String>): String {
+    val (stem, extension) = splitExportName(desired)
+    val suffix = ".$extension"
+    val direct = "$stem$suffix"
+    if (!existing.contains(direct.lowercase())) return direct
+    for (index in 1..9999) {
+      val marker = " ($index)"
+      val maxStem = (EXPORT_DIR_MAX_NAME_LENGTH - marker.length - suffix.length).coerceAtLeast(1)
+      val candidate = "${stem.take(maxStem)}$marker$suffix"
+      if (!existing.contains(candidate.lowercase())) return candidate
+    }
+    return "${stem.take(40)}-${System.currentTimeMillis()}$suffix"
+  }
+
+  private fun mimeForExportName(name: String): String {
+    val extension = name.substringAfterLast('.', "").lowercase()
+    return when (extension) {
+      "mp4" -> "video/mp4"
+      "gif" -> "image/gif"
+      "epub" -> "application/epub+zip"
+      "txt" -> "text/plain"
+      "zip" -> "application/zip"
+      "cbz" -> "application/vnd.comicbook+zip"
+      "json" -> "application/json"
+      "jpg", "jpeg" -> "image/jpeg"
+      "png" -> "image/png"
+      "webp" -> "image/webp"
+      else -> MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+        ?: "application/octet-stream"
+    }
+  }
+
+  /**
+   * 当前导出目录：URI、显示名以及实时授权状态。JS 侧用 writeGranted/reachable
+   * 判定 "ready" / "revoked"，避免把已删除目录或撤销授权的记录当成可用。
+   */
+  @ReactMethod
+  fun getExportDirectory(promise: Promise) {
+    try {
+      val uriString = exportDirPrefs.getString(EXPORT_DIR_URI_KEY, null)
+      if (uriString.isNullOrBlank()) {
+        promise.resolve(null)
+        return
+      }
+      val treeUri = Uri.parse(uriString)
+      val grant = reactContext.contentResolver.persistedUriPermissions.firstOrNull { it.uri == treeUri }
+      val writeGranted = grant?.isWritePermission == true
+      val readGranted = grant?.isReadPermission == true
+      val storedName = exportDirPrefs.getString(EXPORT_DIR_NAME_KEY, null)
+      val name = (storedName ?: resolveTreeDisplayName(treeUri) ?: fallbackTreeName(treeUri))
+        .trim()
+        .ifEmpty { "导出目录" }
+
+      var reachable = false
+      if (writeGranted) {
+        reachable = runCatching {
+          val documentUri = DocumentsContract.buildDocumentUriUsingTree(
+            treeUri,
+            DocumentsContract.getTreeDocumentId(treeUri),
+          )
+          reactContext.contentResolver.query(
+            documentUri,
+            arrayOf(DocumentsContract.Document.COLUMN_DOCUMENT_ID),
+            null,
+            null,
+            null,
+          )?.use { cursor -> cursor.moveToFirst() } ?: false
+        }.getOrDefault(false)
+      }
+
+      promise.resolve(Arguments.createMap().apply {
+        putString("uri", uriString)
+        putString("name", name)
+        putBoolean("writeGranted", writeGranted)
+        putBoolean("readGranted", readGranted)
+        putBoolean("reachable", reachable)
+      })
+    } catch (e: Exception) {
+      promise.reject("E_SAF_STATE", e.message ?: "读取导出目录状态失败", e)
+    }
+  }
+
+  /** 取消自定义目录并释放持久化授权，导出回到应用专属目录/相册 */
+  @ReactMethod
+  fun clearExportDirectory(promise: Promise) {
+    try {
+      val uriString = exportDirPrefs.getString(EXPORT_DIR_URI_KEY, null)
+      if (!uriString.isNullOrBlank()) {
+        runCatching {
+          reactContext.contentResolver.releasePersistableUriPermission(
+            Uri.parse(uriString),
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+          )
+        }
+      }
+      exportDirPrefs.edit()
+        .remove(EXPORT_DIR_URI_KEY)
+        .remove(EXPORT_DIR_NAME_KEY)
+        .apply()
+      promise.resolve(true)
+    } catch (e: Exception) {
+      promise.reject("E_SAF_CLEAR", e.message ?: "清除导出目录失败", e)
+    }
+  }
+
+  /**
+   * 把缓存/文档目录中的成品写入已授权的 tree URI，重名自动加序号。
+   * 未选择目录返回 E_SAF_DIR_NONE；授权撤销/目录删除返回 E_SAF_DIR_REVOKED，
+   * 由 JS 侧提示重新选择并回退默认位置。
+   */
+  @ReactMethod
+  fun writeToExportDirectory(sourcePath: String, fileName: String?, promise: Promise) {
+    ioPool.execute {
+      var createdDocument: Uri? = null
+      try {
+        val uriString = exportDirPrefs.getString(EXPORT_DIR_URI_KEY, null)
+        if (uriString.isNullOrBlank()) {
+          promise.reject("E_SAF_DIR_NONE", "未选择自定义导出目录")
+          return@execute
+        }
+        val treeUri = Uri.parse(uriString)
+        val grant = reactContext.contentResolver.persistedUriPermissions.firstOrNull { it.uri == treeUri }
+        if (grant == null || !grant.isWritePermission) {
+          promise.reject("E_SAF_DIR_REVOKED", "导出目录授权已失效，请重新选择")
+          return@execute
+        }
+
+        val source = File(normalizeFilePath(sourcePath))
+        if (!source.exists() || !source.isFile) {
+          promise.reject("E_SAF_SOURCE", "源文件不存在：$sourcePath")
+          return@execute
+        }
+
+        val existing = try {
+          listExportChildNames(treeUri)
+        } catch (e: Exception) {
+          promise.reject("E_SAF_DIR_REVOKED", e.message ?: "导出目录不可访问，可能已被删除", e)
+          return@execute
+        }
+        val desired = if (fileName.isNullOrBlank()) source.name else fileName
+        val finalName = uniqueExportName(desired, existing)
+        val parentDocumentUri = DocumentsContract.buildDocumentUriUsingTree(
+          treeUri,
+          DocumentsContract.getTreeDocumentId(treeUri),
+        )
+        val documentUri = DocumentsContract.createDocument(
+          reactContext.contentResolver,
+          parentDocumentUri,
+          mimeForExportName(finalName),
+          finalName,
+        )
+        if (documentUri == null) {
+          promise.reject("E_SAF_WRITE", "无法在所选目录创建文件")
+          return@execute
+        }
+        createdDocument = documentUri
+
+        reactContext.contentResolver.openOutputStream(documentUri, "w")?.use { output ->
+          source.inputStream().use { input -> input.copyTo(output, 64 * 1024) }
+        } ?: error("无法打开导出目录写入流")
+
+        promise.resolve(Arguments.createMap().apply {
+          putString("uri", documentUri.toString())
+          putString("name", finalName)
+          putString("directoryName", exportDirPrefs.getString(EXPORT_DIR_NAME_KEY, null) ?: "")
+          putDouble("size", source.length().toDouble())
+        })
+        createdDocument = null
+      } catch (e: Exception) {
+        runCatching {
+          createdDocument?.let { DocumentsContract.deleteDocument(reactContext.contentResolver, it) }
+        }
+        promise.reject("E_SAF_WRITE", e.message ?: "写入导出目录失败", e)
+      }
+    }
   }
 
   private fun launchPicker(requestCode: Int, intent: Intent, promise: Promise) {

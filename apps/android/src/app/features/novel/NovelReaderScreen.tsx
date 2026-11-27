@@ -57,9 +57,9 @@ import {
 import {
   ScriptingFileManager,
   ScriptingSafari,
-  ScriptingShareSheet,
   ScriptingStorage,
 } from "../../../scripting/hostGlobals"
+import { deliverExportFile, exportDeliveryMessage } from "../../../scripting/exportDirectory"
 import { useAppNav } from "../../navigation/NavContext"
 import type { Route } from "../../navigation/types"
 import { useOverlay } from "../../overlay/OverlayHost"
@@ -696,8 +696,9 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
           content: doc,
         })
         if (outPath) {
-          overlay.showToast("TXT 已导出，正在打开分享", "success")
-          await ScriptingShareSheet.present([outPath])
+          const delivery = await deliverExportFile(outPath, { fallback: "share" })
+          const message = exportDeliveryMessage(delivery)
+          overlay.showToast(message?.text ?? "TXT 已导出", message?.tone ?? "success")
         } else {
           overlay.showToast("TXT 导出失败", "error")
         }
@@ -732,8 +733,9 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
         ],
       })
       if (epubPath) {
-        overlay.showToast("EPUB 已生成，正在打开分享", "success")
-        await ScriptingShareSheet.present([epubPath])
+        const delivery = await deliverExportFile(epubPath, { fallback: "share" })
+        const message = exportDeliveryMessage(delivery)
+        overlay.showToast(message?.text ?? "EPUB 已生成", message?.tone ?? "success")
       } else {
         overlay.showToast("EPUB 生成失败", "error")
       }

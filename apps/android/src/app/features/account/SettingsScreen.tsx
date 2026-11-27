@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import {
   NativeModules,
   Pressable,
@@ -54,6 +54,13 @@ import {
   ScriptingPasteboard,
   ScriptingShareSheet,
 } from "../../../scripting/hostGlobals"
+import {
+  chooseExportDirectory,
+  clearExportDirectory,
+  readExportDirectory,
+  type ExportDirectoryState,
+} from "../../../scripting/exportDirectory"
+import { DEFAULT_EXPORT_DIRECTORY_LABEL } from "../../../scripting/exportDirectoryNaming"
 import {
   ActionButton,
   ScreenHeader,
@@ -122,6 +129,9 @@ export function SettingsScreen() {
   const [syncingCookie, setSyncingCookie] = useState(false)
   const [exportingSync, setExportingSync] = useState(false)
   const [importingFile, setImportingFile] = useState(false)
+  const [exportDirectory, setExportDirectory] = useState<ExportDirectoryState | null>(null)
+  const [exportDirectoryBusy, setExportDirectoryBusy] = useState(false)
+  const exportDirectoryWarnedRef = useRef(false)
 
   useEffect(() => {
     const syncS = () => {
@@ -143,6 +153,24 @@ export function SettingsScreen() {
       unsubAuth()
     }
   }, [])
+
+  // 读取自定义导出目录并检测持久化授权是否失效（用户删除目录/撤销授权）。
+  useEffect(() => {
+    let alive = true
+    void readExportDirectory()
+      .then((state) => {
+        if (!alive) return
+        setExportDirectory(state)
+        if (state?.status === "revoked" && !exportDirectoryWarnedRef.current) {
+          exportDirectoryWarnedRef.current = true
+          overlay.showToast("自定义导出目录授权已失效，请重新选择", "error")
+        }
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [overlay])
 
   function patch(partial: Partial<AppSettings>) {
     updateSettings(partial)
@@ -169,6 +197,60 @@ export function SettingsScreen() {
       patch({ feedColumnCapPortrait: list[idx].value })
     } else {
       patch({ feedColumnCapLandscape: list[idx].value })
+    }
+  }
+
+  async function handleExportDirectory() {
+    if (exportDirectoryBusy) return
+    const actions: Array<{ label: string; destructive?: boolean }> = [
+      { label: exportDirectory ? "重新选择目录" : "选择目录" },
+    ]
+    if (exportDirectory) {
+      actions.push({ label: "恢复默认（清除授权）", destructive: true })
+    }
+    const idx = await overlay.presentActionSheet({
+      title: "自定义导出目录",
+      message: exportDirectory
+        ? `当前：${exportDirectory.name}${exportDirectory.status === "revoked" ? "（授权已失效）" : ""}`
+        : "EPUB、TXT、动图等导出文件将优先保存到所选文件夹。",
+      actions,
+    })
+    if (idx == null) return
+
+    if (idx === 0) {
+      setExportDirectoryBusy(true)
+      try {
+        const next = await chooseExportDirectory()
+        if (!next) return
+        setExportDirectory(next)
+        exportDirectoryWarnedRef.current = false
+        if (next.status === "ready") {
+          overlay.showToast(`导出目录已设为「${next.name}」`, "success")
+        } else {
+          overlay.showToast("已记录目录，但未获得写入授权，请重新选择", "error")
+        }
+      } catch (e: any) {
+        overlay.showToast(e?.message ?? "选择导出目录失败", "error")
+      } finally {
+        setExportDirectoryBusy(false)
+      }
+      return
+    }
+
+    const ok = await overlay.confirm({
+      title: "恢复默认导出目录",
+      message: "将清除已保存的目录授权，导出文件恢复到应用专属目录与系统相册。",
+      confirmLabel: "恢复默认",
+      destructive: true,
+    })
+    if (!ok) return
+    try {
+      await clearExportDirectory()
+      setExportDirectory(null)
+      exportDirectoryWarnedRef.current = false
+      overlay.showToast("已恢复默认导出目录", "success")
+    } catch (e: any) {
+      overlay.showToast(e?.message ?? "恢复默认导出目录失败", "error")
     }
   }
 
@@ -626,6 +708,20 @@ export function SettingsScreen() {
               ]}
             />
           </View>
+
+          <SettingRow
+            title="自定义导出目录"
+            subtitle="EPUB / TXT / 动图等导出优先保存到该文件夹（系统 SAF 授权）"
+            value={
+              exportDirectoryBusy
+                ? "选择中…"
+                : exportDirectory
+                  ? `${exportDirectory.name}${exportDirectory.status === "revoked" ? "（授权已失效）" : ""}`
+                  : DEFAULT_EXPORT_DIRECTORY_LABEL
+            }
+            showChevron={true}
+            onPress={() => void handleExportDirectory()}
+          />
 
           <ToggleRow
             title="智能预加载图片"
