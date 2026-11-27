@@ -1080,14 +1080,37 @@ const ScriptingShell = {
 // ---------- BackgroundKeeper / Notification / LiveActivity / Widget / Assistant ----------
 const ScriptingBackgroundKeeper = {
   async keepAlive(): Promise<boolean> {
-    return true
+    try {
+      // Android 13+ drops notifications without a runtime grant; ask once when
+      // the first long-running task starts (the system dialog is only shown
+      // while an activity is foregrounded).
+      const permissionTask = PixSystemBridge?.requestNotificationPermission?.()
+      if (permissionTask && typeof permissionTask.catch === "function") {
+        permissionTask.catch(() => false)
+      }
+      const started = await PixSystemBridge?.startDownloadService?.()
+      return started !== false
+    } catch {
+      return false
+    }
   },
-  async stopKeepAlive(): Promise<void> {},
+  async stopKeepAlive(): Promise<void> {
+    try {
+      await PixSystemBridge?.stopDownloadService?.()
+    } catch {
+      // Stopping a service that was never started is not an error.
+    }
+  },
 }
 
 let notifIdCounter = 100
 export const ScriptingNotification = {
   async schedule(opts: { title?: string; body?: string; subtitle?: string; silent?: boolean; [key: string]: any }): Promise<void> {
+    try {
+      await PixSystemBridge?.requestNotificationPermission?.()
+    } catch {
+      // Denied or no activity: fall through and let showNotification no-op.
+    }
     PixSystemBridge?.showNotification?.(
       ++notifIdCounter,
       opts?.title || "Pix-Scripting",

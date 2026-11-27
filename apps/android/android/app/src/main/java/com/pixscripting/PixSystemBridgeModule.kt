@@ -1,5 +1,6 @@
 package com.pixscripting
 
+import android.Manifest
 import android.app.Activity
 import android.app.Dialog
 import android.app.NotificationChannel
@@ -8,6 +9,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -30,6 +32,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -43,6 +46,7 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.modules.core.PermissionAwareActivity
 import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.File
@@ -55,6 +59,7 @@ private const val REQ_PICK_IMAGES = 9101
 private const val REQ_PICK_FILES = 9102
 private const val REQ_PICK_DIR = 9103
 private const val DOWNLOAD_CHANNEL_ID = "pix_scripting_downloads"
+private const val NOTIFICATION_PERMISSION_REQUEST = 4311
 private const val PIXIV_OAUTH_CALLBACK_PATH = "/web/v1/users/auth/pixiv/callback"
 
 class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
@@ -895,5 +900,53 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
       val nm = reactContext.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
       nm.cancel(id)
     }
+  }
+
+  /**
+   * Android 13+ requires a runtime POST_NOTIFICATIONS grant; without it every
+   * download/export notification is silently dropped. Resolves false when the
+   * host has no foreground activity to show the system dialog from.
+   */
+  @ReactMethod
+  fun requestNotificationPermission(promise: Promise) {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+      promise.resolve(true)
+      return
+    }
+    val granted =
+      ContextCompat.checkSelfPermission(reactContext, Manifest.permission.POST_NOTIFICATIONS) ==
+        PackageManager.PERMISSION_GRANTED
+    if (granted) {
+      promise.resolve(true)
+      return
+    }
+    val activity = currentActivity as? PermissionAwareActivity
+    if (activity == null) {
+      promise.resolve(false)
+      return
+    }
+    runCatching {
+        activity.requestPermissions(
+          arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+          NOTIFICATION_PERMISSION_REQUEST,
+        ) { _, _, grantResults ->
+          promise.resolve(
+            grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+          )
+          true
+        }
+      }
+      .onFailure { promise.resolve(false) }
+  }
+
+  @ReactMethod
+  fun startDownloadService(promise: Promise) {
+    promise.resolve(PixDownloadService.start(reactContext))
+  }
+
+  @ReactMethod
+  fun stopDownloadService(promise: Promise) {
+    PixDownloadService.stop(reactContext)
+    promise.resolve(true)
   }
 }
