@@ -68,6 +68,7 @@ import { useAppNav } from "../../navigation/NavContext"
 import { useOverlay } from "../../overlay/OverlayHost"
 import { effectiveBottomInset, useSafeInsets } from "../../theme/insets"
 import { useAppTheme } from "../../theme/ThemeProvider"
+import { buildCookieHostList, resolveWebCookieSyncResult } from "./webCookieSync"
 
 const { PixSystemBridge } = NativeModules
 
@@ -225,19 +226,35 @@ export function SettingsScreen() {
     try {
       const webBase = getWebBaseUrl()
       if (PixSystemBridge?.presentOAuthWebView) {
+        // 纯 Cookie 同步模式：不注册 OAuth 回调前缀、不自动关闭；原生弹窗提供
+        // 「完成同步」按钮，关闭弹窗时也会 flush 并返回已取得的 Cookie。
         const res = await PixSystemBridge.presentOAuthWebView({
           url: `${webBase}/`,
-          title: "登录 Pixiv 网页版以同步 Cookie",
-          redirectPrefix: "pix-scripting://never-auto-close",
-          redirectPrefixes: [],
-          extraCookieHosts: [webBase, "https://www.pixiv.net", "https://accounts.pixiv.net"],
+          title: "登录 Pixiv 网页版",
+          cookieSyncOnly: true,
+          extraCookieHosts: buildCookieHostList(webBase),
           ephemeral: false,
           isDark,
         })
-        if (typeof res?.cookieHeader === "string" && res.cookieHeader.trim()) {
-          session.updateWebCookie(res.cookieHeader.trim())
+        const outcome = resolveWebCookieSyncResult(res, webBase)
+        if (outcome.status === "synced") {
+          session.updateWebCookie(outcome.cookieHeader)
           setHasWebCookie(true)
-          overlay.showToast("已同步 Pixiv Web Cookie", "success")
+          if (outcome.via === "finish") {
+            overlay.showToast(
+              outcome.hasSessionCookie
+                ? "已同步 Pixiv Web Cookie"
+                : "已同步 Cookie，但未检测到 PHPSESSID，请确认已登录",
+              outcome.hasSessionCookie ? "success" : "info",
+            )
+          } else {
+            overlay.showToast(
+              outcome.hasSessionCookie
+                ? "已保存关闭前取得的 Pixiv Web Cookie"
+                : "已保存关闭前取得的 Cookie",
+              "info",
+            )
+          }
           return
         }
       }

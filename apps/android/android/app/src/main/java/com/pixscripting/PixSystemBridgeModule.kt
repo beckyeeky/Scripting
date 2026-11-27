@@ -407,29 +407,35 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
     val url = options.getString("url") ?: return promise.reject("E_WEBVIEW", "Missing URL")
     val title = options.getString("title") ?: "Pixiv 登录"
     val ephemeral = options.hasKey("ephemeral") && !options.isNull("ephemeral") && options.getBoolean("ephemeral")
+    val cookieSyncOnly =
+      options.hasKey("cookieSyncOnly") && !options.isNull("cookieSyncOnly") && options.getBoolean("cookieSyncOnly")
     val isDark = if (options.hasKey("isDark") && !options.isNull("isDark")) {
       options.getBoolean("isDark")
     } else {
       PixWindowInsetsHolder.currentRequestedDark(activity)
     }
 
+    val urlOrigin = extractOrigin(url)
     val redirectPrefixes = LinkedHashSet<String>()
-    if (options.hasKey("redirectPrefix") && !options.isNull("redirectPrefix")) {
-      options.getString("redirectPrefix")?.takeIf { it.isNotBlank() }?.let { redirectPrefixes.add(it) }
-    }
-    if (options.hasKey("redirectPrefixes") && !options.isNull("redirectPrefixes")) {
-      val arr = options.getArray("redirectPrefixes")
-      if (arr != null) {
-        for (i in 0 until arr.size()) {
-          arr.getString(i)?.takeIf { it.isNotBlank() }?.let { redirectPrefixes.add(it) }
+    // Cookie-sync mode has no OAuth callback: registering prefixes would either
+    // never match (dead prefix) or close the dialog before the user finishes.
+    if (!cookieSyncOnly) {
+      if (options.hasKey("redirectPrefix") && !options.isNull("redirectPrefix")) {
+        options.getString("redirectPrefix")?.takeIf { it.isNotBlank() }?.let { redirectPrefixes.add(it) }
+      }
+      if (options.hasKey("redirectPrefixes") && !options.isNull("redirectPrefixes")) {
+        val arr = options.getArray("redirectPrefixes")
+        if (arr != null) {
+          for (i in 0 until arr.size()) {
+            arr.getString(i)?.takeIf { it.isNotBlank() }?.let { redirectPrefixes.add(it) }
+          }
         }
       }
-    }
-    redirectPrefixes.add("pixiv://account/login")
-    redirectPrefixes.add("https://app-api.pixiv.net$PIXIV_OAUTH_CALLBACK_PATH")
-    val urlOrigin = extractOrigin(url)
-    if (urlOrigin != null) {
-      redirectPrefixes.add("$urlOrigin$PIXIV_OAUTH_CALLBACK_PATH")
+      redirectPrefixes.add("pixiv://account/login")
+      redirectPrefixes.add("https://app-api.pixiv.net$PIXIV_OAUTH_CALLBACK_PATH")
+      if (urlOrigin != null) {
+        redirectPrefixes.add("$urlOrigin$PIXIV_OAUTH_CALLBACK_PATH")
+      }
     }
     val prefixList = redirectPrefixes.toList()
 
@@ -442,6 +448,22 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
           arr.getString(i)?.takeIf { it.isNotBlank() }?.let { extraCookieHosts.add(it) }
         }
       }
+    }
+    // Cookie-sync mode: the configured gateway/Web origin goes first so its
+    // session cookies win over same-named cookies from the Pixiv hosts.
+    val cookieHosts = LinkedHashSet<String>().apply {
+      addAll(extraCookieHosts)
+      add("https://www.pixiv.net")
+      add("https://app-api.pixiv.net")
+      add("https://accounts.pixiv.net")
+    }
+    // OAuth mode keeps the historical order (Pixiv hosts first, last write
+    // wins) so existing PKCE callers receive the same cookieHeader as before.
+    val oauthCookieHosts = LinkedHashSet<String>().apply {
+      add("https://www.pixiv.net")
+      add("https://app-api.pixiv.net")
+      add("https://accounts.pixiv.net")
+      addAll(extraCookieHosts)
     }
 
     activity.runOnUiThread {
@@ -456,6 +478,54 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
       }
       val dialog = Dialog(activity, themeRes)
       activeAuthDialog = dialog
+
+      val cookieManager = CookieManager.getInstance()
+      cookieManager.setAcceptCookie(true)
+
+      // Single result builder for every exit path (OAuth callback, 完成同步,
+      // 关闭/返回键/系统取消). It flushes first and returns whatever the
+      // WebView stored, including the configured reverse-proxy origin.
+      fun buildWebViewResult(cancelled: Boolean, redirectUrl: String?): WritableMap {
+        runCatching { cookieManager.flush() }
+        val entries = Arguments.createArray()
+        val merged = LinkedHashMap<String, String>()
+        val hosts = if (cookieSyncOnly) cookieHosts else oauthCookieHosts
+        for (host in hosts) {
+          val raw = runCatching { cookieManager.getCookie(host) }.getOrNull().orEmpty()
+          if (raw.isBlank()) continue
+          entries.pushMap(Arguments.createMap().apply {
+            putString("url", host)
+            putString("cookie", raw)
+          })
+          for (part in raw.split(";")) {
+            val eq = part.indexOf('=')
+            if (eq > 0) {
+              val key = part.substring(0, eq).trim()
+              val value = part.substring(eq + 1).trim()
+              if (key.isNotEmpty() && value.isNotEmpty()) {
+                if (cookieSyncOnly) {
+                  if (!merged.containsKey(key)) merged[key] = value
+                } else {
+                  merged[key] = value
+                }
+              }
+            }
+          }
+        }
+        return Arguments.createMap().apply {
+          putBoolean("cancelled", cancelled)
+          if (redirectUrl != null) putString("redirectUrl", redirectUrl)
+          putString("cookieHeader", merged.entries.joinToString("; ") { "${it.key}=${it.value}" })
+          putArray("cookies", entries)
+        }
+      }
+
+      fun finishAuthFlow(cancelled: Boolean, redirectUrl: String?) {
+        if (settled) return
+        settled = true
+        promise.resolve(buildWebViewResult(cancelled, redirectUrl))
+        dialog.dismiss()
+      }
 
       val density = activity.resources.displayMetrics.density
       fun dp(v: Int): Int = (v * density).roundToInt()
@@ -477,11 +547,31 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
         setPadding(dp(16), initialTopPx + dp(10), dp(12), dp(10))
         setBackgroundColor(headerBgColor)
       }
+      val titleBlock = LinearLayout(activity).apply {
+        orientation = LinearLayout.VERTICAL
+        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+      }
       val titleView = TextView(activity).apply {
         text = title
         textSize = 16f
         setTextColor(titleTextColor)
-        layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+      }
+      titleBlock.addView(titleView)
+      if (cookieSyncOnly) {
+        titleBlock.addView(TextView(activity).apply {
+          text = "登录完成后点右上角「完成同步」"
+          textSize = 11f
+          setTextColor(if (isDark) Color.parseColor("#9CA3AF") else Color.parseColor("#6B7280"))
+        })
+      }
+      val doneBtn = Button(activity).apply {
+        text = "完成同步"
+        setTextColor(closeTextColor)
+        setBackgroundColor(Color.TRANSPARENT)
+        isAllCaps = false
+        setOnClickListener {
+          finishAuthFlow(cancelled = false, redirectUrl = null)
+        }
       }
       val closeBtn = Button(activity).apply {
         text = "关闭"
@@ -489,10 +579,12 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
         setBackgroundColor(Color.TRANSPARENT)
         isAllCaps = false
         setOnClickListener {
-          dialog.dismiss()
+          // Closing is still a cancel, but cookies captured so far are kept.
+          finishAuthFlow(cancelled = true, redirectUrl = null)
         }
       }
-      header.addView(titleView)
+      header.addView(titleBlock)
+      if (cookieSyncOnly) header.addView(doneBtn)
       header.addView(closeBtn)
 
       val progress = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -506,29 +598,19 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
       }
 
-      val cookieManager = CookieManager.getInstance()
-      cookieManager.setAcceptCookie(true)
       cookieManager.setAcceptThirdPartyCookies(wv, true)
-
-      fun finishWithRedirect(target: String) {
-        if (settled) return
-        settled = true
-        cookieManager.flush()
-        val pixivCookies = collectPixivCookies(cookieManager, extraCookieHosts)
-        val res = Arguments.createMap().apply {
-          putBoolean("cancelled", false)
-          putString("redirectUrl", target)
-          putString("cookieHeader", pixivCookies)
-        }
-        promise.resolve(res)
-        dialog.dismiss()
-      }
 
       wv.webViewClient = object : WebViewClient() {
         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
           val target = request?.url?.toString() ?: return false
+          if (cookieSyncOnly) {
+            // Let the WebView stay on http(s); swallow pixiv:// / intent:// links
+            // instead of showing an unknown-scheme error page.
+            val scheme = request?.url?.scheme?.lowercase()
+            return scheme != "http" && scheme != "https"
+          }
           if (isOAuthCallbackUrl(target, prefixList)) {
-            finishWithRedirect(target)
+            finishAuthFlow(cancelled = false, redirectUrl = target)
             return true
           }
           return false
@@ -537,8 +619,12 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
         @Deprecated("Deprecated in Java")
         override fun shouldOverrideUrlLoading(view: WebView?, targetUrl: String?): Boolean {
           val target = targetUrl ?: return false
+          if (cookieSyncOnly) {
+            val scheme = runCatching { Uri.parse(target).scheme?.lowercase() }.getOrNull()
+            return scheme != "http" && scheme != "https"
+          }
           if (isOAuthCallbackUrl(target, prefixList)) {
-            finishWithRedirect(target)
+            finishAuthFlow(cancelled = false, redirectUrl = target)
             return true
           }
           return false
@@ -546,9 +632,9 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
 
         override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: android.graphics.Bitmap?) {
           super.onPageStarted(view, pageUrl, favicon)
-          if (pageUrl != null && isOAuthCallbackUrl(pageUrl, prefixList)) {
+          if (!cookieSyncOnly && pageUrl != null && isOAuthCallbackUrl(pageUrl, prefixList)) {
             view?.stopLoading()
-            finishWithRedirect(pageUrl)
+            finishAuthFlow(cancelled = false, redirectUrl = pageUrl)
             return
           }
           progress.visibility = View.VISIBLE
@@ -622,17 +708,17 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
 
       dialog.setOnDismissListener {
         activeAuthDialog = null
+        // Back gesture, outside tap or activity teardown: still flush and hand
+        // back the cookies captured so far instead of dropping them.
+        if (!settled) {
+          settled = true
+          promise.resolve(buildWebViewResult(cancelled = true, redirectUrl = null))
+        }
         webViewDestroyed = true
         runCatching {
           wv.stopLoading()
           (wv.parent as? ViewGroup)?.removeView(wv)
           wv.destroy()
-        }
-        if (!settled) {
-          settled = true
-          promise.resolve(Arguments.createMap().apply {
-            putBoolean("cancelled", true)
-          })
         }
       }
 
@@ -652,28 +738,6 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
         wv.loadUrl(url)
       }
     }
-  }
-
-  private fun collectPixivCookies(cm: CookieManager, extraHosts: Set<String> = emptySet()): String {
-    val hosts = LinkedHashSet<String>().apply {
-      add("https://www.pixiv.net")
-      add("https://app-api.pixiv.net")
-      add("https://accounts.pixiv.net")
-      addAll(extraHosts)
-    }
-    val map = LinkedHashMap<String, String>()
-    for (host in hosts) {
-      val raw = runCatching { cm.getCookie(host) }.getOrNull() ?: continue
-      for (part in raw.split(";")) {
-        val eq = part.indexOf('=')
-        if (eq > 0) {
-          val k = part.substring(0, eq).trim()
-          val v = part.substring(eq + 1).trim()
-          if (k.isNotEmpty() && v.isNotEmpty()) map[k] = v
-        }
-      }
-    }
-    return map.entries.joinToString("; ") { "${it.key}=${it.value}" }
   }
 
   @ReactMethod
