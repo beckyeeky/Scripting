@@ -1,5 +1,13 @@
 # 项目交接
 
+## 当前发布：Android 预览版 v1.8.14.4-alpha.5（2026-11-27，已发布）
+
+- Tag `android-v1.8.14.4-alpha.5` → `9138209`；CD run `46011848461` success，`isPrerelease=true`、`isDraft=false`、`--latest=false`，iOS `v1.8.14.4-pixivreader` 仍是 Latest。
+- 内容：第一轮 P0 五项 + 第二轮 P1 五项，详见 `docs/releases/android-1.8.14.4-alpha.5.md`。
+- APK `Pix-Scripting-Android.apk` 49,406,815 字节，SHA-256 `e6e255f50d1d523ee67d0e074e89d3ed1948fae6346bf0df1edfa116cf3d69ce`，`SHA256SUMS` 校验通过，`unzip -t` 无错；包名 `com.pixscripting.preview`，`versionCode=5`。
+- 安装：https://github.com/beckyeeky/Scripting/releases/tag/android-v1.8.14.4-alpha.5
+- 真机未验收；若设备仍装 alpha.2 或更早，建议覆盖安装后自查「登录 → 信息流 → 阅读器 → 下载导出」。
+
 ## 第二轮：P1 与 P0 收尾（2026-11-27，已合并，未发版）
 
 基线 `8d0a5af`，5 个独立 worktree 并行；4 项由 subagent 完成、2 个被中断的任务（WebView 恢复、通知保活）由 Hermes 接手补完：
@@ -32,7 +40,7 @@
 
 **下一轮**：WebView `onRenderProcessGone` 崩溃自愈 + P1 四项（相册文件名/空轮询、小说详情离线插图与翻译入口、通知权限与前台保活、空转开关与 About 元信息）。
 
-## 当前发布：Android 预览版 v1.8.14.4-alpha.4（2026-11-27，分支 `feat/android-app`，已发布；后续加固 `55d9791` 未发版）
+## 历史发布：Android 预览版 v1.8.14.4-alpha.4（2026-11-27，分支 `feat/android-app`，已发布；后续加固 `55d9791` 未发版）
 
 - **修复小说 AI 导读正文反复刷屏**：`apps/android/src/app/features/novel/NovelAISheet.tsx` 的 `onChunk` 把累计正文快照当成增量分片用 `prev + chunk` 拼接，导致每个分片都把当前全文追加一遍，表现为正文不断从头重来、越刷越长（看起来像无限循环提交）。改为整体替换为最新累计快照，导读总结与 AI 续写两条链路同时修正；与 iOS `aiSheet` 的 `throttler.flush` 语义保持一致。
 - **发布结果（`alpha.4`）**：提交 `abec8deca3295c17e0fe188ad392403c7673c7f4`，标签 `android-v1.8.14.4-alpha.4`，Prerelease `https://github.com/beckyeeky/Scripting/releases/tag/android-v1.8.14.4-alpha.4`（`isPrerelease=true`、`isDraft=false`、`--latest=false`，iOS `v1.8.14.4-pixivreader` 仍为 Latest）。CI Run `45931388852` 与 CD Run `45931391963` 均为 `success`；`Pix-Scripting-Android.apk` 大小 `49,369,951` 字节，SHA-256 `be72232cc2188df78d69018caa9fce5a6d33ecd1349d20f45e1f9a1bfa4e7764`。
