@@ -11,7 +11,11 @@ react {
 def appVersion = new Properties()
 file("../../version.properties").withInputStream { appVersion.load(it) }
 
-def enableProguardInReleaseBuilds = false
+// R8 代码裁剪 + 资源压缩（P2-4）：默认开启，可用 Gradle 属性一键关闭以便对比/回滚。
+//   关闭：./gradlew :app:assembleRelease -PenableR8=false
+// 关闭后与改造前一致：不混淆、不裁剪代码，也不压缩资源（shrinkResources 依赖
+// minifyEnabled，两者必须同开同关，否则 AGP 会拒绝构建）。
+def enableR8InRelease = project.hasProperty("enableR8") ? project.property("enableR8").toBoolean() : true
 def jscFlavor = 'org.webkit:android-jsc:+'
 
 android {
@@ -37,8 +41,20 @@ android {
         release {
             applicationIdSuffix ".preview"
             buildConfigField("boolean", "USE_METRO_DEV_SERVER", "false")
-            minifyEnabled enableProguardInReleaseBuilds
+            minifyEnabled enableR8InRelease
+            shrinkResources enableR8InRelease
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
+            // ABI 精简（P2-4）：release 只打包真机 ABI，去掉 x86/x86_64（仅模拟器需要）。
+            // 仅作用于 release，debug 仍为全 ABI，日常调试/CI debug 产物行为不变。
+            // 不使用 splits：splits 会产出多个 APK，破坏 build-preview.sh 对单一
+            // app-release-unsigned.apk 的签名与校验流程。
+            // gradle.properties 的 reactNativeArchitectures 只在从源码构建 RN（新架构）
+            // 时生效；本项目消费预编译 AAR（newArchEnabled=false），以这里为准。
+            // RN 自带 packagingOptions（pickFirst libhermes/libfbjni/libc++_shared、
+            // 排除 libjsc* 等）在变体层生效，与 abiFilters 叠加不冲突。
+            ndk {
+                abiFilters "arm64-v8a", "armeabi-v7a"
+            }
         }
     }
 }
