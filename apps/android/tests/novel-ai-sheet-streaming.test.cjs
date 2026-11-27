@@ -262,3 +262,131 @@ test("小说 AI 导读：累计快照流不能拼接成反复刷屏的正文", a
   )
   assert.ok(outputs[0].length <= chunks.join("").length, "输出长度不应超过全部快照之和")
 })
+
+test("小说 AI 导读：停止后迟到分片不覆盖正文，且旧请求 finally 不误清新请求 running 状态", async () => {
+  const mini = createMiniReact()
+  let callIndex = 0
+  let release1
+  let release2
+  let capturedOnChunk1
+  let capturedOnChunk2
+  const gate1 = new Promise((resolve) => {
+    release1 = resolve
+  })
+  const gate2 = new Promise((resolve) => {
+    release2 = resolve
+  })
+
+  const aiService = {
+    getNovelPageText: (text) => text,
+    isAIAvailable: () => true,
+    splitNovelPages: () => ["page-1"],
+    streamContinueNovel: async () => "",
+    streamSummarizeNovel: async (_text, options) => {
+      callIndex += 1
+      if (callIndex === 1) {
+        capturedOnChunk1 = options.onChunk
+        options.onChunk("第一次已输出")
+        await gate1
+        return "第一次完整返回"
+      }
+      capturedOnChunk2 = options.onChunk
+      options.onChunk("第二次进行中")
+      await gate2
+      return "第二次完成"
+    },
+  }
+
+  const ActionButton = (props) => mini.React.createElement("ActionButton", props)
+  const SegmentedControl = (props) => mini.React.createElement("SegmentedControl", props)
+  const ThemedTextInput = (props) => mini.React.createElement("ThemedTextInput", props)
+
+  const mod = loadTsModule(sheetPath, {
+    react: { ...mini.React, __esModule: true, default: mini.React },
+    "react-native": {
+      ActivityIndicator: "ActivityIndicator",
+      ScrollView: "ScrollView",
+      StyleSheet: { create: (styles) => styles, hairlineWidth: 1 },
+      Text: "Text",
+      View: "View",
+    },
+    [aiServicePath]: aiService,
+    [componentsPath]: { ActionButton, SegmentedControl, ThemedTextInput },
+    [overlayPath]: { useOverlay: () => ({ showToast: () => {} }) },
+    [themePath]: { useAppTheme: () => ({ colors: {}, accent: "#000000" }) },
+    [insetsPath]: { useSafeInsets: () => ({}), effectiveBottomInset: () => 0 },
+    [hostGlobalsPath]: { ScriptingPasteboard: { setString: async () => {} } },
+    [polyfillsPath]: {
+      PolyfillAbortController: class {
+        constructor() {
+          this.signal = { aborted: false }
+        }
+        abort() {
+          this.signal.aborted = true
+        }
+      },
+    },
+  })
+
+  const renderSheet = () => {
+    mini.beginRender()
+    const t = mod.NovelAISheet({
+      title: "测试小说",
+      text: "正文",
+      onOpenCustomAISettings: () => {},
+      onClose: () => {},
+    })
+    mini.flushEffects()
+    return t
+  }
+
+  const findButton = (tree, title) => {
+    let found = null
+    walk(tree, (node) => {
+      if (node.type === ActionButton && node.props?.title === title) found = node
+    })
+    return found
+  }
+
+  const readOutputs = (tree) => {
+    const out = []
+    walk(tree, (node) => {
+      if (node.type === "Text" && node.props?.selectable) out.push(node.props.children)
+    })
+    return out
+  }
+
+  let tree = renderSheet()
+  findButton(tree, "生成导读总结").props.onPress()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  tree = renderSheet()
+  const stopBtn = findButton(tree, "停止生成")
+  assert.ok(stopBtn, "第一次请求期间应显示「停止生成」按钮")
+  stopBtn.props.onPress()
+
+  // 中止后即使收到第一次请求的迟到分片，也不应覆盖正文
+  capturedOnChunk1("迟到分片不应写入")
+  tree = renderSheet()
+  assert.deepEqual(readOutputs(tree), ["第一次已输出"])
+
+  // 在第一次请求尚未 resolve 前发起第二次请求
+  findButton(tree, "生成导读总结").props.onPress()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  // 让第一次请求 settle 并触发其 finally，同时再发一次迟到分片
+  capturedOnChunk1("旧请求迟到覆盖")
+  release1()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  tree = renderSheet()
+  assert.ok(findButton(tree, "停止生成"), "旧请求 finally 不应清除新请求的 running 状态")
+  assert.deepEqual(readOutputs(tree), ["第二次进行中"])
+
+  release2()
+  await new Promise((resolve) => setTimeout(resolve, 0))
+
+  tree = renderSheet()
+  assert.ok(findButton(tree, "生成导读总结"), "第二次请求完成后应恢复「生成导读总结」按钮")
+  assert.deepEqual(readOutputs(tree), ["第二次完成"])
+})
