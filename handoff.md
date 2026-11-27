@@ -1,6 +1,14 @@
 # 项目交接
 
-## 当前进度：Android 原生 RN 界面架构重构 v1.8.14.4-alpha.3（2026-11-27，分支 `feat/android-app`，待全量门禁与发布）
+## 当前发布：Android 原生 RN 界面架构重构 v1.8.14.4-alpha.3（2026-11-27，分支 `feat/android-app`，已发布）
+
+- **发布结果**：提交 `beea15bb8d46778806ebb762faaeafc0dce5313d`，标签 `android-v1.8.14.4-alpha.3`，Prerelease `https://github.com/beckyeeky/Scripting/releases/tag/android-v1.8.14.4-alpha.3`（`isPrerelease=true`、`isDraft=false`、`--latest=false`，iOS `v1.8.14.4-pixivreader` 仍为 Latest）。
+- **门禁结果**：`npm test` 235/235；`node scripts/syntax-check.cjs` 203 个文件 0 语法错误；`npm --prefix apps/android run typecheck` 0 错误；`node --test apps/android/tests/*.test.cjs` 23/23；Metro `bundle` 打包成功（2.6 MB）。GitHub CI Run `45927356547` 与 CD Run `45928022714` 均 `success`。
+- **产物校验**：`Pix-Scripting-Android.apk` 49,369,951 字节，SHA-256 `78f7a094e291d8e2ea2d318bcc4a371253f81c4440a7d4f4800037fc6c00170a`；回下载 `SHA256SUMS` 校验 `OK`，`unzip -t` 无错误。
+- **未验证**：Android 真机安装启动、登录/导入后渲染、信息流与阅读器、Ugoira/SAF 等全部交互仍需实机验收。
+- **接手说明（2026-11-27）**：本轮由 Hermes 接手 Antigravity 未完成的门禁与发布，代码内容与 alpha.3 交接记录一致，未新增功能改动。
+
+## 上一进度：Android 原生 RN 界面架构重构 v1.8.14.4-alpha.3（2026-11-27，分支 `feat/android-app`）
 
 - **架构重构（参见 `docs/decisions.md` D016）**：
   - 将 `apps/android/` 从 SwiftUI-in-RN 映射壳全面重构为 Android 原生 React Native 界面层 `apps/android/src/app/`，保留无头 `apps/android/src/scripting/` 宿主运行时，零改动 `Pix-Scripting/`、`Release/Pix-Scripting.scripting` 及既有桌面启动图标。
@@ -9,7 +17,7 @@
   - **Kotlin 原生桥接与无头运行时加固**：Edge-to-Edge Insets、`FORCE_DARK_OFF` + 命令式 `evaluateJS` + `onRenderProcessGone`、PKCE OAuth 回调拦截（含自定义反代）与异步 Cookie 清理、`gzip`/`deflate` + RFC 7578 `FormData` + 无竞态 SSE + 多字节 UTF-8 流式解码、Android Keystore 密钥失效自愈、目录级 `hotTextCache` 失效、iOS `.zip`/JSON 导入后即时内存缓存刷新与 `file://` 分享规范化。
   - **版本与文档**：`apps/android/version.properties` 升级至 `versionName=1.8.14.4-alpha.3`（`versionCode=3`），新增 `docs/releases/android-1.8.14.4-alpha.3.md`，同步更新 `apps/android/README.md`、`docs/architecture.md`、`docs/decisions.md`。
   - **测试覆盖**：新增 `apps/android/tests/{android-app-shell,android-novel-html,native-runtime-hardening}.test.cjs`，包含 25 个 Android 原生核心页面渲染烟测与无 `<Modal>` / `<SafeAreaView>` 静态约束扫描。
-  - **待完成验证与发布**：等待全量桌面回归（`npm test`、`syntax-check`、`typecheck`、全部 Android 单元测试、`bundle:check`、`:app:assembleDebug`、`build-preview.sh` 签名与 APK 校验）以及 Android 真机覆盖安装验收。
+  - **验证与发布（2026-11-27 完成）**：全量桌面回归（`npm test`、`syntax-check`、`typecheck`、Android 单元/渲染测试、Metro bundle）与 GitHub CI/CD 签名构建均通过，已发布 `android-v1.8.14.4-alpha.3` 预发布；Android 真机覆盖安装验收待进行。
 
 ## 上一预览版：Android 完整移植预览版 v1.8.14.4-alpha.2（2026-11-26，分支 `feat/android-app`）
 
