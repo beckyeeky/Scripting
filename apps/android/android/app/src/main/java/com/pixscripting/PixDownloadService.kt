@@ -10,7 +10,6 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import androidx.core.app.ServiceCompat
 
 /**
  * Minimal foreground service used while downloads/exports are running.
@@ -33,28 +32,30 @@ class PixDownloadService : Service() {
     val notification =
       NotificationCompat.Builder(this, CHANNEL_ID)
         .setSmallIcon(android.R.drawable.stat_sys_download)
-        .setContentTitle(getString(applicationInfo.labelRes).ifBlank { "Pix-Scripting" })
+        .setContentTitle("Pix-Scripting")
         .setContentText("正在后台下载/导出，请保持应用运行")
         .setPriority(NotificationCompat.PRIORITY_LOW)
         .setOngoing(true)
         .setOnlyAlertOnce(true)
         .setContentIntent(openAppIntent())
         .build()
-    val type =
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-      } else {
-        0
-      }
     // Android 14 throws if the declared type is missing from the manifest or
-    // the start is not allowed; the JS keeper treats false as "not kept alive"
-    // instead of crashing the download flow.
-    runCatching { ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, type) }
+    // the start is not allowed; the JS keeper treats a failure as "not kept
+    // alive" instead of crashing the download flow.
+    try {
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+      } else {
+        startForeground(NOTIFICATION_ID, notification)
+      }
+    } catch (_: Throwable) {
+      stopSelf()
+    }
     return START_NOT_STICKY
   }
 
   override fun onDestroy() {
-    runCatching { ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE) }
+    runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
     super.onDestroy()
   }
 
