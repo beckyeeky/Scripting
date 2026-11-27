@@ -586,6 +586,11 @@ test("Android 原生界面全量渲染烟测：LoginScreen、AppShell 与全部 
         getInitialIntent: async () => null,
         clearIntent: async () => true,
         triggerHaptic: () => {},
+        getAppMetadataSync: () => ({
+          applicationId: "com.pixscripting.preview",
+          versionName: "1.8.14.4-alpha.4",
+          versionCode: 4,
+        }),
         getWindowInsetsSync: () => ({ top: 28, bottom: 24, left: 0, right: 0, imeBottom: 0 }),
         setSystemBarStyle: () => {},
         presentOAuthWebView: async () => ({ url: "" }),

@@ -145,6 +145,19 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
+  // ---------- App Build Metadata (read-only) ----------
+
+  // 关于页展示真实包名/版本，避免 JS 侧写死与 BuildConfig 漂移。release 变体
+  // 带 applicationIdSuffix ".preview"，因此必须读取 APPLICATION_ID 而非手写。
+  @ReactMethod(isBlockingSynchronousMethod = true)
+  fun getAppMetadataSync(): WritableMap {
+    return Arguments.createMap().apply {
+      putString("applicationId", BuildConfig.APPLICATION_ID)
+      putString("versionName", BuildConfig.VERSION_NAME)
+      putInt("versionCode", BuildConfig.VERSION_CODE)
+    }
+  }
+
   // ---------- Edge-to-Edge Window Insets & System Bars ----------
   @ReactMethod(isBlockingSynchronousMethod = true)
   fun getWindowInsetsSync(): WritableMap {

@@ -1,7 +1,11 @@
-import React from "react"
+import React, { useMemo } from "react"
 import { Platform, ScrollView, StyleSheet, Text, View } from "react-native"
 import { SCRIPT_VERSION } from "../../../../../../Pix-Scripting/src/config"
-import { ScriptingPasteboard, ScriptingSafari } from "../../../scripting/hostGlobals"
+import {
+  getAppMetadataSync,
+  ScriptingPasteboard,
+  ScriptingSafari,
+} from "../../../scripting/hostGlobals"
 import {
   ScreenHeader,
   SectionCard,
@@ -12,9 +16,13 @@ import { useAppNav } from "../../navigation/NavContext"
 import { useOverlay } from "../../overlay/OverlayHost"
 import { effectiveBottomInset, useSafeInsets } from "../../theme/insets"
 import { useAppTheme } from "../../theme/ThemeProvider"
-
-const ANDROID_APP_VERSION = SCRIPT_VERSION || "1.8.14.4"
-const ANDROID_PACKAGE_ID = "com.pixscripting.android"
+import {
+  formatApplicationIdLabel,
+  formatAppVersionLabel,
+  formatVersionCodeLabel,
+  formatVersionNameLabel,
+  resolveAppMetadata,
+} from "./appMetadata"
 
 export function AboutScreen() {
   const { colors, accent, accentSoft } = useAppTheme()
@@ -22,11 +30,18 @@ export function AboutScreen() {
   const nav = useAppNav()
   const overlay = useOverlay()
 
+  // 原生 BuildConfig 为唯一真实来源；旧包缺少 bridge 时退回共享 SCRIPT_VERSION，
+  // 包名/构建号不猜测，直接显示未知。
+  const appMetadata = useMemo(
+    () => resolveAppMetadata(getAppMetadataSync(), SCRIPT_VERSION),
+    [],
+  )
+
   async function copyDiagnostics() {
     const info = [
       `App: Pix-Scripting Android`,
-      `Version: ${ANDROID_APP_VERSION}`,
-      `Package: ${ANDROID_PACKAGE_ID}`,
+      `Version: ${formatAppVersionLabel(appMetadata)}`,
+      `Package: ${formatApplicationIdLabel(appMetadata)}`,
       `Platform: ${Platform.OS} ${String(Platform.Version)}`,
       `Core: Shared Pix-Scripting TS Engine + React Native 0.76 Native UI`,
     ].join("\n")
@@ -54,7 +69,7 @@ export function AboutScreen() {
           </View>
           <Text style={[styles.appName, { color: colors.text }]}>Pix-Scripting</Text>
           <Text style={[styles.appVer, { color: colors.textSecondary }]}>
-            Android 原生端 · v{ANDROID_APP_VERSION}
+            Android 原生端 · {formatVersionNameLabel(appMetadata)}
           </Text>
           <Text style={[styles.appDesc, { color: colors.textTertiary }]}>
             插画、漫画、动图、特辑与 AI 翻译小说阅读客户端
@@ -63,8 +78,9 @@ export function AboutScreen() {
 
         <SectionHeader title="版本与包信息" />
         <SectionCard>
-          <SettingRow title="应用版本" value={`v${ANDROID_APP_VERSION}`} />
-          <SettingRow title="Android 包名" value={ANDROID_PACKAGE_ID} />
+          <SettingRow title="应用版本" value={formatVersionNameLabel(appMetadata)} />
+          <SettingRow title="构建号 (versionCode)" value={formatVersionCodeLabel(appMetadata)} />
+          <SettingRow title="Android 包名" value={formatApplicationIdLabel(appMetadata)} />
           <SettingRow
             title="运行环境"
             value={`Android API ${String(Platform.Version)}`}

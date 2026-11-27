@@ -40,9 +40,11 @@ type RankingTabKind = "illustration" | "manga" | "novel" | "advanced"
 function RankingIllustFeed({
   mode,
   date,
+  heroFirst,
 }: {
   mode: string
   date: string | null
+  heroFirst: boolean
 }) {
   const feed = usePixivFeed<PixivIllustration>({
     fetcher: (token) => ranking(mode, date, token),
@@ -61,6 +63,7 @@ function RankingIllustFeed({
       loadMoreError={feed.loadMoreError}
       hasMore={feed.hasMore}
       showRankNumbers={true}
+      heroFirst={heroFirst}
       emptyTitle="该榜单暂无可展示作品"
       emptySubtitle={date ? `日期 ${date} 可能尚无该分类榜单，或受内容过滤隐藏` : "下拉刷新或切换其他榜单"}
       onRefresh={() => void feed.refresh()}
@@ -303,7 +306,11 @@ export function RankingScreen() {
           advancedParams.category === "novel" ? (
             <RankingNovelFeed mode={advancedParams.mode} date={advancedParams.date} />
           ) : (
-            <RankingIllustFeed mode={advancedParams.mode} date={advancedParams.date} />
+            <RankingIllustFeed
+              mode={advancedParams.mode}
+              date={advancedParams.date}
+              heroFirst={settings.heroFirstFeedCard}
+            />
           )
         ) : kind === "novel" ? (
           <RankingNovelFeed mode={novelMode} date={null} />
@@ -311,6 +318,7 @@ export function RankingScreen() {
           <RankingIllustFeed
             mode={kind === "illustration" ? illustMode : mangaMode}
             date={null}
+            heroFirst={settings.heroFirstFeedCard}
           />
         )}
       </View>

@@ -68,6 +68,15 @@ const dirs = PixFileSystem?.getDirectoriesSync?.() ?? {
   icloud: "/tmp/pix-docs",
 }
 
+// 原生 BuildConfig 元信息（只读）。bridge 缺失时返回 null，由调用方决定回退来源。
+export function getAppMetadataSync(): unknown {
+  try {
+    return PixSystemBridge?.getAppMetadataSync?.() ?? null
+  } catch {
+    return null
+  }
+}
+
 // ---------- Window Insets & System Bar Helpers ----------
 export interface NativeWindowInsets {
   top: number

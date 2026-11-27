@@ -25,6 +25,7 @@ import {
 } from "../../components/FormControls"
 import { effectiveBottomInset, useSafeInsets } from "../../theme/insets"
 import { useAppTheme } from "../../theme/ThemeProvider"
+import { formatCountWithSeparators } from "./novelLengthFilter"
 
 const SEARCH_DATE_MIN_TS = new Date("2007-09-09T00:00:00").getTime()
 
@@ -551,7 +552,7 @@ export function SearchAdvancedSheet({
       <SectionCard>
         {category === "novel" ? (
           <ToggleRow
-            title={`仅看长篇小说（≥ ${NOVEL_MIN_TEXT_LENGTH_THRESHOLD} 字）`}
+            title={`仅看 ${formatCountWithSeparators(NOVEL_MIN_TEXT_LENGTH_THRESHOLD)} 字以上`}
             value={onlyLongNovel}
             onValueChange={setOnlyLongNovel}
           />

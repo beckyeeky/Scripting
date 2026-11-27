@@ -13,6 +13,7 @@ import { useAppNav } from "../navigation/NavContext"
 import { useSafeInsets } from "../theme/insets"
 import { useAppTheme } from "../theme/ThemeProvider"
 import { computeIllustCardHeight, ILLUST_CARD_GAP, IllustCard } from "./IllustCard"
+import { splitHeroFirst } from "./illustHero"
 import { EmptyView, ErrorView, InlineFooterLoader, LoadingView } from "./StateViews"
 
 const HORIZONTAL_PADDING = 10
@@ -26,6 +27,8 @@ export interface IllustMasonryFeedProps {
   loadMoreError?: string | null
   hasMore?: boolean
   showRankNumbers?: boolean
+  /** 首图大卡片：与 iOS 一致，仅在 2 列及以下的窄布局生效。 */
+  heroFirst?: boolean
   emptyTitle?: string
   emptySubtitle?: string
   bottomPadding?: number
@@ -44,6 +47,7 @@ export function IllustMasonryFeed({
   loadMoreError = null,
   hasMore = false,
   showRankNumbers = false,
+  heroFirst = false,
   emptyTitle = "暂无作品",
   emptySubtitle,
   bottomPadding,
@@ -67,6 +71,13 @@ export function IllustMasonryFeed({
   const usableWidth = Math.max(200, windowWidth - HORIZONTAL_PADDING * 2)
   const columnWidth = Math.floor((usableWidth - ILLUST_CARD_GAP * (numColumns - 1)) / numColumns)
 
+  // 首图大卡片只在 2 列及以下的窄布局启用，3 列以上保持均等网格（与 iOS 一致）。
+  const { hero: heroItem, rest: gridItems } = useMemo(
+    () => splitHeroFirst(items, heroFirst, numColumns),
+    [items, heroFirst, numColumns],
+  )
+  const rankOffset = heroItem ? 1 : 0
+
   const handlePress = useCallback(
     (illust: PixivIllustration) => {
       cacheIllust(illust)
@@ -87,14 +98,50 @@ export function IllustMasonryFeed({
   )
 
   const extraData = useMemo(
-    () => ({ columnWidth, compact, showRankNumbers, isDark: colors.bg }),
-    [columnWidth, compact, showRankNumbers, colors.bg],
+    () => ({
+      columnWidth,
+      compact,
+      showRankNumbers,
+      isDark: colors.bg,
+      heroId: heroItem?.id ?? null,
+      usableWidth,
+    }),
+    [columnWidth, compact, showRankNumbers, colors.bg, heroItem?.id, usableWidth],
   )
+
+  const header = useMemo(() => {
+    if (!ListHeaderComponent && !heroItem) return null
+    return (
+      <>
+        {ListHeaderComponent}
+        {heroItem ? (
+          <View style={styles.heroCell}>
+            <IllustCard
+              illust={heroItem}
+              width={usableWidth}
+              compact={false}
+              rankNumber={showRankNumbers ? 1 : undefined}
+              priority={0}
+              onPress={handlePress}
+              onPressAuthor={handlePressAuthor}
+            />
+          </View>
+        ) : null}
+      </>
+    )
+  }, [
+    ListHeaderComponent,
+    heroItem,
+    usableWidth,
+    showRankNumbers,
+    handlePress,
+    handlePressAuthor,
+  ])
 
   if (loading && items.length === 0) {
     return (
       <View style={styles.flex}>
-        {ListHeaderComponent}
+        {header}
         <LoadingView />
       </View>
     )
@@ -103,7 +150,7 @@ export function IllustMasonryFeed({
   if (error && items.length === 0) {
     return (
       <View style={styles.flex}>
-        {ListHeaderComponent}
+        {header}
         <ErrorView message={error} onRetry={onRefresh} />
       </View>
     )
@@ -115,7 +162,7 @@ export function IllustMasonryFeed({
     <View style={styles.flex}>
       <MasonryFlashList
         key={`masonry-${numColumns}-${compact ? "c" : "f"}`}
-        data={items}
+        data={gridItems}
         numColumns={numColumns}
         estimatedItemSize={220}
         optimizeItemArrangement={true}
@@ -146,9 +193,9 @@ export function IllustMasonryFeed({
           }
         }}
         onEndReachedThreshold={0.6}
-        ListHeaderComponent={ListHeaderComponent}
+        ListHeaderComponent={header}
         ListEmptyComponent={
-          !loading ? <EmptyView title={emptyTitle} subtitle={emptySubtitle} /> : null
+          !loading && !heroItem ? <EmptyView title={emptyTitle} subtitle={emptySubtitle} /> : null
         }
         ListFooterComponent={
           items.length > 0 ? (
@@ -166,8 +213,8 @@ export function IllustMasonryFeed({
               illust={item}
               width={columnWidth}
               compact={compact}
-              rankNumber={showRankNumbers ? index + 1 : undefined}
-              priority={Math.min(1000, index * 5)}
+              rankNumber={showRankNumbers ? index + 1 + rankOffset : undefined}
+              priority={Math.min(1000, (index + rankOffset) * 5)}
               onPress={handlePress}
               onPressAuthor={handlePressAuthor}
             />
@@ -183,6 +230,11 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   cell: {
+    paddingHorizontal: ILLUST_CARD_GAP / 2,
+    paddingBottom: ILLUST_CARD_GAP,
+    alignItems: "center",
+  },
+  heroCell: {
     paddingHorizontal: ILLUST_CARD_GAP / 2,
     paddingBottom: ILLUST_CARD_GAP,
     alignItems: "center",
