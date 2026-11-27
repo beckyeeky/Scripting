@@ -20,6 +20,7 @@ import {
   seedIllustFromWidgetPool,
   seedPixivisionFromWidgetPool,
 } from "../../../../../Pix-Scripting/src/store/widgetStore"
+import { recordDiagnosticError } from "../../scripting/diagnostics"
 import { parseRouteString, routeSignature } from "./routeParser"
 import type { AppNavAPI, Route, StackEntry, TabId } from "./types"
 
@@ -202,6 +203,13 @@ export function NavProvider({
   const pushRouteString = useCallback(
     (rawRoute: string, explicitTab?: TabId) => {
       const parsed = parseRouteString(rawRoute)
+      if (parsed.name === "notFound") {
+        recordDiagnosticError({
+          kind: "navigation",
+          code: "NAV_UNKNOWN_ROUTE",
+          message: rawRoute,
+        })
+      }
       push(parsed, explicitTab)
     },
     [push],
