@@ -1,5 +1,21 @@
 # 项目交接
 
+## 第二轮：P1 与 P0 收尾（2026-11-27，已合并，未发版）
+
+基线 `8d0a5af`，5 个独立 worktree 并行；4 项由 subagent 完成、2 个被中断的任务（WebView 恢复、通知保活）由 Hermes 接手补完：
+
+1. **WebView 渲染进程回收自愈**：`PixNativeWebView` 在 `crashed` 时立刻失败所有挂起 load/eval 并清空回退队列；`NovelReaderScreen` 用 `novelReaderRecovery.ts` 的 `shouldRebuildAfterCrash` 控制重试（60s 窗口内最多 2 次自动重建），重建前同步落盘锚点、换 generation、remount WebView（key=epoch），恢复中显示提示、失败给重试卡片，手动重试重置预算。
+2. **相册保存**：`savePhoto/saveVideo` 透传清洗后的 `fileName`（路径穿越/非法字符/长度 60/扩展名补全）与设置项 `downloadPhotoAlbumName`；原生 MediaStore 写 DISPLAY_NAME 与 RELATIVE_PATH；共享层按 `supportsAssetLookup` 能力标记跳过恒空的 fetchAssets 轮询（省 ~600ms），iOS 行为不变。
+3. **小说详情/导出对齐 iOS**：详情页离线保存改为正文 + 插图（复用 `buildOfflineImageTasks`/`persistOfflineImages`，按 ok/failed/missing 如实汇总）；`novelReader` 路由新增 `author/tags/isR18`，首章/系列切章/书库均传入；新增 `novelExportMetadata.ts` 统一「详情 → 路由 → 占位」回退与 R-18 判定，EPUB/TXT 不再硬编码作者；翻译面板折叠展示 `summaryError/glossaryError/alignmentWarnings`。
+4. **设置/关于/筛选**：`heroFirstFeedCard` 真正生效（`IllustMasonryFeed` 首条全宽大卡，接入探索与排行）；About 通过 `getAppMetadataSync()` 读 BuildConfig 真实包名/版本/构建号；新增 `novelLengthFilter.ts`，TagFeed 小说页与搜索胶囊栏接入「≥8,000 字」过滤。
+5. **通知与保活**：新增 `PixDownloadService`（`dataSync` 前台服务，仅下载/导出期间存活，`START_NOT_STICKY`，启动失败自停）；Manifest 声明 `FOREGROUND_SERVICE`/`FOREGROUND_SERVICE_DATA_SYNC` 与 service；`PixSystemBridge` 新增 `requestNotificationPermission`（Android 13+，经 `PermissionAwareActivity`）、`startDownloadService`、`stopDownloadService`；`BackgroundKeeper.keepAlive/stopKeepAlive` 接到服务，`Notification.schedule` 前先请求权限。
+
+**门禁**：根 `npm test` 235/235；Android 测试 99/99；`syntax-check` 203 文件 0 错；CI `Build Android APK` 两轮均 success（`46006928518`、`46010654919`），Kotlin 编译通过；Metro bundle 通过（真实工作区 2.7 MB）。CI 第一次 Kotlin 编译在 `ServiceCompat.startForeground` 上报 unresolved（androidx.core 版本过旧），已改用原生 `startForeground` 并在 `bb7464c` 修复。
+
+**未验证**：所有真机行为——WebView 进程回收恢复、相册文件名/相册归类、离线插图与 EPUB 内容、≥8,000 过滤交互、Android 13+ 权限弹窗与后台保活——均未上设备；Kotlin 仅经 CI 编译，未跑仪器测试。
+
+**下一轮**：P2（`FLAG_SECURE` 隐私遮罩、脱敏诊断日志导出、SAF 自定义目录、R8/ABI 瘦身），之后可考虑发 alpha.5（版本号仍是 alpha.4，按用户要求攒改动）。
+
 ## 进行中：P0 修复轮（2026-11-27，5 个 subagent 并行，未发版）
 
 基线 `a891da6`，5 个独立 worktree 分支并行开发后按序合并（无冲突）：
