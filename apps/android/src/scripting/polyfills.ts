@@ -1,5 +1,6 @@
 // Spec-compliant polyfills for Hermes / React Native:
-// URL, URLSearchParams, TextEncoder, TextDecoder, atob, btoa, AbortController.
+// URL, URLSearchParams, TextEncoder, TextDecoder (with streaming UTF-8 buffering),
+// atob, btoa, AbortController, AbortSignal.
 
 const B64_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 
@@ -39,7 +40,7 @@ export function polyfillBtoa(input: string): string {
 export function encodeUtf8(str: string): Uint8Array {
   const out: number[] = []
   for (let i = 0; i < str.length; i++) {
-    let code = str.charCodeAt(i)
+    const code = str.charCodeAt(i)
     if (code < 0x80) {
       out.push(code)
     } else if (code < 0x800) {
@@ -58,6 +59,8 @@ export function encodeUtf8(str: string): Uint8Array {
       } else {
         out.push(0xef, 0xbf, 0xbd)
       }
+    } else if (code >= 0xd800 && code <= 0xdfff) {
+      out.push(0xef, 0xbf, 0xbd)
     } else {
       out.push(0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f))
     }
@@ -65,31 +68,162 @@ export function encodeUtf8(str: string): Uint8Array {
   return new Uint8Array(out)
 }
 
-export function decodeUtf8(bytes: Uint8Array): string {
+function isCont(b: number): boolean {
+  return (b & 0xc0) === 0x80
+}
+
+function decodeUtf8Internal(
+  bytes: Uint8Array,
+  stream: boolean,
+): { text: string; remainder: number[] } {
+  const chunks: string[] = []
   let out = ""
   let i = 0
-  while (i < bytes.length) {
-    const b0 = bytes[i++]
-    if (b0 < 0x80) {
-      out += String.fromCharCode(b0)
-    } else if ((b0 & 0xe0) === 0xc0 && i < bytes.length) {
-      const b1 = bytes[i++] & 0x3f
-      out += String.fromCharCode(((b0 & 0x1f) << 6) | b1)
-    } else if ((b0 & 0xf0) === 0xe0 && i + 1 < bytes.length) {
-      const b1 = bytes[i++] & 0x3f
-      const b2 = bytes[i++] & 0x3f
-      out += String.fromCharCode(((b0 & 0x0f) << 12) | (b1 << 6) | b2)
-    } else if ((b0 & 0xf8) === 0xf0 && i + 2 < bytes.length) {
-      const b1 = bytes[i++] & 0x3f
-      const b2 = bytes[i++] & 0x3f
-      const b3 = bytes[i++] & 0x3f
-      const cp = (((b0 & 0x07) << 18) | (b1 << 12) | (b2 << 6) | b3) - 0x10000
-      out += String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff))
-    } else {
-      out += "\uFFFD"
+  const len = bytes.length
+
+  const pushChar = (ch: string) => {
+    out += ch
+    if (out.length >= 4096) {
+      chunks.push(out)
+      out = ""
     }
   }
-  return out
+
+  while (i < len) {
+    const b0 = bytes[i]
+    if (b0 < 0x80) {
+      pushChar(String.fromCharCode(b0))
+      i++
+      continue
+    }
+
+    // 2-byte sequence: 0xC2..0xDF
+    if (b0 >= 0xc2 && b0 <= 0xdf) {
+      if (i + 1 >= len) {
+        if (stream) {
+          if (out) chunks.push(out)
+          return { text: chunks.join(""), remainder: [b0] }
+        }
+        pushChar("\uFFFD")
+        i++
+        continue
+      }
+      const b1 = bytes[i + 1]
+      if (!isCont(b1)) {
+        pushChar("\uFFFD")
+        i++
+        continue
+      }
+      pushChar(String.fromCharCode(((b0 & 0x1f) << 6) | (b1 & 0x3f)))
+      i += 2
+      continue
+    }
+
+    // 3-byte sequence: 0xE0..0xEF
+    if (b0 >= 0xe0 && b0 <= 0xef) {
+      if (i + 1 >= len) {
+        if (stream) {
+          if (out) chunks.push(out)
+          return { text: chunks.join(""), remainder: [b0] }
+        }
+        pushChar("\uFFFD")
+        i++
+        continue
+      }
+      const b1 = bytes[i + 1]
+      const validB1 =
+        (b0 === 0xe0 ? b1 >= 0xa0 && b1 <= 0xbf : b0 === 0xed ? b1 >= 0x80 && b1 <= 0x9f : isCont(b1))
+      if (!validB1) {
+        pushChar("\uFFFD")
+        i++
+        continue
+      }
+      if (i + 2 >= len) {
+        if (stream) {
+          if (out) chunks.push(out)
+          return { text: chunks.join(""), remainder: [b0, b1] }
+        }
+        pushChar("\uFFFD")
+        i += 2
+        continue
+      }
+      const b2 = bytes[i + 2]
+      if (!isCont(b2)) {
+        pushChar("\uFFFD")
+        i += 2
+        continue
+      }
+      pushChar(String.fromCharCode(((b0 & 0x0f) << 12) | ((b1 & 0x3f) << 6) | (b2 & 0x3f)))
+      i += 3
+      continue
+    }
+
+    // 4-byte sequence: 0xF0..0xF4
+    if (b0 >= 0xf0 && b0 <= 0xf4) {
+      if (i + 1 >= len) {
+        if (stream) {
+          if (out) chunks.push(out)
+          return { text: chunks.join(""), remainder: [b0] }
+        }
+        pushChar("\uFFFD")
+        i++
+        continue
+      }
+      const b1 = bytes[i + 1]
+      const validB1 =
+        b0 === 0xf0 ? b1 >= 0x90 && b1 <= 0xbf : b0 === 0xf4 ? b1 >= 0x80 && b1 <= 0x8f : isCont(b1)
+      if (!validB1) {
+        pushChar("\uFFFD")
+        i++
+        continue
+      }
+      if (i + 2 >= len) {
+        if (stream) {
+          if (out) chunks.push(out)
+          return { text: chunks.join(""), remainder: [b0, b1] }
+        }
+        pushChar("\uFFFD")
+        i += 2
+        continue
+      }
+      const b2 = bytes[i + 2]
+      if (!isCont(b2)) {
+        pushChar("\uFFFD")
+        i += 2
+        continue
+      }
+      if (i + 3 >= len) {
+        if (stream) {
+          if (out) chunks.push(out)
+          return { text: chunks.join(""), remainder: [b0, b1, b2] }
+        }
+        pushChar("\uFFFD")
+        i += 3
+        continue
+      }
+      const b3 = bytes[i + 3]
+      if (!isCont(b3)) {
+        pushChar("\uFFFD")
+        i += 3
+        continue
+      }
+      const cp = (((b0 & 0x07) << 18) | ((b1 & 0x3f) << 12) | ((b2 & 0x3f) << 6) | (b3 & 0x3f)) - 0x10000
+      pushChar(String.fromCharCode(0xd800 + (cp >> 10), 0xdc00 + (cp & 0x3ff)))
+      i += 4
+      continue
+    }
+
+    // Invalid lead/continuation byte
+    pushChar("\uFFFD")
+    i++
+  }
+
+  if (out) chunks.push(out)
+  return { text: chunks.join(""), remainder: [] }
+}
+
+export function decodeUtf8(bytes: Uint8Array): string {
+  return decodeUtf8Internal(bytes, false).text
 }
 
 export class PolyfillTextEncoder {
@@ -101,13 +235,60 @@ export class PolyfillTextEncoder {
 
 export class PolyfillTextDecoder {
   readonly encoding = "utf-8"
-  decode(input?: ArrayBuffer | ArrayBufferView | null): string {
-    if (!input) return ""
-    if (input instanceof Uint8Array) return decodeUtf8(input)
-    if (ArrayBuffer.isView(input)) {
-      return decodeUtf8(new Uint8Array(input.buffer, input.byteOffset, input.byteLength))
+  readonly fatal: boolean
+  readonly ignoreBOM: boolean
+  private pending: number[] = []
+  private sawLeadingBytes = false
+
+  constructor(_label = "utf-8", options?: { fatal?: boolean; ignoreBOM?: boolean }) {
+    this.fatal = Boolean(options?.fatal)
+    this.ignoreBOM = Boolean(options?.ignoreBOM)
+  }
+
+  decode(input?: ArrayBuffer | ArrayBufferView | null, options?: { stream?: boolean }): string {
+    const stream = Boolean(options?.stream)
+    let incoming: Uint8Array
+    if (!input) {
+      incoming = new Uint8Array(0)
+    } else if (input instanceof Uint8Array) {
+      incoming = input
+    } else if (ArrayBuffer.isView(input)) {
+      incoming = new Uint8Array(input.buffer, input.byteOffset, input.byteLength)
+    } else {
+      incoming = new Uint8Array(input)
     }
-    return decodeUtf8(new Uint8Array(input))
+
+    let combined: Uint8Array
+    if (this.pending.length > 0) {
+      combined = new Uint8Array(this.pending.length + incoming.length)
+      combined.set(this.pending, 0)
+      combined.set(incoming, this.pending.length)
+      this.pending = []
+    } else {
+      combined = incoming
+    }
+
+    if (combined.length === 0) {
+      if (!stream) {
+        this.sawLeadingBytes = false
+      }
+      return ""
+    }
+
+    const { text, remainder } = decodeUtf8Internal(combined, stream)
+    this.pending = stream ? remainder : []
+
+    let result = text
+    if (!this.sawLeadingBytes && result.length > 0) {
+      this.sawLeadingBytes = true
+      if (!this.ignoreBOM && result.charCodeAt(0) === 0xfeff) {
+        result = result.slice(1)
+      }
+    }
+    if (!stream) {
+      this.sawLeadingBytes = false
+    }
+    return result
   }
 }
 
@@ -414,10 +595,20 @@ function normalizePathname(raw: string): string {
 export class PolyfillAbortSignal {
   aborted = false
   reason: any = undefined
+  onabort: ((ev?: any) => void) | null = null
   private listeners = new Set<() => void>()
 
-  addEventListener(type: string, listener: () => void): void {
-    if (type === "abort") this.listeners.add(listener)
+  addEventListener(type: string, listener: () => void, options?: { once?: boolean }): void {
+    if (type !== "abort") return
+    if (options?.once) {
+      const wrapped = () => {
+        this.listeners.delete(wrapped)
+        listener()
+      }
+      this.listeners.add(wrapped)
+    } else {
+      this.listeners.add(listener)
+    }
   }
   removeEventListener(type: string, listener: () => void): void {
     if (type === "abort") this.listeners.delete(listener)
@@ -430,11 +621,17 @@ export class PolyfillAbortSignal {
     if (this.aborted) return
     this.aborted = true
     this.reason = reason ?? Object.assign(new Error("Aborted"), { name: "AbortError" })
+    if (typeof this.onabort === "function") {
+      try {
+        this.onabort({ type: "abort", target: this })
+      } catch {}
+    }
     for (const fn of Array.from(this.listeners)) {
       try {
         fn()
       } catch {}
     }
+    this.listeners.clear()
   }
 }
 
@@ -448,8 +645,8 @@ export class PolyfillAbortController {
 export function installPolyfills(target: Record<string, any> = globalThis as any): void {
   target.URL = PolyfillURL
   target.URLSearchParams = PolyfillURLSearchParams
-  if (typeof target.TextEncoder === "undefined") target.TextEncoder = PolyfillTextEncoder
-  if (typeof target.TextDecoder === "undefined") target.TextDecoder = PolyfillTextDecoder
+  target.TextEncoder = PolyfillTextEncoder
+  target.TextDecoder = PolyfillTextDecoder
   if (typeof target.atob === "undefined") target.atob = polyfillAtob
   if (typeof target.btoa === "undefined") target.btoa = polyfillBtoa
   if (typeof target.AbortController === "undefined") target.AbortController = PolyfillAbortController

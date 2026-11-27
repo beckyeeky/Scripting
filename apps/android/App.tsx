@@ -1,18 +1,19 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import {
   ActivityIndicator,
   DeviceEventEmitter,
   NativeModules,
-  SafeAreaView,
-  StatusBar,
+  Pressable,
   StyleSheet,
   Text,
-  TouchableOpacity,
-  useColorScheme,
   View,
 } from "react-native"
 import "./src/scripting/polyfills"
-import { installHostGlobals, setCustomPickFilesHandler, ScriptingFileManager } from "./src/scripting/hostGlobals"
+import {
+  installHostGlobals,
+  ScriptingAppEvents,
+  ScriptingFileManager,
+} from "./src/scripting/hostGlobals"
 
 installHostGlobals()
 
@@ -33,24 +34,18 @@ import {
   resumeMinimizedNovelTranslations,
 } from "../../Pix-Scripting/src/store/novelTranslation"
 import { requestPixivRoute } from "../../Pix-Scripting/src/store/routeNavigation"
-import { loadSettings, onSettingsChanged } from "../../Pix-Scripting/src/store/settings"
-import { RootView } from "../../Pix-Scripting/src/ui/appRoot"
-import { IosConfigImportModal } from "./src/import/IosConfigImportModal"
-import {
-  convertRawIosJsonFileToSyncBundlePath,
-  importIosConfigJson,
-  importIosZipBackup,
-} from "./src/import/iosConfigImporter"
-import { ScriptingDialog, ScriptingAppEvents } from "./src/scripting/hostGlobals"
-import { ensureGlobalBackHandler } from "./src/scripting/navigation"
-import { ScriptingOverlayHost } from "./src/scripting/overlays"
-import { ThemeContext } from "./src/scripting/theme"
+import { AppShell } from "./src/app/navigation/AppShell"
+import { NavProvider } from "./src/app/navigation/NavContext"
+import { parseDeepLinkUrl } from "./src/app/navigation/routeParser"
+import { OverlayProvider, useOverlay } from "./src/app/overlay/OverlayHost"
+import { LoginScreen } from "./src/app/screens/LoginScreen"
+import { ThemeProvider, useAppTheme } from "./src/app/theme/ThemeProvider"
 
 const { PixSystemBridge } = NativeModules
 
 interface RootErrorBoundaryProps {
   isDark: boolean
-  tint: string
+  accent: string
   onOpenImport: () => void
   children: React.ReactNode
 }
@@ -60,7 +55,10 @@ interface RootErrorBoundaryState {
   resetKey: number
 }
 
-class RootErrorBoundary extends React.Component<RootErrorBoundaryProps, RootErrorBoundaryState> {
+class RootErrorBoundary extends React.Component<
+  RootErrorBoundaryProps,
+  RootErrorBoundaryState
+> {
   state: RootErrorBoundaryState = { error: null, resetKey: 0 }
 
   static getDerivedStateFromError(error: Error): Partial<RootErrorBoundaryState> {
@@ -68,118 +66,94 @@ class RootErrorBoundary extends React.Component<RootErrorBoundaryProps, RootErro
   }
 
   componentDidCatch(error: Error) {
-    console.error("RootView render error:", error)
+    console.error("Android Root render error:", error)
   }
 
   render() {
     if (this.state.error) {
-      const { isDark, tint, onOpenImport } = this.props
+      const { isDark, accent, onOpenImport } = this.props
       return (
-        <View style={[styles.splash, { padding: 24, backgroundColor: isDark ? "#000000" : "#F2F2F7" }]}>
-          <Text style={[styles.brand, { fontSize: 22, color: isDark ? "#FFFFFF" : "#111827" }]}>
+        <View
+          style={[
+            styles.splash,
+            { padding: 24, backgroundColor: isDark ? "#000000" : "#F2F2F7" },
+          ]}
+        >
+          <Text
+            style={[
+              styles.brand,
+              { fontSize: 22, color: isDark ? "#FFFFFF" : "#111827" },
+            ]}
+          >
             界面渲染异常
           </Text>
-          <Text style={{ marginTop: 10, fontSize: 13, color: isDark ? "#9CA3AF" : "#4B5563", textAlign: "center" }}>
+          <Text
+            style={{
+              marginTop: 10,
+              fontSize: 13,
+              color: isDark ? "#9CA3AF" : "#4B5563",
+              textAlign: "center",
+            }}
+          >
             {this.state.error?.message || String(this.state.error)}
           </Text>
-          <TouchableOpacity
-            onPress={() => this.setState((prev) => ({ error: null, resetKey: prev.resetKey + 1 }))}
-            style={[styles.importPill, { marginTop: 20, backgroundColor: tint, borderColor: tint }]}
+          <Pressable
+            onPress={() =>
+              this.setState((prev) => ({ error: null, resetKey: prev.resetKey + 1 }))
+            }
+            style={[styles.recoveryBtn, { marginTop: 20, backgroundColor: accent }]}
           >
-            <Text style={{ color: "#FFFFFF", fontSize: 15, fontWeight: "600" }}>重新加载界面</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+            <Text style={styles.recoveryBtnText}>重新加载界面</Text>
+          </Pressable>
+          <Pressable
             onPress={onOpenImport}
             style={[
-              styles.importPill,
+              styles.recoveryBtn,
               {
                 marginTop: 12,
-                backgroundColor: isDark ? "rgba(28,28,30,0.88)" : "rgba(255,255,255,0.92)",
+                backgroundColor: isDark ? "#1C1C1E" : "#FFFFFF",
+                borderWidth: StyleSheet.hairlineWidth,
                 borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.10)",
               },
             ]}
           >
-            <Text style={[styles.importPillText, { color: tint }]}>导入配置 / Token</Text>
-          </TouchableOpacity>
+            <Text style={[styles.recoveryBtnText, { color: accent }]}>
+              导入 iOS 配置 / Token
+            </Text>
+          </Pressable>
         </View>
       )
     }
-    return <React.Fragment key={`root-${this.state.resetKey}`}>{this.props.children}</React.Fragment>
+    return (
+      <React.Fragment key={`root-${this.state.resetKey}`}>
+        {this.props.children}
+      </React.Fragment>
+    )
   }
 }
 
-function parseDeepLinkRoute(rawUrl: string | null | undefined): string | null {
-  if (!rawUrl) return null
-  if (rawUrl.startsWith("pix-scripting://")) {
-    const clean = rawUrl.replace(/^pix-scripting:\/\//, "")
-    return clean.replace(/^route\//, "")
-  }
-  const illustMatch = rawUrl.match(/pixiv\.net\/(?:[a-z]+\/)?artworks\/(\d+)/i)
-  if (illustMatch) return `illust:${illustMatch[1]}`
-  const novelMatch = rawUrl.match(/pixiv\.net\/novel\/show\.php\?id=(\d+)/i)
-  if (novelMatch) return `novel:${novelMatch[1]}`
-  const userMatch = rawUrl.match(/pixiv\.net\/(?:[a-z]+\/)?users\/(\d+)/i)
-  if (userMatch) return `user:${userMatch[1]}`
-  return null
-}
+function AppBootstrapStage({
+  bootstrapped,
+  loggedIn,
+  onLoggedInChanged,
+}: {
+  bootstrapped: boolean
+  loggedIn: boolean
+  onLoggedInChanged: (next: boolean) => void
+}) {
+  const { isDark, accent, colors } = useAppTheme()
+  const overlay = useOverlay()
+  const overlayRef = useRef(overlay)
+  overlayRef.current = overlay
 
-export default function App(): React.JSX.Element {
-  const systemScheme = useColorScheme() === "dark" ? "dark" : "light"
-  const [bootstrapped, setBootstrapped] = useState(false)
-  const [loggedIn, setLoggedIn] = useState(session.isAuthenticated)
-  const [settings, setSettings] = useState(() => loadSettings())
-  const [importModalVisible, setImportModalVisible] = useState(false)
-  const [sharedImportJson, setSharedImportJson] = useState<string | null>(null)
-  const [sharedImportZip, setSharedImportZip] = useState<string | null>(null)
-
+  // Subscribe to Android VIEW / SEND intents cleanly once bootstrapped
   useEffect(() => {
-    ensureGlobalBackHandler()
-
-    // Hook Settings -> "从文件导入同步数据" so raw settings.json / .zip backups also work seamlessly
-    setCustomPickFilesHandler(async () => {
-      const files = await PixSystemBridge?.pickFiles?.(["application/json", "application/zip", "text/plain", "*/*"])
-      const picked = Array.isArray(files) ? files[0] : null
-      if (!picked?.filePath) return []
-      const path = String(picked.filePath)
-      if (path.toLowerCase().endsWith(".zip") || String(picked.name || "").toLowerCase().endsWith(".zip")) {
-        const res = await importIosZipBackup(path)
-        await ScriptingDialog.alert({
-          title: "已导入 iOS 备份包",
-          message: res.message,
-        })
-        return []
-      }
-      return [convertRawIosJsonFileToSyncBundlePath(path)]
-    })
-
-    let translationUID = resolveEffectiveUID()
-    const stopAuth = session.onAuthChanged(() => {
-      setLoggedIn(session.isAuthenticated)
-      const nextUID = resolveEffectiveUID()
-      if (nextUID !== translationUID) {
-        translationUID = nextUID
-        discardNovelTranslationSessions()
-      }
-    })
-    const stopAI = onCustomAIConfigChanged(() => discardNovelTranslationSessions())
-    const stopSettings = onSettingsChanged(() => setSettings(loadSettings()))
-
-    const sceneListener = (phase: "active" | "inactive" | "background") => {
-      if (phase === "background") pauseAllNovelTranslations()
-      else if (phase === "active") {
-        resumeMinimizedNovelTranslations()
-        triggerFullResumeSync()
-        try {
-          DownloadTaskManager.checkPendingSignals()
-        } catch {}
-      }
-    }
-    ScriptingAppEvents.scenePhase.addListener(sceneListener)
+    if (!bootstrapped) return
 
     const handleIncomingIntent = (intent: any) => {
       if (!intent) return
       if (intent.kind === "url" && intent.url) {
-        const route = parseDeepLinkRoute(intent.url)
+        const route = parseDeepLinkUrl(intent.url)
         if (route) {
           seedIfRoute(route)
           requestPixivRoute(route)
@@ -192,23 +166,43 @@ export default function App(): React.JSX.Element {
         if (firstFile?.filePath) {
           const lower = String(firstFile.name || firstFile.filePath).toLowerCase()
           if (lower.endsWith(".zip")) {
-            setSharedImportZip(firstFile.filePath)
-            setImportModalVisible(true)
-          } else if (lower.endsWith(".json") || String(firstFile.mimeType || "").includes("json") || String(firstFile.mimeType || "").startsWith("text/")) {
+            overlayRef.current.openIosImport({
+              initialZipPath: firstFile.filePath,
+              onImported: (msg, authChanged) => {
+                overlayRef.current.showToast(msg, "success")
+                if (authChanged) onLoggedInChanged(session.isAuthenticated)
+              },
+            })
+          } else if (
+            lower.endsWith(".json") ||
+            String(firstFile.mimeType || "").includes("json") ||
+            String(firstFile.mimeType || "").startsWith("text/")
+          ) {
             try {
               const content = ScriptingFileManager.readAsStringSync(firstFile.filePath)
-              setSharedImportJson(content)
-              setImportModalVisible(true)
+              overlayRef.current.openIosImport({
+                initialJsonText: content,
+                onImported: (msg, authChanged) => {
+                  overlayRef.current.showToast(msg, "success")
+                  if (authChanged) onLoggedInChanged(session.isAuthenticated)
+                },
+              })
             } catch {}
           }
         } else if (typeof intent.text === "string" && intent.text.trim()) {
-          const route = parseDeepLinkRoute(intent.text.trim())
+          const text = intent.text.trim()
+          const route = parseDeepLinkUrl(text)
           if (route) {
             seedIfRoute(route)
             requestPixivRoute(route)
-          } else if (intent.text.trim().startsWith("{")) {
-            setSharedImportJson(intent.text.trim())
-            setImportModalVisible(true)
+          } else if (text.startsWith("{")) {
+            overlayRef.current.openIosImport({
+              initialJsonText: text,
+              onImported: (msg, authChanged) => {
+                overlayRef.current.showToast(msg, "success")
+                if (authChanged) onLoggedInChanged(session.isAuthenticated)
+              },
+            })
           }
         }
         void PixSystemBridge?.clearIntent?.()
@@ -216,129 +210,133 @@ export default function App(): React.JSX.Element {
     }
 
     const intentSub = DeviceEventEmitter.addListener("PixIntentEvent", handleIncomingIntent)
+    void Promise.resolve(PixSystemBridge?.getInitialIntent?.())
+      .then(handleIncomingIntent)
+      .catch(() => {})
+
+    return () => {
+      intentSub.remove()
+    }
+  }, [bootstrapped, onLoggedInChanged])
+
+  if (!bootstrapped) {
+    return (
+      <View style={[styles.splash, { backgroundColor: colors.bg }]}>
+        <Text style={[styles.brand, { color: colors.text }]}>Pix-Scripting</Text>
+        <ActivityIndicator size="large" color={accent} style={{ marginTop: 18 }} />
+      </View>
+    )
+  }
+
+  return (
+    <RootErrorBoundary
+      isDark={isDark}
+      accent={accent}
+      onOpenImport={() =>
+        overlay.openIosImport({
+          onImported: (msg, authChanged) => {
+            overlay.showToast(msg, "success")
+            if (authChanged) onLoggedInChanged(session.isAuthenticated)
+          },
+        })
+      }
+    >
+      {loggedIn ? (
+        <AppShell />
+      ) : (
+        <LoginScreen onSuccess={() => onLoggedInChanged(session.isAuthenticated)} />
+      )}
+    </RootErrorBoundary>
+  )
+}
+
+export default function App(): React.JSX.Element {
+  const [bootstrapped, setBootstrapped] = useState(false)
+  const [loggedIn, setLoggedIn] = useState(session.isAuthenticated)
+  const dismissOverlayRef = useRef<() => boolean>(() => false)
+
+  useEffect(() => {
+    let translationUID = resolveEffectiveUID()
+
+    const stopAuth = session.onAuthChanged(() => {
+      setLoggedIn(session.isAuthenticated)
+      const nextUID = resolveEffectiveUID()
+      if (nextUID !== translationUID) {
+        translationUID = nextUID
+        discardNovelTranslationSessions()
+      }
+    })
+    const stopAI = onCustomAIConfigChanged(() => discardNovelTranslationSessions())
+
+    const sceneListener = (phase: "active" | "inactive" | "background") => {
+      if (phase === "background") {
+        pauseAllNovelTranslations()
+      } else if (phase === "active") {
+        resumeMinimizedNovelTranslations()
+        triggerFullResumeSync()
+        try {
+          DownloadTaskManager.checkPendingSignals()
+        } catch {}
+      }
+    }
+    ScriptingAppEvents.scenePhase.addListener(sceneListener)
 
     void (async () => {
       await bootstrapStorage()
       startBackgroundServices()
-      setSettings(loadSettings())
       setLoggedIn(session.isAuthenticated)
       setBootstrapped(true)
-      const initial = await PixSystemBridge?.getInitialIntent?.()
-      handleIncomingIntent(initial)
     })()
 
     return () => {
-      setCustomPickFilesHandler(null)
       stopAuth()
       stopAI()
-      stopSettings()
       ScriptingAppEvents.scenePhase.removeListener(sceneListener)
-      intentSub.remove()
       cleanupAppResources()
     }
   }, [])
 
-  const isDark =
-    settings.colorScheme === "dark"
-      ? true
-      : settings.colorScheme === "light"
-        ? false
-        : systemScheme === "dark"
-
-  const tint =
-    settings.glassCustomTintEnabled && settings.glassTintColor
-      ? settings.glassTintColor
-      : isDark
-        ? "#0A84FF"
-        : "#007AFF"
-
   return (
-    <ThemeContext.Provider value={{ isDark, tint, colors: {} }}>
-      <SafeAreaView style={[styles.root, { backgroundColor: isDark ? "#000000" : "#F2F2F7" }]}>
-        <StatusBar barStyle={isDark ? "light-content" : "dark-content"} />
-        {!bootstrapped ? (
-          <View style={styles.splash}>
-            <Text style={[styles.brand, { color: isDark ? "#FFFFFF" : "#111827" }]}>Pix-Scripting</Text>
-            <ActivityIndicator size="large" color={tint} style={{ marginTop: 18 }} />
-          </View>
-        ) : (
-          <View style={styles.root}>
-            <RootErrorBoundary
-              isDark={isDark}
-              tint={tint}
-              onOpenImport={() => setImportModalVisible(true)}
-            >
-              <RootView />
-            </RootErrorBoundary>
-            {!loggedIn ? (
-              <View style={styles.importPillWrap} pointerEvents="box-none">
-                <TouchableOpacity
-                  activeOpacity={0.8}
-                  onPress={() => setImportModalVisible(true)}
-                  style={[
-                    styles.importPill,
-                    {
-                      backgroundColor: isDark ? "rgba(28,28,30,0.88)" : "rgba(255,255,255,0.92)",
-                      borderColor: isDark ? "rgba(255,255,255,0.16)" : "rgba(0,0,0,0.10)",
-                    },
-                  ]}
-                >
-                  <Text style={[styles.importPillText, { color: tint }]}>导入 iOS 配置 / Token</Text>
-                </TouchableOpacity>
-              </View>
-            ) : null}
-          </View>
-        )}
-
-        <ScriptingOverlayHost />
-
-        <IosConfigImportModal
-          visible={importModalVisible}
-          initialJsonText={sharedImportJson}
-          initialZipPath={sharedImportZip}
-          onClose={() => {
-            setImportModalVisible(false)
-            setSharedImportJson(null)
-            setSharedImportZip(null)
+    <ThemeProvider>
+      <NavProvider
+        isLoggedIn={loggedIn}
+        dismissTopOverlay={() => dismissOverlayRef.current()}
+      >
+        <OverlayProvider
+          registerDismissHandler={(fn) => {
+            dismissOverlayRef.current = fn
           }}
-          onImported={async (msg, authChanged) => {
-            setSettings(loadSettings())
-            const hadSharedPayload = Boolean(sharedImportJson || sharedImportZip)
-            if (authChanged) {
-              setLoggedIn(session.isAuthenticated)
-              setImportModalVisible(false)
-              setSharedImportJson(null)
-              setSharedImportZip(null)
-            } else if (hadSharedPayload) {
-              setImportModalVisible(false)
-              setSharedImportJson(null)
-              setSharedImportZip(null)
-              await ScriptingDialog.alert({ title: "导入成功", message: msg })
-            }
-          }}
-        />
-      </SafeAreaView>
-    </ThemeContext.Provider>
+        >
+          <AppBootstrapStage
+            bootstrapped={bootstrapped}
+            loggedIn={loggedIn}
+            onLoggedInChanged={setLoggedIn}
+          />
+        </OverlayProvider>
+      </NavProvider>
+    </ThemeProvider>
   )
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
-  splash: { flex: 1, alignItems: "center", justifyContent: "center" },
-  brand: { fontSize: 32, fontWeight: "800", letterSpacing: 0.4 },
-  importPillWrap: {
-    position: "absolute",
-    bottom: 26,
-    left: 0,
-    right: 0,
+  splash: {
+    flex: 1,
     alignItems: "center",
+    justifyContent: "center",
   },
-  importPill: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+  brand: {
+    fontSize: 32,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+  },
+  recoveryBtn: {
+    paddingHorizontal: 22,
+    paddingVertical: 12,
     borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    elevation: 4,
   },
-  importPillText: { fontSize: 14, fontWeight: "600" },
+  recoveryBtnText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
+  },
 })

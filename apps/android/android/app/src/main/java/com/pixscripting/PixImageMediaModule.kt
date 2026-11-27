@@ -11,6 +11,7 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
@@ -23,7 +24,6 @@ import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
-import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.bridge.WritableMap
 import org.json.JSONArray
 import java.io.ByteArrayOutputStream
@@ -43,16 +43,75 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
 
   override fun getName(): String = "PixImageMedia"
 
+  private fun normalizeFilePath(raw: String): String {
+    if (raw.startsWith("file://", ignoreCase = true)) {
+      return runCatching { Uri.parse(raw).path }.getOrNull()
+        ?: raw.removePrefix("file://").removePrefix("FILE://")
+    }
+    return raw
+  }
+
   @ReactMethod(isBlockingSynchronousMethod = true)
-  fun imageBoundsSync(path: String): WritableMap? {
-    val f = File(path)
-    if (!f.exists() || !f.isFile) return null
+  fun imageBoundsSync(path: String): WritableMap? = runCatching {
+    val cleanPath = normalizeFilePath(path)
+    val f = File(cleanPath)
+    if (!f.exists() || !f.isFile) return@runCatching null
     val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(path, opts)
-    if (opts.outWidth <= 0 || opts.outHeight <= 0) return null
-    return Arguments.createMap().apply {
+    BitmapFactory.decodeFile(cleanPath, opts)
+    if (opts.outWidth <= 0 || opts.outHeight <= 0) return@runCatching null
+    Arguments.createMap().apply {
       putInt("width", opts.outWidth)
       putInt("height", opts.outHeight)
+    }
+  }.getOrNull()
+
+  @ReactMethod(isBlockingSynchronousMethod = true)
+  fun encodeImageToBase64Sync(path: String, format: String, quality: Int, maxDim: Int): String? {
+    var bmp: Bitmap? = null
+    var scaled: Bitmap? = null
+    return try {
+      val cleanPath = normalizeFilePath(path)
+      val f = File(cleanPath)
+      if (!f.exists() || !f.isFile) return null
+
+      val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+      BitmapFactory.decodeFile(cleanPath, bounds)
+      if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+      var sampleSize = 1
+      if (maxDim > 0) {
+        while (bounds.outWidth / (sampleSize * 2) >= maxDim && bounds.outHeight / (sampleSize * 2) >= maxDim) {
+          sampleSize *= 2
+        }
+      }
+      val decodeOpts = BitmapFactory.Options().apply {
+        inSampleSize = sampleSize
+        inPreferredConfig = Bitmap.Config.ARGB_8888
+      }
+      bmp = BitmapFactory.decodeFile(cleanPath, decodeOpts) ?: return null
+      val target = if (maxDim > 0 && max(bmp.width, bmp.height) > maxDim) {
+        val ratio = maxDim.toFloat() / max(bmp.width, bmp.height).toFloat()
+        val tw = max(1, (bmp.width * ratio).roundToInt())
+        val th = max(1, (bmp.height * ratio).roundToInt())
+        scaled = Bitmap.createScaledBitmap(bmp, tw, th, true)
+        scaled
+      } else {
+        bmp
+      }
+
+      val compressFmt = if (format.equals("png", ignoreCase = true)) {
+        Bitmap.CompressFormat.PNG
+      } else {
+        Bitmap.CompressFormat.JPEG
+      }
+      val out = ByteArrayOutputStream()
+      target.compress(compressFmt, quality.coerceIn(10, 100), out)
+      Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+    } catch (_: Exception) {
+      null
+    } finally {
+      if (scaled != null && scaled !== bmp) runCatching { scaled.recycle() }
+      runCatching { bmp?.recycle() }
     }
   }
 
@@ -64,13 +123,14 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
     cropW: Int,
     cropH: Int,
     dominantCount: Int,
-  ): WritableMap? {
-    val f = File(path)
-    if (!f.exists() || !f.isFile) return null
+  ): WritableMap? = runCatching {
+    val cleanPath = normalizeFilePath(path)
+    val f = File(cleanPath)
+    if (!f.exists() || !f.isFile) return@runCatching null
 
     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(path, bounds)
-    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    BitmapFactory.decodeFile(cleanPath, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
 
     var sampleSize = 1
     while (bounds.outWidth / sampleSize > 128 && bounds.outHeight / sampleSize > 128) {
@@ -80,9 +140,9 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
       inSampleSize = sampleSize
       inPreferredConfig = Bitmap.Config.ARGB_8888
     }
-    val bmp = BitmapFactory.decodeFile(path, decodeOpts) ?: return null
+    val bmp = BitmapFactory.decodeFile(cleanPath, decodeOpts) ?: return@runCatching null
 
-    return try {
+    try {
       val scaleX = bmp.width.toFloat() / bounds.outWidth.toFloat()
       val scaleY = bmp.height.toFloat() / bounds.outHeight.toFloat()
 
@@ -108,7 +168,6 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
         sumR += r
         sumG += g
         sumB += b
-        // 4-bit per channel bucket (4096 bins) for dominant color extraction
         val key = ((r ushr 4) shl 8) or ((g ushr 4) shl 4) or (b ushr 4)
         val acc = buckets.getOrPut(key) { LongArray(4) }
         acc[0] += r.toLong()
@@ -148,15 +207,16 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
     } finally {
       bmp.recycle()
     }
-  }
+  }.getOrNull()
 
   @ReactMethod
   fun saveMediaToGallery(filePath: String, mediaType: String, albumName: String, promise: Promise) {
     workerPool.execute {
       try {
-        val src = File(filePath)
+        val cleanPath = normalizeFilePath(filePath)
+        val src = File(cleanPath)
         require(src.exists() && src.isFile) { "Media file does not exist" }
-        val isVideo = mediaType == "video" || filePath.endsWith(".mp4", ignoreCase = true)
+        val isVideo = mediaType == "video" || cleanPath.endsWith(".mp4", ignoreCase = true)
         val ext = src.extension.lowercase().ifEmpty { if (isVideo) "mp4" else "jpg" }
         val mime = when (ext) {
           "png" -> "image/png"
@@ -226,7 +286,8 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
     workerPool.execute {
       var mutableBmp: Bitmap? = null
       try {
-        val rawBmp = BitmapFactory.decodeFile(filePath) ?: error("Cannot decode image")
+        val cleanPath = normalizeFilePath(filePath)
+        val rawBmp = BitmapFactory.decodeFile(cleanPath) ?: error("Cannot decode image")
         mutableBmp = rawBmp.copy(Bitmap.Config.ARGB_8888, true)
         if (rawBmp !== mutableBmp) rawBmp.recycle()
 
@@ -335,6 +396,7 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
       var codec: MediaCodec? = null
       var muxer: MediaMuxer? = null
       var muxerStarted = false
+      var tmpOut: File? = null
       try {
         val frames = JSONArray(framesJson)
         require(frames.length() > 0) { "Empty frames" }
@@ -347,7 +409,7 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
 
         val outFile = File(outputPath)
         outFile.parentFile?.mkdirs()
-        val tmpOut = File(outFile.parentFile, ".tmp-${outFile.name}")
+        tmpOut = File(outFile.parentFile, ".tmp-${outFile.name}-${System.nanoTime()}")
         if (tmpOut.exists()) tmpOut.delete()
 
         val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
@@ -368,19 +430,26 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
 
         fun drainEncoder(waitForEos: Boolean) {
           val timeoutUs = if (waitForEos) 10_000L else 0L
+          var emptyPolls = 0
+          val maxEmptyPolls = if (waitForEos) 400 else 1 // ~4s max wait for EOS
           while (!outputDone) {
             val outIndex = codec!!.dequeueOutputBuffer(bufferInfo, timeoutUs)
             when {
               outIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
                 if (!waitForEos) break
+                if (++emptyPolls >= maxEmptyPolls) {
+                  error("MP4 encoder timed out waiting for EOS")
+                }
               }
               outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+                emptyPolls = 0
                 check(!muxerStarted)
                 trackIndex = muxer!!.addTrack(codec!!.outputFormat)
                 muxer!!.start()
                 muxerStarted = true
               }
               outIndex >= 0 -> {
+                emptyPolls = 0
                 val encodedData = codec!!.getOutputBuffer(outIndex)
                 if (encodedData != null && (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0 && bufferInfo.size > 0 && muxerStarted) {
                   encodedData.position(bufferInfo.offset)
@@ -397,12 +466,16 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
           }
         }
 
+        val yuvFrameBytes = width * height * 3 / 2
+
         fun queueYuvFrame(argb: IntArray, bmpW: Int, bmpH: Int, ptsUs: Long) {
-          while (true) {
+          var attempts = 0
+          while (attempts < 400) {
             val inIndex = codec!!.dequeueInputBuffer(10_000)
             if (inIndex >= 0) {
-              val img = codec!!.getInputImage(inIndex)
-              val buf = codec!!.getInputBuffer(inIndex)!!
+              val img = runCatching { codec!!.getInputImage(inIndex) }.getOrNull()
+              val buf = codec!!.getInputBuffer(inIndex) ?: error("Encoder input buffer unavailable")
+              val queuedSize: Int
               if (img != null && img.planes.size >= 3) {
                 val yPlane = img.planes[0]
                 val uPlane = img.planes[1]
@@ -435,13 +508,38 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
                     }
                   }
                 }
+                queuedSize = min(buf.capacity(), max(yuvFrameBytes, buf.limit()))
+              } else {
+                // Fallback when encoder does not expose Image planes: pack NV12 (YUV420SemiPlanar) directly
+                buf.clear()
+                val ySize = width * height
+                val outArr = ByteArray(yuvFrameBytes)
+                var uvIndex = ySize
+                for (row in 0 until height) {
+                  for (col in 0 until width) {
+                    val px = if (col < bmpW && row < bmpH) argb[row * bmpW + col] else Color.BLACK
+                    val r = (px ushr 16) and 0xFF
+                    val g = (px ushr 8) and 0xFF
+                    val b = px and 0xFF
+                    outArr[row * width + col] = (((66 * r + 129 * g + 25 * b + 128) shr 8) + 16).coerceIn(0, 255).toByte()
+                    if ((row and 1) == 0 && (col and 1) == 0 && uvIndex + 1 < outArr.size) {
+                      outArr[uvIndex++] = (((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128).coerceIn(0, 255).toByte()
+                      outArr[uvIndex++] = (((112 * r - 94 * g - 18 * b + 128) shr 8) + 128).coerceIn(0, 255).toByte()
+                    }
+                  }
+                }
+                val copyLen = min(buf.capacity(), outArr.size)
+                buf.put(outArr, 0, copyLen)
+                queuedSize = copyLen
               }
-              codec!!.queueInputBuffer(inIndex, 0, buf.capacity(), ptsUs, 0)
+              codec!!.queueInputBuffer(inIndex, 0, queuedSize, ptsUs, 0)
               drainEncoder(false)
-              break
+              return
             }
+            attempts++
             drainEncoder(false)
           }
+          error("MP4 encoder timed out waiting for input buffer")
         }
 
         var ptsUs = 0L
@@ -468,19 +566,23 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
         if (lastArgb != null) {
           queueYuvFrame(lastArgb, lastBmpW, lastBmpH, ptsUs)
         }
-        while (true) {
+        var eosQueued = false
+        for (attempt in 0 until 400) {
           val eosIdx = codec!!.dequeueInputBuffer(10_000)
           if (eosIdx >= 0) {
             codec!!.queueInputBuffer(eosIdx, 0, 0, ptsUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+            eosQueued = true
             break
           }
           drainEncoder(false)
         }
+        if (!eosQueued) error("MP4 encoder timed out queuing EOS")
         drainEncoder(true)
         codec.stop()
         codec.release()
         codec = null
         if (muxerStarted) muxer.stop()
+        muxerStarted = false
         muxer.release()
         muxer = null
 
@@ -489,8 +591,10 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
           tmpOut.copyTo(outFile, overwrite = true)
           tmpOut.delete()
         }
+        tmpOut = null
         promise.resolve(outFile.exists() && outFile.length() > 0)
       } catch (e: Exception) {
+        runCatching { tmpOut?.delete() }
         promise.reject("E_UGOIRA_MP4", e.message ?: "MP4 export failed", e)
       } finally {
         runCatching { codec?.stop() }
@@ -504,12 +608,13 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
   @ReactMethod
   fun encodeUgoiraGif(framesDir: String, framesJson: String, outputPath: String, promise: Promise) {
     workerPool.execute {
+      var tmpOut: File? = null
       try {
         val frames = JSONArray(framesJson)
         require(frames.length() > 0) { "Empty frames" }
         val outFile = File(outputPath)
         outFile.parentFile?.mkdirs()
-        val tmpOut = File(outFile.parentFile, ".tmp-${outFile.name}")
+        tmpOut = File(outFile.parentFile, ".tmp-${outFile.name}-${System.nanoTime()}")
 
         val firstBmp = BitmapFactory.decodeFile(File(framesDir, frames.getJSONObject(0).getString("file")).absolutePath)
           ?: error("Cannot decode first frame")
@@ -546,8 +651,10 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
           tmpOut.copyTo(outFile, overwrite = true)
           tmpOut.delete()
         }
+        tmpOut = null
         promise.resolve(outFile.exists() && outFile.length() > 0)
       } catch (e: Exception) {
+        runCatching { tmpOut?.delete() }
         promise.reject("E_UGOIRA_GIF", e.message ?: "GIF export failed", e)
       }
     }
@@ -590,15 +697,14 @@ private class SimpleGifEncoder(
     out.write("GIF89a".toByteArray(Charsets.US_ASCII))
     writeShort(width)
     writeShort(height)
-    out.write(0xF7) // Global Color Table flag (1), color res (7), sort (0), GCT size 2^(7+1)=256
-    out.write(0)    // Background color index
-    out.write(0)    // Pixel aspect ratio
+    out.write(0xF7)
+    out.write(0)
+    out.write(0)
     for (c in palette) {
       out.write((c ushr 16) and 0xFF)
       out.write((c ushr 8) and 0xFF)
       out.write(c and 0xFF)
     }
-    // NETSCAPE2.0 infinite loop application extension
     out.write(0x21)
     out.write(0xFF)
     out.write(11)
@@ -619,22 +725,20 @@ private class SimpleGifEncoder(
       indexed[i] = ((r * 42) + (g * 6) + b).toByte()
     }
 
-    // Graphic Control Extension
     out.write(0x21)
     out.write(0xF9)
     out.write(4)
-    out.write(0x04) // dispose: do not dispose
+    out.write(0x04)
     writeShort(max(2, delayMs / 10))
     out.write(0)
     out.write(0)
 
-    // Image Descriptor
     out.write(0x2C)
     writeShort(0)
     writeShort(0)
     writeShort(width)
     writeShort(height)
-    out.write(0) // no local color table
+    out.write(0)
 
     writeLzwPixels(8)
   }

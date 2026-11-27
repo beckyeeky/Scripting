@@ -1,14 +1,15 @@
 # Pix-Scripting Android
 
-Android 版从 `feat/android-app` 分支构建，基于 React Native `0.76.7` + Hermes + Kotlin 原生桥接，直接复用 `Pix-Scripting/src/` 全部业务逻辑、小说排版/翻译引擎与液态玻璃布局结构。
+Android 版从 `feat/android-app` 分支构建，基于 React Native `0.76.7` + Hermes + `@shopify/flash-list` + Kotlin 原生桥接：采用专为 Android 打造的原生 React Native 界面层（`apps/android/src/app/`），同时通过无头 `"scripting"` 宿主运行时（`apps/android/src/scripting/`）零修改直接复用 `Pix-Scripting/src/` 全部核心业务逻辑、小说行内标记/翻译台账、导出器与跨设备同步协议。
 
 ## 功能与特性
 
-- **完整客户端能力**：PKCE 安全登录与 Cookie 提取、探索/排行/关注/搜索/动态/用户主页、插画多页原图与缩放、Ugoira 动图逐帧播放与原生 MP4/GIF 导出、Pixivision 特辑、小说横向/纵向文库本阅读（注音/着重号/标点悬挂/译文原位替换）、AI 摘要/术语表/正文翻译、Manga OCR 汉化渲染、CBZ/EPUB 导出及离线书库。
+- **Android 原生体验**：Edge-to-Edge 全面屏 insets 实时同步（含软键盘 `imeBottom`）、深浅主题与自定义强调色、5 Tab 独立导航栈与单根硬件返回键协调、单一根级 `OverlayHost`（零 RN `<Modal>` 叠层冲突）、`MasonryFlashList`/`FlashList` 虚拟化瀑布流与 URL 键控 `PixImage`。
+- **完整客户端能力**：PKCE 安全登录与 Cookie 提取、探索（推荐/最新/Pixivision 特辑）、排行（自定义榜单与历史日期榜）、关注（动态/追更/好P友）、搜索（ID/链接直达、联想、高级布尔筛选）、画师主页/系列/标签页、多页插画与双指缩放浏览、Ugoira 动图逐帧播放与原生 MP4/GIF 导出、Manga OCR 汉化渲染、小说横排/竖排文库本 `PixWebView` 阅读（注音/着重号/标点悬挂/AI 摘要术语与原位译文/目录检索/离线书库）、CBZ/EPUB/TXT 导出、自定义 AI 与 Grok OAuth、SauceNAO 以图搜图及下载管理。
 - **原 iOS 版配置导入**：
   - 支持直接从「设置 → 跨设备同步 → 从文件/剪贴板导入同步数据」导入 `Pix-Scripting-Sync-*.json`。
-  - 登录前即可通过底部「导入 iOS 配置 / Token」按钮或 Android 系统「分享」导入 `Pix-Scripting-Sync-*.json`、iCloud 目录原始 `settings.json` / `novel_reader_settings.json` / `blocklist.json`、`CustomAIProfile` JSON、或整包 `Pix-Scripting.zip` 备份，并支持直接使用 Pixiv Refresh Token 登录。
-- **安全存储与签名**：登录令牌与 AI/SauceNAO 密钥通过 Android Keystore `AES/GCM/NoPadding` 加密持久化；预览发布包使用固定证书（包名 `com.pixscripting.preview`）签发，支持 Obtainium 覆盖升级。
+  - 登录前即可通过「导入 iOS 配置 / Token」或 Android 系统「分享」导入 `Pix-Scripting-Sync-*.json`、iCloud 目录原始 `settings.json` / `NovelReader/settings.json` / `novel_reader_settings.json` / `blocklist.json`、`CustomAIProfile` JSON、或整包 `Pix-Scripting.zip` 备份（含 `NovelTranslations` / `NovelOffline`），导入后立即刷新内存缓存，并支持直接使用 Pixiv Refresh Token 登录。
+- **安全存储与签名**：登录令牌与 AI/SauceNAO 密钥通过 Android Keystore `AES/GCM/NoPadding` 加密持久化（含密钥失效自愈）；预览发布包使用固定证书（包名 `com.pixscripting.preview`）签发，支持 Obtainium 覆盖升级。
 
 ## 构建测试 APK（Debug）
 

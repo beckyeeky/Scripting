@@ -1,6 +1,17 @@
 # 项目交接
 
-## 当前进度：Android 完整移植预览版 v1.8.14.4-alpha.2（2026-11-26，分支 `feat/android-app`）
+## 当前进度：Android 原生 RN 界面架构重构 v1.8.14.4-alpha.3（2026-11-27，分支 `feat/android-app`，待全量门禁与发布）
+
+- **架构重构（参见 `docs/decisions.md` D016）**：
+  - 将 `apps/android/` 从 SwiftUI-in-RN 映射壳全面重构为 Android 原生 React Native 界面层 `apps/android/src/app/`，保留无头 `apps/android/src/scripting/` 宿主运行时，零改动 `Pix-Scripting/`、`Release/Pix-Scripting.scripting` 及既有桌面启动图标。
+  - **基础外壳与系统适配**：`src/app/theme/{insets.ts,colors.ts,ThemeProvider.tsx}`（Edge-to-Edge `PixInsetsChanged` + `effectiveBottomInset(insets) = bottom + imeBottom` + 状态栏极性）、`src/app/navigation/{types.ts,routeParser.ts,NavContext.tsx,AppShell.tsx}`（5 Tab 独立栈与单根 `BackHandler`）、`src/app/overlay/{OverlayHost.tsx,BookmarkDetailSheet.tsx,CommentsSheet.tsx,BlockWorkSheet.tsx}`（单一根级弹层宿主，全量零 RN `<Modal>` / `<SafeAreaView>`）、`src/app/components/`（URL 键控 `PixImage`、`MasonryFlashList` / `FlashList` 瀑布流与列表、`usePixivFeed`）、`src/app/screens/{LoginScreen.tsx,LoginNetworkSheet.tsx}` 与 `App.tsx`。
+  - **全功能原生业务页面**：`features/feeds/`（探索/排行/历史榜/关注/追更/搜索/高级搜索）、`features/media/`（插画详情/双指缩放图库/Ugoira 播放与导出/Manga OCR/画师/特辑/系列/标签）、`features/novel/`（小说详情/横竖排文库本 `PixNativeWebView` 阅读器/翻译与离线书库/EPUB 与 TXT 导出）、`features/account/`（我的/多账号/收藏/历史统计/下载管理/设置/AI 与 Grok OAuth/屏蔽/SauceNAO）。
+  - **Kotlin 原生桥接与无头运行时加固**：Edge-to-Edge Insets、`FORCE_DARK_OFF` + 命令式 `evaluateJS` + `onRenderProcessGone`、PKCE OAuth 回调拦截（含自定义反代）与异步 Cookie 清理、`gzip`/`deflate` + RFC 7578 `FormData` + 无竞态 SSE + 多字节 UTF-8 流式解码、Android Keystore 密钥失效自愈、目录级 `hotTextCache` 失效、iOS `.zip`/JSON 导入后即时内存缓存刷新与 `file://` 分享规范化。
+  - **版本与文档**：`apps/android/version.properties` 升级至 `versionName=1.8.14.4-alpha.3`（`versionCode=3`），新增 `docs/releases/android-1.8.14.4-alpha.3.md`，同步更新 `apps/android/README.md`、`docs/architecture.md`、`docs/decisions.md`。
+  - **测试覆盖**：新增 `apps/android/tests/{android-app-shell,android-novel-html,native-runtime-hardening}.test.cjs`，包含 25 个 Android 原生核心页面渲染烟测与无 `<Modal>` / `<SafeAreaView>` 静态约束扫描。
+  - **待完成验证与发布**：等待全量桌面回归（`npm test`、`syntax-check`、`typecheck`、全部 Android 单元测试、`bundle:check`、`:app:assembleDebug`、`build-preview.sh` 签名与 APK 校验）以及 Android 真机覆盖安装验收。
+
+## 上一预览版：Android 完整移植预览版 v1.8.14.4-alpha.2（2026-11-26，分支 `feat/android-app`）
 
 - **v1.8.14.4-alpha.2 白屏修复（2026-11-26）**：
   - 针对实机导入 iOS 配置与 Token 登录后出现白屏完成全链路排查与修复：

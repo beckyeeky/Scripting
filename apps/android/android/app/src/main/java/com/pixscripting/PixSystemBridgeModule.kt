@@ -15,9 +15,13 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.view.Gravity
+import android.view.KeyEvent
+import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -27,6 +31,10 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.BaseActivityEventListener
 import com.facebook.react.bridge.Promise
@@ -35,18 +43,24 @@ import com.facebook.react.bridge.ReactContextBaseJavaModule
 import com.facebook.react.bridge.ReactMethod
 import com.facebook.react.bridge.ReadableArray
 import com.facebook.react.bridge.ReadableMap
+import com.facebook.react.bridge.WritableMap
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.File
+import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 
 private const val REQ_PICK_IMAGES = 9101
 private const val REQ_PICK_FILES = 9102
 private const val REQ_PICK_DIR = 9103
 private const val DOWNLOAD_CHANNEL_ID = "pix_scripting_downloads"
+private const val PIXIV_OAUTH_CALLBACK_PATH = "/web/v1/users/auth/pixiv/callback"
 
 class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
   ReactContextBaseJavaModule(reactContext) {
 
+  private val ioPool = Executors.newFixedThreadPool(2)
   private var pendingPickerPromise: Promise? = null
   private var pendingPickerMode: Int = 0
   private var activeAuthDialog: Dialog? = null
@@ -88,24 +102,70 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
           for (i in 0 until clip.itemCount) clip.getItemAt(i).uri?.let { uris.add(it) }
         }
 
-        val results = Arguments.createArray()
-        for (uri in uris) {
-          val staged = PixIntentHolder.stageContentUri(reactContext, uri)
-          if (staged != null) {
-            results.pushMap(Arguments.createMap().apply {
-              putString("filePath", staged.filePath)
-              putString("name", staged.name)
-              putString("mimeType", staged.mimeType)
-              putDouble("size", staged.size.toDouble())
-            })
+        ioPool.execute {
+          try {
+            val results = Arguments.createArray()
+            for (uri in uris) {
+              val staged = PixIntentHolder.stageContentUri(reactContext, uri)
+              if (staged != null) {
+                results.pushMap(Arguments.createMap().apply {
+                  putString("filePath", staged.filePath)
+                  putString("name", staged.name)
+                  putString("mimeType", staged.mimeType)
+                  putDouble("size", staged.size.toDouble())
+                })
+              }
+            }
+            promise.resolve(results)
+          } catch (e: Exception) {
+            promise.reject("E_PICKER_STAGE", e.message ?: "读取所选文件失败", e)
           }
         }
-        promise.resolve(results)
       }
     })
   }
 
   override fun getName(): String = "PixSystemBridge"
+
+  override fun invalidate() {
+    super.invalidate()
+    val dialog = activeAuthDialog
+    activeAuthDialog = null
+    val webViews = headlessWebViews.values.toList()
+    headlessWebViews.clear()
+    reactContext.runOnUiQueueThread {
+      runCatching { dialog?.dismiss() }
+      for (wv in webViews) {
+        runCatching {
+          wv.stopLoading()
+          (wv.parent as? ViewGroup)?.removeView(wv)
+          wv.destroy()
+        }
+      }
+    }
+  }
+
+  // ---------- Edge-to-Edge Window Insets & System Bars ----------
+  @ReactMethod(isBlockingSynchronousMethod = true)
+  fun getWindowInsetsSync(): WritableMap {
+    val activity = currentActivity
+    if (activity == null) {
+      PixWindowInsetsHolder.seedFallbackIfNeeded(reactContext)
+    }
+    val snapshot = PixWindowInsetsHolder.readLiveFromActivity(activity)
+    return PixWindowInsetsHolder.toWritableMap(snapshot)
+  }
+
+  @ReactMethod
+  fun setSystemBarStyle(isDark: Boolean) {
+    val activity = currentActivity ?: return
+    activity.runOnUiThread {
+      runCatching {
+        PixWindowInsetsHolder.applyEdgeToEdge(activity, isDark, persistStyle = true)
+        activity.window?.decorView?.let { ViewCompat.requestApplyInsets(it) }
+      }
+    }
+  }
 
   @ReactMethod
   fun getInitialIntent(promise: Promise) {
@@ -184,6 +244,14 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
+  private fun normalizeFilePath(raw: String): String {
+    if (raw.startsWith("file://", ignoreCase = true)) {
+      return runCatching { Uri.parse(raw).path }.getOrNull()
+        ?: raw.removePrefix("file://").removePrefix("FILE://")
+    }
+    return raw
+  }
+
   @ReactMethod
   fun shareItems(items: ReadableArray, promise: Promise) {
     val activity = currentActivity
@@ -198,7 +266,8 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
 
       for (i in 0 until items.size()) {
         val raw = items.getString(i) ?: continue
-        val f = File(raw)
+        val normalized = normalizeFilePath(raw)
+        val f = File(normalized)
         if (f.exists() && f.isFile) {
           val shareFile = ensureShareableFile(f)
           uris.add(FileProvider.getUriForFile(reactContext, authority, shareFile))
@@ -212,6 +281,9 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
           type = "*/*"
           putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
           if (texts.isNotEmpty()) putExtra(Intent.EXTRA_TEXT, texts.joinToString("\n"))
+          val clip = ClipData.newRawUri("Pix-Scripting", uris[0])
+          for (idx in 1 until uris.size) clip.addItem(ClipData.Item(uris[idx]))
+          clipData = clip
           addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
       } else if (uris.size == 1) {
@@ -221,6 +293,7 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
           type = mime
           putExtra(Intent.EXTRA_STREAM, u)
           if (texts.isNotEmpty()) putExtra(Intent.EXTRA_TEXT, texts.joinToString("\n"))
+          clipData = ClipData.newRawUri("Pix-Scripting", u)
           addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
       } else {
@@ -300,40 +373,121 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
-  // OAuth WebView Dialog (supports Pixiv PKCE login + Cookie extraction)
+  private fun extractOrigin(rawUrl: String): String? {
+    return runCatching {
+      val uri = URI(rawUrl)
+      val scheme = uri.scheme?.lowercase() ?: return null
+      val host = uri.host ?: return null
+      if (scheme != "http" && scheme != "https") return null
+      val portPart = if (uri.port > 0 && !((scheme == "http" && uri.port == 80) || (scheme == "https" && uri.port == 443))) {
+        ":${uri.port}"
+      } else {
+        ""
+      }
+      "$scheme://$host$portPart"
+    }.getOrNull()
+  }
+
+  private fun isOAuthCallbackUrl(target: String, prefixes: List<String>): Boolean {
+    for (prefix in prefixes) {
+      if (prefix.isNotEmpty() && target.startsWith(prefix)) return true
+    }
+    if (target.startsWith("pixiv://")) return true
+    val parsed = runCatching { Uri.parse(target) }.getOrNull() ?: return false
+    if (parsed.path == PIXIV_OAUTH_CALLBACK_PATH && !parsed.getQueryParameter("code").isNullOrBlank()) {
+      return true
+    }
+    return false
+  }
+
+  // OAuth WebView Dialog (supports Pixiv PKCE login + Cookie extraction + custom gateways)
   @ReactMethod
   fun presentOAuthWebView(options: ReadableMap, promise: Promise) {
     val activity = currentActivity ?: return promise.reject("E_WEBVIEW", "No active Activity")
     val url = options.getString("url") ?: return promise.reject("E_WEBVIEW", "Missing URL")
     val title = options.getString("title") ?: "Pixiv 登录"
-    val redirectPrefix = options.getString("redirectPrefix") ?: "pixiv://account/login"
-    val ephemeral = options.hasKey("ephemeral") && options.getBoolean("ephemeral")
+    val ephemeral = options.hasKey("ephemeral") && !options.isNull("ephemeral") && options.getBoolean("ephemeral")
+    val isDark = if (options.hasKey("isDark") && !options.isNull("isDark")) {
+      options.getBoolean("isDark")
+    } else {
+      PixWindowInsetsHolder.currentRequestedDark(activity)
+    }
+
+    val redirectPrefixes = LinkedHashSet<String>()
+    if (options.hasKey("redirectPrefix") && !options.isNull("redirectPrefix")) {
+      options.getString("redirectPrefix")?.takeIf { it.isNotBlank() }?.let { redirectPrefixes.add(it) }
+    }
+    if (options.hasKey("redirectPrefixes") && !options.isNull("redirectPrefixes")) {
+      val arr = options.getArray("redirectPrefixes")
+      if (arr != null) {
+        for (i in 0 until arr.size()) {
+          arr.getString(i)?.takeIf { it.isNotBlank() }?.let { redirectPrefixes.add(it) }
+        }
+      }
+    }
+    redirectPrefixes.add("pixiv://account/login")
+    redirectPrefixes.add("https://app-api.pixiv.net$PIXIV_OAUTH_CALLBACK_PATH")
+    val urlOrigin = extractOrigin(url)
+    if (urlOrigin != null) {
+      redirectPrefixes.add("$urlOrigin$PIXIV_OAUTH_CALLBACK_PATH")
+    }
+    val prefixList = redirectPrefixes.toList()
+
+    val extraCookieHosts = LinkedHashSet<String>()
+    if (urlOrigin != null) extraCookieHosts.add(urlOrigin)
+    if (options.hasKey("extraCookieHosts") && !options.isNull("extraCookieHosts")) {
+      val arr = options.getArray("extraCookieHosts")
+      if (arr != null) {
+        for (i in 0 until arr.size()) {
+          arr.getString(i)?.takeIf { it.isNotBlank() }?.let { extraCookieHosts.add(it) }
+        }
+      }
+    }
 
     activity.runOnUiThread {
       runCatching { activeAuthDialog?.dismiss() }
       var settled = false
+      var webViewDestroyed = false
 
-      val dialog = Dialog(activity, android.R.style.Theme_DeviceDefault_Light_NoActionBar)
+      val themeRes = if (isDark) {
+        android.R.style.Theme_DeviceDefault_NoActionBar
+      } else {
+        android.R.style.Theme_DeviceDefault_Light_NoActionBar
+      }
+      val dialog = Dialog(activity, themeRes)
       activeAuthDialog = dialog
+
+      val density = activity.resources.displayMetrics.density
+      fun dp(v: Int): Int = (v * density).roundToInt()
+
+      val bgColor = if (isDark) Color.parseColor("#111318") else Color.WHITE
+      val headerBgColor = if (isDark) Color.parseColor("#1B1F27") else Color.parseColor("#F5F6F8")
+      val titleTextColor = if (isDark) Color.parseColor("#F3F4F6") else Color.parseColor("#111827")
+      val closeTextColor = if (isDark) Color.parseColor("#60A5FA") else Color.parseColor("#007AFF")
 
       val root = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
-        setBackgroundColor(Color.WHITE)
+        setBackgroundColor(bgColor)
       }
+
+      val initialTopPx = (PixWindowInsetsHolder.getCurrent().top * density).roundToInt()
       val header = LinearLayout(activity).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(24, 18, 24, 18)
-        setBackgroundColor(Color.parseColor("#F5F6F8"))
+        setPadding(dp(16), initialTopPx + dp(10), dp(12), dp(10))
+        setBackgroundColor(headerBgColor)
       }
       val titleView = TextView(activity).apply {
         text = title
         textSize = 16f
-        setTextColor(Color.parseColor("#111827"))
+        setTextColor(titleTextColor)
         layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
       }
       val closeBtn = Button(activity).apply {
         text = "关闭"
+        setTextColor(closeTextColor)
+        setBackgroundColor(Color.TRANSPARENT)
+        isAllCaps = false
         setOnClickListener {
           dialog.dismiss()
         }
@@ -343,56 +497,137 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
 
       val progress = ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
         isIndeterminate = true
-        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 8)
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3))
       }
 
       val wv = WebView(activity).apply {
         PixManagedWebView.configureWebView(this)
+        setBackgroundColor(bgColor)
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
       }
 
       val cookieManager = CookieManager.getInstance()
       cookieManager.setAcceptCookie(true)
       cookieManager.setAcceptThirdPartyCookies(wv, true)
-      if (ephemeral) {
-        cookieManager.removeAllCookies(null)
+
+      fun finishWithRedirect(target: String) {
+        if (settled) return
+        settled = true
         cookieManager.flush()
+        val pixivCookies = collectPixivCookies(cookieManager, extraCookieHosts)
+        val res = Arguments.createMap().apply {
+          putBoolean("cancelled", false)
+          putString("redirectUrl", target)
+          putString("cookieHeader", pixivCookies)
+        }
+        promise.resolve(res)
+        dialog.dismiss()
       }
 
       wv.webViewClient = object : WebViewClient() {
         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
           val target = request?.url?.toString() ?: return false
-          if (target.startsWith(redirectPrefix) || target.startsWith("pixiv://")) {
-            if (!settled) {
-              settled = true
-              cookieManager.flush()
-              val pixivCookies = collectPixivCookies(cookieManager)
-              val res = Arguments.createMap().apply {
-                putBoolean("cancelled", false)
-                putString("redirectUrl", target)
-                putString("cookieHeader", pixivCookies)
-              }
-              promise.resolve(res)
-              dialog.dismiss()
-            }
+          if (isOAuthCallbackUrl(target, prefixList)) {
+            finishWithRedirect(target)
             return true
           }
           return false
         }
 
+        @Deprecated("Deprecated in Java")
+        override fun shouldOverrideUrlLoading(view: WebView?, targetUrl: String?): Boolean {
+          val target = targetUrl ?: return false
+          if (isOAuthCallbackUrl(target, prefixList)) {
+            finishWithRedirect(target)
+            return true
+          }
+          return false
+        }
+
+        override fun onPageStarted(view: WebView?, pageUrl: String?, favicon: android.graphics.Bitmap?) {
+          super.onPageStarted(view, pageUrl, favicon)
+          if (pageUrl != null && isOAuthCallbackUrl(pageUrl, prefixList)) {
+            view?.stopLoading()
+            finishWithRedirect(pageUrl)
+            return
+          }
+          progress.visibility = View.VISIBLE
+        }
+
         override fun onPageFinished(view: WebView?, pageUrl: String?) {
           super.onPageFinished(view, pageUrl)
-          progress.visibility = android.view.View.GONE
+          progress.visibility = View.GONE
         }
+
+        override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+          if (!settled) {
+            dialog.dismiss()
+          }
+          return true
+        }
+      }
+
+      ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+        val safe = insets.getInsets(
+          WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+        )
+        val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+        header.setPadding(
+          dp(16) + safe.left,
+          safe.top + dp(10),
+          dp(12) + safe.right,
+          dp(10),
+        )
+        val bottomPad = maxOf(safe.bottom, ime.bottom)
+        v.setPadding(0, 0, 0, bottomPad)
+        insets
       }
 
       root.addView(header)
       root.addView(progress)
       root.addView(wv)
       dialog.setContentView(root)
+
+      dialog.window?.let { win ->
+        win.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        @Suppress("DEPRECATION")
+        win.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        WindowCompat.setDecorFitsSystemWindows(win, false)
+        @Suppress("DEPRECATION")
+        win.statusBarColor = Color.TRANSPARENT
+        @Suppress("DEPRECATION")
+        win.navigationBarColor = Color.TRANSPARENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+          win.attributes = win.attributes.apply {
+            layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+          }
+        }
+        val ctrl = WindowInsetsControllerCompat(win, win.decorView)
+        ctrl.isAppearanceLightStatusBars = !isDark
+        ctrl.isAppearanceLightNavigationBars = !isDark
+      }
+
+      dialog.setOnKeyListener { _, keyCode, event ->
+        if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+          if (!webViewDestroyed && wv.canGoBack()) {
+            wv.goBack()
+          } else {
+            dialog.dismiss()
+          }
+          true
+        } else {
+          false
+        }
+      }
+
       dialog.setOnDismissListener {
         activeAuthDialog = null
-        runCatching { wv.destroy() }
+        webViewDestroyed = true
+        runCatching {
+          wv.stopLoading()
+          (wv.parent as? ViewGroup)?.removeView(wv)
+          wv.destroy()
+        }
         if (!settled) {
           settled = true
           promise.resolve(Arguments.createMap().apply {
@@ -400,16 +635,35 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
           })
         }
       }
+
       dialog.show()
-      wv.loadUrl(url)
+      ViewCompat.requestApplyInsets(root)
+
+      if (ephemeral) {
+        cookieManager.removeAllCookies { _ ->
+          cookieManager.flush()
+          wv.post {
+            if (!settled && !webViewDestroyed && dialog.isShowing) {
+              wv.loadUrl(url)
+            }
+          }
+        }
+      } else {
+        wv.loadUrl(url)
+      }
     }
   }
 
-  private fun collectPixivCookies(cm: CookieManager): String {
-    val hosts = listOf("https://www.pixiv.net", "https://app-api.pixiv.net", "https://accounts.pixiv.net")
+  private fun collectPixivCookies(cm: CookieManager, extraHosts: Set<String> = emptySet()): String {
+    val hosts = LinkedHashSet<String>().apply {
+      add("https://www.pixiv.net")
+      add("https://app-api.pixiv.net")
+      add("https://accounts.pixiv.net")
+      addAll(extraHosts)
+    }
     val map = LinkedHashMap<String, String>()
     for (host in hosts) {
-      val raw = cm.getCookie(host) ?: continue
+      val raw = runCatching { cm.getCookie(host) }.getOrNull() ?: continue
       for (part in raw.split(";")) {
         val eq = part.indexOf('=')
         if (eq > 0) {
@@ -469,12 +723,18 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
     val activity = currentActivity ?: return promise.resolve(false)
     activity.runOnUiThread {
       try {
-        headlessWebViews.remove(sessionId)?.let { old -> runCatching { old.destroy() } }
+        headlessWebViews.remove(sessionId)?.let { old ->
+          runCatching {
+            old.stopLoading()
+            old.destroy()
+          }
+        }
         val wv = WebView(activity)
         PixManagedWebView.configureWebView(wv)
         wv.addJavascriptInterface(object {
           @JavascriptInterface
           fun postMessage(name: String, jsonPayload: String) {
+            if (!reactContext.hasActiveReactInstance()) return
             reactContext
               .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
               .emit("PixHeadlessWebMessage", Arguments.createMap().apply {
@@ -495,6 +755,15 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
               promise.resolve(true)
             }
           }
+
+          override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+            headlessWebViews.remove(sessionId)
+            if (!done) {
+              done = true
+              promise.resolve(false)
+            }
+            return true
+          }
         }
         headlessWebViews[sessionId] = wv
         val injected = PixManagedWebView.injectWebkitShimIntoHtml(html)
@@ -508,7 +777,7 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
   @ReactMethod
   fun disposeHeadlessWebView(sessionId: String) {
     val wv = headlessWebViews.remove(sessionId) ?: return
-    currentActivity?.runOnUiThread {
+    reactContext.runOnUiQueueThread {
       runCatching {
         wv.stopLoading()
         wv.destroy()

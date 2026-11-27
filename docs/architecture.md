@@ -100,12 +100,17 @@
 
 ## Android 移植架构（`apps/android/`，分支 `feat/android-app`）
 
-- **运行边界**：`apps/android/` 为 React Native `0.76.7` + Hermes + Kotlin（compileSdk 35 / targetSdk 34 / minSdk 24）独立工程；通过 `metro.config.js` 的 `watchFolders` 与 `extraNodeModules` 直接映射 `"scripting"` 至 `apps/android/src/scripting/index.ts`，在不改动 `Pix-Scripting/` 源码的前提下完整复用全部业务模块、阅读器、翻译与界面结构。
-- **JS 运行时与 UI 映射（`apps/android/src/scripting/`）**：
-  - `polyfills.ts` / `dataAndCrypto.ts`：提供完整 WHATWG `URL`/`URLSearchParams`、`TextEncoder`/`TextDecoder`、`AbortController`、`Data` 二进制抽象与 RFC 1321 MD5 / FIPS 180-4 SHA-256。
-  - `fetchAndHttp.ts`：对接原生 `PixHttpModule`，支持 Pixiv 自定义请求头（`Referer`、`X-Client-Time`、`X-Client-Hash`）、重定向拦截、超时/中止及 SSE 流式分片读取（`getReader()`）。
-  - `hostGlobals.ts`：实现同步 `FileManager`、`Keychain`、`Storage`、`UIImage`、`Device`、`AppEvents`、`Script`、`Dialog`、`DocumentPicker`、`ShareSheet`、`Pasteboard`、`Safari`、`Photos`、`HapticFeedback`、`WebViewController`、`Archive`、`Shell` 与通知提示。
-  - `theme.ts` / `sfSymbols.tsx` / `modifiers.tsx` / `overlays.tsx` / `navigation.tsx` / `components.tsx`：映射 iOS 语义色板、185 个 SF Symbols、`NavigationStack` / `TabView` / `List` / `Menu` / `Picker` / `WebView` / `TimelineCanvas` 等组件与 Android 硬件返回键协调。
+- **运行边界**：`apps/android/` 为 React Native `0.76.7` + Hermes + `@shopify/flash-list` + Kotlin（compileSdk 35 / targetSdk 34 / minSdk 24）独立工程；通过 `metro.config.js` 的 `watchFolders` 与 `extraNodeModules` 将 `"scripting"` 映射至无头运行时 `apps/android/src/scripting/index.ts`，在不改动 `Pix-Scripting/` 源码的前提下直接复用 `Pix-Scripting/src/{api,store,image,downloader,ugoira,platform,types.ts,config.ts}` 以及纯函数模块 `ui/{novelInlineMarkup,novelReaderRuntime,novelOfflineCapture,feedColumns}.ts`。
+- **Android 原生 UI 层（`apps/android/src/app/`）**：
+  - `theme/`（`insets.ts`、`colors.ts`、`ThemeProvider.tsx`）：订阅 `PixSystemBridge.getWindowInsetsSync()` 与 `PixInsetsChanged`（含 `imeBottom`），提供 `effectiveBottomInset(insets) = bottom + imeBottom`、深浅色与自定义玻璃强调色及状态栏图标极性同步。
+  - `navigation/`（`types.ts`、`routeParser.ts`、`NavContext.tsx`、`AppShell.tsx`）：5 Tab 独立导航栈与懒挂载保活、Pixiv/Pixivision 深链解析、与 `store/routeNavigation.ts` 桥接，以及单根 `BackHandler`（弹层优先 → 仅弹当前 Tab 栈 → 切回启动 Tab → 退出）。
+  - `overlay/`（`OverlayHost.tsx`、`BookmarkDetailSheet.tsx`、`CommentsSheet.tsx`、`BlockWorkSheet.tsx`）：单一根级弹层宿主（零 RN `<Modal>` / `<SafeAreaView>`），统一承载 Sheet、ActionSheet、Dialog（桥接 `ScriptingDialog`）与 Toast。
+  - `components/`：`PixImage`（同步磁盘命中 + URL 键控防 FlashList 回收闪烁 + 损坏缓存重试剔除）、`IllustMasonryFeed`、`NovelFeedList`、`usePixivFeed`、`UserPreviewRow`、`ScreenHeader`、`ChipBar`、`FormControls`、`StateViews`。
+  - `screens/` 与 `features/{feeds,media,novel,account}/`：覆盖登录/网络设置、探索/排行/关注/搜索、插画详情/双指缩放图库/Ugoira 播放导出/Manga OCR/画师/特辑/系列/标签、小说详情/横竖排文库本 `PixNativeWebView` 阅读器/翻译与离线书库、我的/多账号/收藏/历史统计/下载管理/设置/AI 与 Grok OAuth/屏蔽/SauceNAO。
+- **无头 `"scripting"` 运行时（`apps/android/src/scripting/`）**：
+  - `polyfills.ts` / `dataAndCrypto.ts`：完整 WHATWG `URL`/`URLSearchParams`、流式多字节 UTF-8 `TextDecoder`、`TextEncoder`、`AbortController`、`Data`（表驱动 Base64）、RFC 7578 `FormData`、CSPRNG 与 RFC 1321 MD5 / FIPS 180-4 SHA-256。
+  - `fetchAndHttp.ts`：对接原生 `PixHttpModule`，支持 Pixiv 自定义请求头、`gzip`/`deflate` 解压、重定向规范处理（POST→GET、跨源鉴权剥离）、先订阅后发起的无竞态 SSE 流式读取与非 2xx JSON 透传。
+  - `hostGlobals.ts`：提供业务模块依赖的同步 `FileManager`（目录级热缓存失效）、`Keychain`、`Storage`（JSON 封包往返）、`UIImage`（含原生 JPEG/PNG 重编码）、`Device`、`AppEvents`、`Dialog`、`DocumentPicker`、`ShareSheet`、`Pasteboard`、`Safari`、`Photos`、`HapticFeedback`、`Archive`、`Shell` 等宿主能力。
 - **Kotlin 原生桥接（`apps/android/android/app/src/main/java/com/pixscripting/`）**：
-  - `PixCredentialStore`（Android Keystore `AES/GCM/NoPadding` 256 位加密存储与写入回读校验）、`PixFileSystemModule`（同步沙盒文件、ZIP 解压与 EPUB 合规打包）、`PixHttpModule`（并发 HTTP 与大文件落盘流控）、`PixWebViewManager`（内置阅读器 WebView 与 `window.webkit.messageHandlers` 代理注入）、`PixImageMediaModule`（图片尺寸/色盘采样、MediaStore 相册保存、OCR 气泡渲染、`MediaCodec` H.264 硬件编码 MP4 与 GIF89a 编码）、`PixSystemBridgeModule`（PKCE 登录弹窗 WebView 与 Cookie 提取、SAF 文件选取、`FileProvider` 分享与通知进度）。
-- **iOS 配置导入（`apps/android/src/import/`）**：支持通过登录页入口、系统分享或「设置 → 跨设备同步」导入 `Pix-Scripting-Sync-*.json`、原始 `settings.json` / `novel_reader_settings.json` / `blocklist.json`、`CustomAIProfile`、整包 `.zip` 备份及 Pixiv Refresh Token。
+  - `MainActivity`（Edge-to-Edge Insets 与状态栏样式持久化）、`PixCredentialStore`（Android Keystore `AES/GCM/NoPadding` 256 位加密存储与密钥失效自愈）、`PixFileSystemModule`（原子写入、ZIP 解压与 EPUB 合规打包）、`PixHttpModule`（并发 HTTP、重定向与大文件流控）、`PixWebViewManager`（禁用 `FORCE_DARK`、嵌套滚动协调、`onRenderProcessGone` 恢复、命令式 `evaluateJS` 与 `window.webkit.messageHandlers` 代理）、`PixImageMediaModule`（图片重编码/色盘、`MediaStore`、OCR 气泡渲染、`MediaCodec` H.264 MP4 与 GIF89a 编码）、`PixSystemBridgeModule`（PKCE OAuth 回调拦截含自定义反代、异步 Cookie 清理、后台线程 SAF 文件读取与 `file://` 分享规范化）。
+- **iOS 配置导入（`apps/android/src/import/`）**：支持登录前入口、系统分享与「设置 → 跨设备同步」导入 `Pix-Scripting-Sync-*.json`、原始 `settings.json` / `NovelReader/settings.json` / `novel_reader_settings.json` / `blocklist.json`、`CustomAIProfile`、整包 `.zip` 备份（含 `NovelTranslations` / `NovelOffline`）及 Pixiv Refresh Token，导入后即时刷新内存缓存。

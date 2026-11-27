@@ -1,11 +1,19 @@
 package com.pixscripting
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
+import android.view.WindowManager
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.bridge.Arguments
@@ -16,6 +24,7 @@ import com.facebook.react.defaults.DefaultReactActivityDelegate
 import com.facebook.react.modules.core.DeviceEventManagerModule
 import java.io.File
 import java.util.UUID
+import kotlin.math.round
 
 data class SharedFileEntry(
   val filePath: String,
@@ -31,6 +40,131 @@ data class PendingAppIntent(
   val files: List<SharedFileEntry>,
   val receivedAt: Long,
 )
+
+data class WindowInsetsSnapshot(
+  val top: Double,
+  val bottom: Double,
+  val left: Double,
+  val right: Double,
+  val imeBottom: Double,
+)
+
+object PixWindowInsetsHolder {
+  private val lock = Any()
+  @Volatile
+  private var current = WindowInsetsSnapshot(0.0, 0.0, 0.0, 0.0, 0.0)
+  @Volatile
+  private var hasRealInsets = false
+  @Volatile
+  private var lastRequestedDark: Boolean? = null
+
+  private fun pxToDp(px: Int, density: Float): Double {
+    val safeDensity = if (density > 0f) density else 1f
+    val raw = (px.coerceAtLeast(0).toDouble()) / safeDensity.toDouble()
+    return round(raw * 100.0) / 100.0
+  }
+
+  fun seedFallbackIfNeeded(context: Context) {
+    synchronized(lock) {
+      if (hasRealInsets) return
+      val res = context.resources
+      val density = res.displayMetrics.density
+      val resId = res.getIdentifier("status_bar_height", "dimen", "android")
+      val statusBarPx = if (resId > 0) res.getDimensionPixelSize(resId) else 0
+      if (statusBarPx > 0 && current.top <= 0.0) {
+        current = current.copy(top = pxToDp(statusBarPx, density))
+      }
+    }
+  }
+
+  fun updateFromWindowInsets(insets: WindowInsetsCompat, density: Float): Boolean {
+    val safeArea = insets.getInsets(
+      WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout(),
+    )
+    val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+    val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+    val imeExtraPx = (ime.bottom - systemBars.bottom).coerceAtLeast(0)
+
+    val next = WindowInsetsSnapshot(
+      top = pxToDp(safeArea.top, density),
+      bottom = pxToDp(safeArea.bottom, density),
+      left = pxToDp(safeArea.left, density),
+      right = pxToDp(safeArea.right, density),
+      imeBottom = pxToDp(imeExtraPx, density),
+    )
+
+    synchronized(lock) {
+      hasRealInsets = true
+      if (next == current) return false
+      current = next
+      return true
+    }
+  }
+
+  fun getCurrent(): WindowInsetsSnapshot = current
+
+  fun readLiveFromActivity(activity: Activity?): WindowInsetsSnapshot {
+    if (activity != null) {
+      val decor = activity.window?.decorView
+      val rootInsets = if (decor != null) ViewCompat.getRootWindowInsets(decor) else null
+      if (rootInsets != null) {
+        updateFromWindowInsets(rootInsets, activity.resources.displayMetrics.density)
+      } else {
+        seedFallbackIfNeeded(activity)
+      }
+    }
+    return current
+  }
+
+  fun toWritableMap(snapshot: WindowInsetsSnapshot): WritableMap = Arguments.createMap().apply {
+    putDouble("top", snapshot.top)
+    putDouble("bottom", snapshot.bottom)
+    putDouble("left", snapshot.left)
+    putDouble("right", snapshot.right)
+    putDouble("imeBottom", snapshot.imeBottom)
+  }
+
+  fun emitIfReady(reactContext: ReactContext?) {
+    if (reactContext == null || !reactContext.hasActiveReactInstance()) return
+    runCatching {
+      reactContext
+        .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
+        .emit("PixInsetsChanged", toWritableMap(current))
+    }
+  }
+
+  fun currentRequestedDark(context: Context): Boolean {
+    lastRequestedDark?.let { return it }
+    return (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+      Configuration.UI_MODE_NIGHT_YES
+  }
+
+  fun applyEdgeToEdge(activity: Activity, isDark: Boolean, persistStyle: Boolean = true) {
+    if (persistStyle) {
+      lastRequestedDark = isDark
+    }
+    val window = activity.window ?: return
+    WindowCompat.setDecorFitsSystemWindows(window, false)
+    @Suppress("DEPRECATION")
+    window.statusBarColor = Color.TRANSPARENT
+    @Suppress("DEPRECATION")
+    window.navigationBarColor = Color.TRANSPARENT
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+      val lp = window.attributes
+      if (lp.layoutInDisplayCutoutMode != WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES) {
+        lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+        window.attributes = lp
+      }
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      window.isNavigationBarContrastEnforced = false
+      window.isStatusBarContrastEnforced = false
+    }
+    val controller = WindowInsetsControllerCompat(window, window.decorView)
+    controller.isAppearanceLightStatusBars = !isDark
+    controller.isAppearanceLightNavigationBars = !isDark
+  }
+}
 
 object PixIntentHolder {
   private val lock = Any()
@@ -177,7 +311,8 @@ object PixIntentHolder {
       }
     }
 
-    val safeName = displayName.replace(Regex("[\\\\/:*?\"<>|\\r\\n\\t]"), "_")
+    val sanitized = displayName.replace(Regex("[\\\\/:*?\"<>|\\r\\n\\t]"), "_").trim()
+    val safeName = if (sanitized.isEmpty() || sanitized == "." || sanitized == "..") "shared-file" else sanitized
     val dir = File(context.cacheDir, "shared-imports/${UUID.randomUUID()}")
     if (!dir.mkdirs() && !dir.exists()) return null
     val dest = File(dir, safeName)
@@ -194,6 +329,7 @@ object PixIntentHolder {
         size = if (byteSize > 0) byteSize else dest.length(),
       )
     } catch (_: Exception) {
+      runCatching { dest.delete() }
       null
     }
   }
@@ -208,6 +344,41 @@ class MainActivity : ReactActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     runCatching { PixIntentHolder.capture(this, intent) }
     super.onCreate(savedInstanceState)
+
+    PixWindowInsetsHolder.seedFallbackIfNeeded(this)
+    PixWindowInsetsHolder.applyEdgeToEdge(
+      this,
+      PixWindowInsetsHolder.currentRequestedDark(this),
+      persistStyle = false,
+    )
+
+    val decor = window.decorView
+    ViewCompat.setOnApplyWindowInsetsListener(decor) { _, insets ->
+      val changed = PixWindowInsetsHolder.updateFromWindowInsets(
+        insets,
+        resources.displayMetrics.density,
+      )
+      if (changed && reactNativeHost.hasInstance()) {
+        PixWindowInsetsHolder.emitIfReady(reactNativeHost.reactInstanceManager.currentReactContext)
+      }
+      insets
+    }
+    ViewCompat.requestApplyInsets(decor)
+  }
+
+  override fun onResume() {
+    super.onResume()
+    window?.decorView?.let { ViewCompat.requestApplyInsets(it) }
+  }
+
+  override fun onConfigurationChanged(newConfig: Configuration) {
+    super.onConfigurationChanged(newConfig)
+    PixWindowInsetsHolder.applyEdgeToEdge(
+      this,
+      PixWindowInsetsHolder.currentRequestedDark(this),
+      persistStyle = false,
+    )
+    window?.decorView?.let { ViewCompat.requestApplyInsets(it) }
   }
 
   override fun onNewIntent(intent: Intent) {

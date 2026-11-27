@@ -116,8 +116,16 @@
 
 ## D015：Android 端通过 `"scripting"` 运行时兼容层直接复用 `Pix-Scripting/`
 
-- 状态：已实现（分支 `feat/android-app`）。
+- 状态：UI 层已被 **D016** 替代；无头业务运行时部分继续沿用（分支 `feat/android-app`）。
 - 选择：在 `apps/android/` 建立基于 React Native `0.76.7` + Kotlin 原生模块的 `"scripting"` 宿主运行时与 SwiftUI-to-RN 组件映射层，通过 Metro `watchFolders` 直接挂载 `Pix-Scripting/src/`，不复制或重写 5.8 万行 `Pix-Scripting/src/ui/` 界面代码；在 `apps/android/src/import/` 提供 iOS 同步包、原始 JSON 与 `.zip` 目录备份的兼容导入。
 - 原因：最大化保持与 iOS 版一致的界面布局、小说文库本 WebView 引擎、翻译台账、离线书库与跨设备同步语义，同时零修改保留 iOS 版 `.scripting` 构建与既有 235 项桌面回归测试。
-- 影响：所有 Android 原生差异（Android Keystore 加密凭据、大文件 HTTP 临时落盘、PKCE WebView 弹窗与 Cookie 提取、Ugoira 原生 MP4/GIF 编码、SAF 文件选择与 `FileProvider` 分享）收敛在 `apps/android/`，仍需 Android 真机验收真实渲染、网络代理与系统分享交互。
+- 影响：所有 Android 原生差异收敛在 `apps/android/`；但实机验证表明 SwiftUI-in-RN 组件映射层在 Android 真机存在布局、虚拟化滚动、安全区与多层 `<Modal>` 冲突问题，UI 层随后由 **D016** 替换。
 - 依据：`apps/android/metro.config.js`、`apps/android/src/scripting/`、`apps/android/src/import/`、`apps/android/android/app/src/main/java/com/pixscripting/`。
+
+## D016：Android 端采用原生 React Native 界面层（`apps/android/src/app/`）并保留无头 `"scripting"` 业务运行时
+
+- 状态：已实现（分支 `feat/android-app`，`v1.8.14.4-alpha.3`）。
+- 选择：Android 根入口 `apps/android/App.tsx` 不再通过 `src/scripting/components.tsx` 渲染 `Pix-Scripting/src/ui/appRoot.tsx`，而是挂载专为 Android 设计的 React Native 原生 UI 层 `apps/android/src/app/`（`theme/`、`navigation/`、`overlay/`、`components/`、`screens/`、`features/{feeds,media,novel,account}/`），全面使用 `@shopify/flash-list`、原生 Edge-to-Edge Insets（`effectiveBottomInset = bottom + imeBottom`）、单根 `OverlayHost`（零 RN `<Modal>` / `<SafeAreaView>`）与单根硬件 `BackHandler`；同时完整保留无头 `apps/android/src/scripting/` 宿主运行时，直接复用 `Pix-Scripting/src/{api,store,image,downloader,ugoira,platform}` 与纯逻辑模块，零改动 `Pix-Scripting/` 源码与 iOS `.scripting` 产物。
+- 原因：通过 SwiftUI 兼容层转译 iOS 视图树在 Android 真机导致图片尺寸异常、瀑布流无虚拟化、Edge-to-Edge 安全区与软键盘遮挡、嵌套 RN `<Modal>` 阻塞触摸及硬件返回键行为错乱；原生 RN 界面层在保持 100% 业务与数据格式兼容的同时彻底消除真机交互缺陷。
+- 影响：Android 新界面与 iOS 核心业务解耦，`Pix-Scripting/` 保持零改动且 235+ iOS 桌面回归继续通过；新增 `apps/android/tests/{android-app-shell,android-novel-html,native-runtime-hardening}.test.cjs` 覆盖核心交互、无 `<Modal>` 约束与全页面渲染烟测；仍需 Android 真机验收视觉、手势、WebView 阅读器、Ugoira 导出与系统分享。
+- 依据：`apps/android/App.tsx`、`apps/android/src/app/`、`apps/android/tests/android-app-shell.test.cjs`、`apps/android/tests/native-runtime-hardening.test.cjs`。

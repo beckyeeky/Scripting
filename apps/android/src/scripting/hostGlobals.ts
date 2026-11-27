@@ -24,6 +24,37 @@ if (PixFileSystem) {
 
 // ---------- In-memory write-through string cache for hot config/metadata files ----------
 const hotTextCache = new Map<string, string>()
+const boundsCache = new Map<string, { width: number; height: number }>()
+
+function normalizeCachePath(path: string): string {
+  return String(path || "").replace(/\/+$/, "")
+}
+
+function isCacheableJsonPath(path: string): boolean {
+  const lower = path.toLowerCase()
+  return lower.endsWith(".json") && !lower.includes(".tmp.")
+}
+
+export function invalidatePathCaches(targetPath: string): void {
+  const norm = normalizeCachePath(targetPath)
+  if (!norm) return
+  const prefix = `${norm}/`
+  for (const key of Array.from(hotTextCache.keys())) {
+    if (key === targetPath || key === norm || key.startsWith(prefix)) {
+      hotTextCache.delete(key)
+    }
+  }
+  for (const key of Array.from(boundsCache.keys())) {
+    if (key === targetPath || key === norm || key.startsWith(prefix)) {
+      boundsCache.delete(key)
+    }
+  }
+}
+
+export function clearHostFileCaches(): void {
+  hotTextCache.clear()
+  boundsCache.clear()
+}
 
 function encodeUtf8BytesToBase64(text: string): string {
   const data = ScriptingData.fromRawString(text)
@@ -35,6 +66,35 @@ const dirs = PixFileSystem?.getDirectoriesSync?.() ?? {
   temp: "/tmp/pix-tmp",
   appGroup: "/tmp/pix-group",
   icloud: "/tmp/pix-docs",
+}
+
+// ---------- Window Insets & System Bar Helpers ----------
+export interface NativeWindowInsets {
+  top: number
+  bottom: number
+  left: number
+  right: number
+  imeBottom: number
+}
+
+export function getNativeWindowInsetsSync(): NativeWindowInsets {
+  const raw = PixSystemBridge?.getWindowInsetsSync?.()
+  if (raw && typeof raw === "object") {
+    return {
+      top: Number(raw.top) || 0,
+      bottom: Number(raw.bottom) || 0,
+      left: Number(raw.left) || 0,
+      right: Number(raw.right) || 0,
+      imeBottom: Number(raw.imeBottom) || 0,
+    }
+  }
+  return { top: 0, bottom: 0, left: 0, right: 0, imeBottom: 0 }
+}
+
+export function setNativeSystemBarStyle(isDark: boolean): void {
+  try {
+    PixSystemBridge?.setSystemBarStyle?.(Boolean(isDark))
+  } catch {}
 }
 
 // ---------- FileManager ----------
@@ -71,17 +131,18 @@ const ScriptingFileManager = {
     if (hotTextCache.has(path)) return hotTextCache.get(path)!
     const res = PixFileSystem?.fsReadStringSync(path)
     if (res == null) throw new Error(`File not found: ${path}`)
-    if (res.length < 256 * 1024 && path.endsWith(".json")) {
+    if (res.length < 256 * 1024 && isCacheableJsonPath(path)) {
       hotTextCache.set(path, res)
     }
     return res
   },
 
   writeAsStringSync(path: string, content: string, _encoding?: string): void {
-    const ok = PixFileSystem?.fsWriteStringSync(path, String(content))
+    const str = String(content)
+    const ok = PixFileSystem?.fsWriteStringSync(path, str)
     if (!ok) throw new Error(`Failed to write file: ${path}`)
-    if (String(content).length < 256 * 1024) {
-      hotTextCache.set(path, String(content))
+    if (str.length < 256 * 1024 && isCacheableJsonPath(path)) {
+      hotTextCache.set(path, str)
     } else {
       hotTextCache.delete(path)
     }
@@ -94,11 +155,10 @@ const ScriptingFileManager = {
   },
 
   writeAsDataSync(path: string, data: ScriptingData): void {
-    hotTextCache.delete(path)
-    if (data?._backingFilePath) {
+    invalidatePathCaches(path)
+    if (data?._backingFilePath && !data.hasMaterializedBytes?.()) {
       const ok = PixFileSystem?.fsWriteFromFileSync(data._backingFilePath, path, false)
-      if (!ok) throw new Error(`Failed to write data from backing file: ${path}`)
-      return
+      if (ok) return
     }
     const b64 = data.toBase64String()
     const ok = PixFileSystem?.fsWriteBase64Sync(path, b64)
@@ -118,19 +178,19 @@ const ScriptingFileManager = {
   },
 
   removeSync(path: string): void {
-    hotTextCache.clear()
+    invalidatePathCaches(path)
     PixFileSystem?.fsRemoveSync(path)
   },
 
   renameSync(fromPath: string, toPath: string): void {
-    hotTextCache.delete(fromPath)
-    hotTextCache.delete(toPath)
+    invalidatePathCaches(fromPath)
+    invalidatePathCaches(toPath)
     const ok = PixFileSystem?.fsRenameSync(fromPath, toPath)
     if (!ok) throw new Error(`Failed to rename ${fromPath} -> ${toPath}`)
   },
 
   copyFileSync(fromPath: string, toPath: string): void {
-    hotTextCache.delete(toPath)
+    invalidatePathCaches(toPath)
     const ok = PixFileSystem?.fsCopySync(fromPath, toPath)
     if (!ok) throw new Error(`Failed to copy ${fromPath} -> ${toPath}`)
   },
@@ -176,15 +236,43 @@ const ScriptingKeychain = {
   },
 }
 
+const STORAGE_ENVELOPE_PREFIX = "__PIX_JSON_V1__:"
+
 const ScriptingStorage = {
   contains(key: string): boolean {
     return Boolean(PixFileSystem?.storageContainsSync(key))
   },
   get<T = any>(key: string): T | null {
-    return (PixFileSystem?.storageGetSync(key) ?? null) as T | null
+    const raw: string | null = PixFileSystem?.storageGetSync(key) ?? null
+    if (raw == null) return null
+    if (typeof raw === "string" && raw.startsWith(STORAGE_ENVELOPE_PREFIX)) {
+      try {
+        return JSON.parse(raw.slice(STORAGE_ENVELOPE_PREFIX.length)) as T
+      } catch {
+        return null
+      }
+    }
+    if (typeof raw === "string") {
+      const trimmed = raw.trim()
+      if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+        try {
+          return JSON.parse(trimmed) as T
+        } catch {}
+      }
+    }
+    return raw as unknown as T
   },
-  set(key: string, value: string): void {
-    PixFileSystem?.storageSetSync(key, String(value))
+  set(key: string, value: any): void {
+    if (value === undefined) {
+      PixFileSystem?.storageRemoveSync(key)
+      return
+    }
+    try {
+      const serialized = `${STORAGE_ENVELOPE_PREFIX}${JSON.stringify(value)}`
+      PixFileSystem?.storageSetSync(key, serialized)
+    } catch {
+      PixFileSystem?.storageSetSync(key, String(value))
+    }
   },
   remove(key: string): void {
     PixFileSystem?.storageRemoveSync(key)
@@ -192,8 +280,6 @@ const ScriptingStorage = {
 }
 
 // ---------- UIImage & ImageRenderer ----------
-const boundsCache = new Map<string, { width: number; height: number }>()
-
 export class ScriptingUIImage {
   readonly filePath?: string
   readonly base64?: string
@@ -322,16 +408,29 @@ export class ScriptingUIImage {
     return Array.isArray(res?.dominants) ? res.dominants : []
   }
 
-  toJPEGBase64String(_quality?: number): string {
+  toJPEGBase64String(quality: number = 0.85): string {
     if (this.base64) return this.base64
     if (this.filePath) {
+      if (PixImageMedia?.encodeImageToBase64Sync) {
+        const q = Math.round(Math.max(0.1, Math.min(1, Number.isFinite(quality) ? quality : 0.85)) * 100)
+        const encoded = PixImageMedia.encodeImageToBase64Sync(this.filePath, "jpeg", q, 0)
+        if (encoded) return encoded
+      }
       return PixFileSystem?.fsReadBase64Sync(this.filePath) ?? ""
     }
     return ""
   }
 
   toPNGBase64String(): string {
-    return this.toJPEGBase64String()
+    if (this.base64) return this.base64
+    if (this.filePath) {
+      if (PixImageMedia?.encodeImageToBase64Sync) {
+        const encoded = PixImageMedia.encodeImageToBase64Sync(this.filePath, "png", 100, 0)
+        if (encoded) return encoded
+      }
+      return PixFileSystem?.fsReadBase64Sync(this.filePath) ?? ""
+    }
+    return ""
   }
 
   toJPEGData(quality?: number): ScriptingData | null {
@@ -406,7 +505,7 @@ function extractCanvasDescriptor(node: any): CanvasRenderDescriptor | null {
   return null
 }
 
-// ---------- Dialog bridge (rendered by DialogHost in App.tsx) ----------
+// ---------- Dialog bridge (rendered by DialogHost / OverlayHost in App.tsx) ----------
 export type DialogRequest =
   | { kind: "alert"; title: string; message?: string; resolve: () => void }
   | { kind: "confirm"; title: string; message?: string; confirmLabel?: string; cancelLabel?: string; resolve: (ok: boolean) => void }
@@ -799,13 +898,32 @@ export class ScriptingWebViewController {
     this.pendingUrl = url
   }
 
-  async present(opts?: { navigationTitle?: string; fullscreen?: boolean }): Promise<void> {
+  async present(opts?: { navigationTitle?: string; fullscreen?: boolean; isDark?: boolean }): Promise<void> {
     if (!this.pendingUrl || !PixSystemBridge?.presentOAuthWebView) return
+    const redirectPrefixes = [
+      "pixiv://account/login",
+      "https://app-api.pixiv.net/web/v1/users/auth/pixiv/callback",
+    ]
+    const extraCookieHosts: string[] = []
+    try {
+      const parsed = new URL(this.pendingUrl)
+      if (parsed.origin && parsed.origin !== "null") {
+        extraCookieHosts.push(parsed.origin)
+        const customCallback = `${parsed.origin}/web/v1/users/auth/pixiv/callback`
+        if (!redirectPrefixes.includes(customCallback)) {
+          redirectPrefixes.push(customCallback)
+        }
+      }
+    } catch {}
+
     const result = await PixSystemBridge.presentOAuthWebView({
       url: this.pendingUrl,
       title: opts?.navigationTitle || "Pixiv 登录",
-      redirectPrefix: "pixiv://account/login",
+      redirectPrefix: "https://app-api.pixiv.net/web/v1/users/auth/pixiv/callback",
+      redirectPrefixes,
+      extraCookieHosts,
       ephemeral: this.pendingEphemeral,
+      isDark: typeof opts?.isDark === "boolean" ? opts.isDark : ScriptingDevice.colorScheme === "dark",
     })
     if (result?.cookieHeader) {
       this.lastOAuthCookies = result.cookieHeader

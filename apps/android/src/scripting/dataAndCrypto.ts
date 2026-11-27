@@ -1,10 +1,11 @@
-import { decodeUtf8, encodeUtf8, polyfillAtob, polyfillBtoa } from "./polyfills"
+import { decodeUtf8, encodeUtf8 } from "./polyfills"
 
 export interface NativeFsBridge {
   fsReadBase64Sync(path: string): string | null
   fsReadStringSync(path: string): string | null
   fsWriteBase64Sync(path: string, base64: string): boolean
   fsWriteFromFileSync(srcPath: string, destPath: string, move: boolean): boolean
+  randomBytesBase64Sync?(byteLen: number): string
 }
 
 let nativeFsBridge: NativeFsBridge | null = null
@@ -13,23 +14,74 @@ export function setNativeFsBridgeForData(bridge: NativeFsBridge | null): void {
   nativeFsBridge = bridge
 }
 
-function bytesToBase64(bytes: Uint8Array): string {
-  let bin = ""
-  const chunk = 0x4000
-  for (let i = 0; i < bytes.length; i += chunk) {
-    const slice = bytes.subarray(i, Math.min(i + chunk, bytes.length))
-    for (let j = 0; j < slice.length; j++) {
-      bin += String.fromCharCode(slice[j])
+const B64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+const B64_DECODE = new Int16Array(128).fill(-1)
+for (let i = 0; i < B64_ALPHABET.length; i++) {
+  B64_DECODE[B64_ALPHABET.charCodeAt(i)] = i
+}
+B64_DECODE["-".charCodeAt(0)] = 62
+B64_DECODE["_".charCodeAt(0)] = 63
+
+export function bytesToBase64(bytes: Uint8Array): string {
+  const len = bytes.length
+  if (len === 0) return ""
+  const chunks: string[] = []
+  const chunkChars: string[] = []
+  let i = 0
+  while (i < len) {
+    const b0 = bytes[i++]
+    const hasB1 = i < len
+    const b1 = hasB1 ? bytes[i++] : 0
+    const hasB2 = i < len
+    const b2 = hasB2 ? bytes[i++] : 0
+    const trip = (b0 << 16) | (b1 << 8) | b2
+    chunkChars.push(
+      B64_ALPHABET[(trip >> 18) & 63],
+      B64_ALPHABET[(trip >> 12) & 63],
+      hasB1 ? B64_ALPHABET[(trip >> 6) & 63] : "=",
+      hasB2 ? B64_ALPHABET[trip & 63] : "=",
+    )
+    if (chunkChars.length >= 16384) {
+      chunks.push(chunkChars.join(""))
+      chunkChars.length = 0
     }
   }
-  return polyfillBtoa(bin)
+  if (chunkChars.length > 0) {
+    chunks.push(chunkChars.join(""))
+  }
+  return chunks.join("")
 }
 
-function base64ToBytes(b64: string): Uint8Array {
-  const bin = polyfillAtob(b64)
-  const out = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) {
-    out[i] = bin.charCodeAt(i) & 0xff
+export function base64ToBytes(b64: string): Uint8Array {
+  if (!b64) return new Uint8Array(0)
+  const clean = String(b64).replace(/[\t\n\f\r ]+/g, "").replace(/=+$/, "")
+  const len = clean.length
+  if (len === 0) return new Uint8Array(0)
+  if (len % 4 === 1) {
+    throw new Error("Invalid base64 string")
+  }
+  const outLen = Math.floor((len * 3) / 4)
+  const out = new Uint8Array(outLen)
+  let outIdx = 0
+  let i = 0
+  while (i < len) {
+    const c0 = clean.charCodeAt(i++)
+    const c1 = clean.charCodeAt(i++)
+    const c2 = i < len ? clean.charCodeAt(i++) : -1
+    const c3 = i < len ? clean.charCodeAt(i++) : -1
+
+    const v0 = c0 < 128 ? B64_DECODE[c0] : -1
+    const v1 = c1 < 128 ? B64_DECODE[c1] : -1
+    const v2 = c2 === -1 ? 0 : c2 < 128 ? B64_DECODE[c2] : -1
+    const v3 = c3 === -1 ? 0 : c3 < 128 ? B64_DECODE[c3] : -1
+    if (v0 < 0 || v1 < 0 || v2 < 0 || v3 < 0) {
+      throw new Error("Invalid base64 character")
+    }
+
+    const trip = (v0 << 18) | (v1 << 12) | (v2 << 6) | v3
+    out[outIdx++] = (trip >> 16) & 0xff
+    if (c2 !== -1 && outIdx < outLen) out[outIdx++] = (trip >> 8) & 0xff
+    if (c3 !== -1 && outIdx < outLen) out[outIdx++] = trip & 0xff
   }
   return out
 }
@@ -43,6 +95,10 @@ export class ScriptingData {
     this._bytes = bytes
     this._backingFilePath = backingFilePath
     this._length = bytes ? bytes.byteLength : (knownLength ?? 0)
+  }
+
+  hasMaterializedBytes(): boolean {
+    return this._bytes !== null
   }
 
   private ensureBytes(): Uint8Array {
@@ -85,11 +141,11 @@ export class ScriptingData {
 
   toHexString(): string {
     const u8 = this.ensureBytes()
-    let hex = ""
+    const hexParts: string[] = new Array(u8.length)
     for (let i = 0; i < u8.length; i++) {
-      hex += u8[i].toString(16).padStart(2, "0")
+      hexParts[i] = u8[i].toString(16).padStart(2, "0")
     }
-    return hex
+    return hexParts.join("")
   }
 
   slice(start?: number, end?: number): ScriptingData {
@@ -129,13 +185,14 @@ export class ScriptingData {
     if (!nativeFsBridge || !path) return null
     const b64 = nativeFsBridge.fsReadBase64Sync(path)
     if (b64 == null) return null
-    return new ScriptingData(base64ToBytes(b64), path)
+    // Materialize bytes without retaining backingFilePath so subsequent writes/deletes on `path` stay safe
+    return new ScriptingData(base64ToBytes(b64))
   }
 
-  static fromJPEG(img: any, _quality?: number): ScriptingData | null {
+  static fromJPEG(img: any, quality?: number): ScriptingData | null {
     if (!img) return null
     if (typeof img.toJPEGBase64String === "function") {
-      const b64 = img.toJPEGBase64String()
+      const b64 = img.toJPEGBase64String(quality)
       return b64 ? ScriptingData.fromBase64String(b64) : null
     }
     return null
@@ -314,14 +371,26 @@ export const ScriptingCrypto = {
   },
   generateSymmetricKey(bits: number = 256): ScriptingData {
     const byteLen = Math.max(1, Math.ceil(bits / 8))
-    const out = new Uint8Array(byteLen)
     const gCrypto = (globalThis as any).crypto
     if (gCrypto && typeof gCrypto.getRandomValues === "function") {
+      const out = new Uint8Array(byteLen)
       gCrypto.getRandomValues(out)
-    } else {
-      for (let i = 0; i < byteLen; i++) {
-        out[i] = Math.floor(Math.random() * 256)
-      }
+      return new ScriptingData(out)
+    }
+    if (nativeFsBridge && typeof nativeFsBridge.randomBytesBase64Sync === "function") {
+      try {
+        const b64 = nativeFsBridge.randomBytesBase64Sync(byteLen)
+        if (b64) {
+          const bytes = base64ToBytes(b64)
+          if (bytes.length === byteLen) {
+            return new ScriptingData(bytes)
+          }
+        }
+      } catch {}
+    }
+    const out = new Uint8Array(byteLen)
+    for (let i = 0; i < byteLen; i++) {
+      out[i] = Math.floor(Math.random() * 256)
     }
     return new ScriptingData(out)
   },

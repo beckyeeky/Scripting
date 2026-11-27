@@ -27,10 +27,12 @@ internal class PixCredentialStore(context: Context) {
   fun put(key: String, value: String, sync: Boolean) {
     val prefs = prefsFor(sync)
     val previous = prefs.getString(key, null)
-    val cipher = Cipher.getInstance(TRANSFORMATION)
-    cipher.init(Cipher.ENCRYPT_MODE, secretKey())
+    val cipher = initEncryptCipher()
     cipher.updateAAD(aadFor(key, sync))
-    val encoded = Base64.encodeToString(cipher.iv + cipher.doFinal(value.toByteArray(Charsets.UTF_8)), Base64.NO_WRAP)
+    val iv = cipher.iv
+    require(iv != null && iv.size == GCM_IV_BYTES) { "Invalid AES-GCM IV" }
+    val ciphertext = cipher.doFinal(value.toByteArray(Charsets.UTF_8))
+    val encoded = Base64.encodeToString(iv + ciphertext, Base64.NO_WRAP)
     val saved = prefs.edit().putString(key, encoded).commit()
     try {
       check(saved && prefs.getString(key, null)?.let { decrypt(key, sync, it) } == value)
@@ -47,18 +49,34 @@ internal class PixCredentialStore(context: Context) {
     prefsFor(sync).edit().remove(key).commit()
   }
 
-  private fun decrypt(key: String, sync: Boolean, encoded: String): String {
-    val bytes = Base64.decode(encoded, Base64.NO_WRAP)
-    require(bytes.size >= 28)
+  private fun initEncryptCipher(): Cipher {
     val cipher = Cipher.getInstance(TRANSFORMATION)
-    cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, bytes.copyOfRange(0, 12)))
-    cipher.updateAAD(aadFor(key, sync))
-    return cipher.doFinal(bytes, 12, bytes.size - 12).toString(Charsets.UTF_8)
+    return try {
+      cipher.init(Cipher.ENCRYPT_MODE, secretKey(regenerate = false))
+      cipher
+    } catch (_: Exception) {
+      // Recover automatically if AndroidKeyStore key was invalidated after OS/lockscreen change
+      cipher.init(Cipher.ENCRYPT_MODE, secretKey(regenerate = true))
+      cipher
+    }
   }
 
-  private fun secretKey(): SecretKey {
+  private fun decrypt(key: String, sync: Boolean, encoded: String): String {
+    val bytes = Base64.decode(encoded, Base64.NO_WRAP)
+    require(bytes.size >= GCM_IV_BYTES + 16)
+    val cipher = Cipher.getInstance(TRANSFORMATION)
+    cipher.init(Cipher.DECRYPT_MODE, secretKey(regenerate = false), GCMParameterSpec(128, bytes.copyOfRange(0, GCM_IV_BYTES)))
+    cipher.updateAAD(aadFor(key, sync))
+    return cipher.doFinal(bytes, GCM_IV_BYTES, bytes.size - GCM_IV_BYTES).toString(Charsets.UTF_8)
+  }
+
+  private fun secretKey(regenerate: Boolean): SecretKey {
     val keyStore = KeyStore.getInstance(PROVIDER).apply { load(null) }
-    (keyStore.getKey(ALIAS, null) as? SecretKey)?.let { return it }
+    if (!regenerate) {
+      val existing = runCatching { keyStore.getKey(ALIAS, null) as? SecretKey }.getOrNull()
+      if (existing != null) return existing
+    }
+    runCatching { keyStore.deleteEntry(ALIAS) }
     return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, PROVIDER).apply {
       init(
         KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
@@ -74,5 +92,6 @@ internal class PixCredentialStore(context: Context) {
     const val PROVIDER = "AndroidKeyStore"
     const val ALIAS = "pix-scripting-credentials-v1"
     const val TRANSFORMATION = "AES/GCM/NoPadding"
+    const val GCM_IV_BYTES = 12
   }
 }
