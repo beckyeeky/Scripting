@@ -6,6 +6,39 @@ import type { TaskControlToken } from "./downloadTaskManager"
 import { isScriptingProUser } from "../platform/pro"
 import { acquireGlobalKeepAlive, releaseGlobalKeepAlive } from "./backgroundTaskManager"
 
+const DEFAULT_PHOTO_ALBUM_TITLE = "Pix-Scripting"
+
+function photosHost(): any {
+  return typeof Photos === "undefined" ? null : (Photos as any)
+}
+
+/**
+ * 宿主是否具备真实资产查询能力。
+ * Android 宿主的 Photos.fetchAssets 恒返回 []，必须据此跳过无意义的差量轮询；
+ * iOS 宿主未声明该标记，保持原有轮询与归类行为。
+ */
+function canQuerySavedAssets(): boolean {
+  const host = photosHost()
+  return Boolean(host) && host.supportsAssetLookup !== false && typeof host.fetchAssets === "function"
+}
+
+/** 宿主是否支持保存时直接指定相簿（Android 通过 MediaStore RELATIVE_PATH 写入） */
+function supportsAlbumSaveOptions(): boolean {
+  return photosHost()?.supportsAlbumOptions === true
+}
+
+function currentAlbumTitle(): string {
+  return (loadSettings().downloadPhotoAlbumName || DEFAULT_PHOTO_ALBUM_TITLE).trim() || DEFAULT_PHOTO_ALBUM_TITLE
+}
+
+/**
+ * 保存参数：始终透传 fileName；仅宿主显式支持时才附带 albumName，
+ * 保证 iOS Scripting 宿主收到的参数与既有行为完全一致。
+ */
+function photoSaveOptions(fileName?: string): { fileName?: string; albumName?: string } {
+  return supportsAlbumSaveOptions() ? { fileName, albumName: currentAlbumTitle() } : { fileName }
+}
+
 /**
  * 相册保存专用后台保活通道
  * 统一收束至全局保活引用计数中枢，确保相册写入与大下载任务并发时不发生提前注销
@@ -46,7 +79,7 @@ export function invalidateAlbumCache(): void {
  * 获取或自动创建专属相簿（默认 "Pix-Scripting"）
  */
 export async function getOrCreatePixivAlbum(customTitle?: string): Promise<PHAssetCollection | null> {
-  const albumTitle = (customTitle ?? loadSettings().downloadPhotoAlbumName ?? "Pix-Scripting").trim()
+  const albumTitle = (customTitle ?? currentAlbumTitle()).trim() || DEFAULT_PHOTO_ALBUM_TITLE
   if (!albumTitle) return null
 
   if (cachedAlbumInstance && cachedAlbumTitle === albumTitle) {
@@ -185,38 +218,45 @@ export async function saveImageToPixivAlbum(
   return withAlbumKeepAlive(async () => {
     return enqueueAlbumOperation(async () => {
       try {
+        // Android 宿主无资产查询能力：跳过保存前快照与 4 轮空轮询，直接由原生写入相簿
+        const trackAssets = canQuerySavedAssets()
+
         // 1. 保存前记录最新资产快照，用于差量比对精准命中刚存入的照片
         let beforeIds = new Set<string>()
-        try {
-          const beforeAssets = await Photos.fetchAssets({
-            mediaType: "image",
-            limit: 12,
-          })
-          beforeIds = new Set((beforeAssets ?? []).map((a) => a.localIdentifier))
-        } catch (snapErr: any) {
-          console.log("saveImageToPixivAlbum snapshot error:", snapErr?.message ?? snapErr)
+        if (trackAssets) {
+          try {
+            const beforeAssets = await Photos.fetchAssets({
+              mediaType: "image",
+              limit: 12,
+            })
+            beforeIds = new Set((beforeAssets ?? []).map((a) => a.localIdentifier))
+          } catch (snapErr: any) {
+            console.log("saveImageToPixivAlbum snapshot error:", snapErr?.message ?? snapErr)
+          }
         }
 
-        // 2. 写入系统相册
+        // 2. 写入系统相册（透传文件名与相簿名）
         let success = false
         if (typeof source === "string") {
-          success = await Photos.savePhoto(source, { fileName })
+          success = await Photos.savePhoto(source, photoSaveOptions(fileName))
         } else {
-          success = await Photos.savePhoto(source, { fileName })
+          success = await Photos.savePhoto(source, photoSaveOptions(fileName))
         }
         if (!success) return false
 
-        // 3. 差量比对反查刚存入的资产并加入专属相簿
-        try {
-          const album = await getOrCreatePixivAlbum()
-          if (album) {
-            const newlySaved = await findNewlySavedAsset("image", beforeIds)
-            if (newlySaved) {
-              await album.addAssets([newlySaved])
+        // 3. 差量比对反查刚存入的资产并加入专属相簿（仅具备真实查询能力的宿主）
+        if (trackAssets) {
+          try {
+            const album = await getOrCreatePixivAlbum()
+            if (album) {
+              const newlySaved = await findNewlySavedAsset("image", beforeIds)
+              if (newlySaved) {
+                await album.addAssets([newlySaved])
+              }
             }
+          } catch (albumErr: any) {
+            console.log("add image to album error (saved to main library):", albumErr?.message ?? albumErr)
           }
-        } catch (albumErr: any) {
-          console.log("add image to album error (saved to main library):", albumErr?.message ?? albumErr)
         }
 
         return true
@@ -238,33 +278,40 @@ export async function saveVideoToPixivAlbum(
   return withAlbumKeepAlive(async () => {
     return enqueueAlbumOperation(async () => {
       try {
+        // Android 宿主无资产查询能力：跳过快照与空轮询，原生已按 RELATIVE_PATH 写入相簿
+        const trackAssets = canQuerySavedAssets()
+
         // 1. 保存前记录最新视频资产快照
         let beforeIds = new Set<string>()
-        try {
-          const beforeAssets = await Photos.fetchAssets({
-            mediaType: "video",
-            limit: 12,
-          })
-          beforeIds = new Set((beforeAssets ?? []).map((a) => a.localIdentifier))
-        } catch (snapErr: any) {
-          console.log("saveVideoToPixivAlbum snapshot error:", snapErr?.message ?? snapErr)
+        if (trackAssets) {
+          try {
+            const beforeAssets = await Photos.fetchAssets({
+              mediaType: "video",
+              limit: 12,
+            })
+            beforeIds = new Set((beforeAssets ?? []).map((a) => a.localIdentifier))
+          } catch (snapErr: any) {
+            console.log("saveVideoToPixivAlbum snapshot error:", snapErr?.message ?? snapErr)
+          }
         }
 
-        // 2. 写入系统相册
-        const success = await Photos.saveVideo(videoPath, { fileName })
+        // 2. 写入系统相册（透传文件名与相簿名）
+        const success = await Photos.saveVideo(videoPath, photoSaveOptions(fileName))
         if (!success) return false
 
-        // 3. 差量比对反查刚存入的视频并加入专属相簿
-        try {
-          const album = await getOrCreatePixivAlbum()
-          if (album) {
-            const newlySaved = await findNewlySavedAsset("video", beforeIds)
-            if (newlySaved) {
-              await album.addAssets([newlySaved])
+        // 3. 差量比对反查刚存入的视频并加入专属相簿（仅具备真实查询能力的宿主）
+        if (trackAssets) {
+          try {
+            const album = await getOrCreatePixivAlbum()
+            if (album) {
+              const newlySaved = await findNewlySavedAsset("video", beforeIds)
+              if (newlySaved) {
+                await album.addAssets([newlySaved])
+              }
             }
+          } catch (albumErr: any) {
+            console.log("add video to album error (saved to main library):", albumErr?.message ?? albumErr)
           }
-        } catch (albumErr: any) {
-          console.log("add video to album error (saved to main library):", albumErr?.message ?? albumErr)
         }
 
         return true
@@ -296,28 +343,33 @@ export async function saveImagesBatchToPixivAlbum(
 
   return withAlbumKeepAlive(async () => {
     return enqueueAlbumOperation(async () => {
+      // Android 宿主无资产查询能力：跳过快照与批量空轮询，原生按 RELATIVE_PATH 归类
+      const trackAssets = canQuerySavedAssets()
+
       // 1. 保存前单次快照（深度动态扩容，严格覆盖下游反查范围，彻底消除私人照片误入相簿风险）
       let beforeIds = new Set<string>()
-      try {
-        const snapLimit = Math.max(32, Math.min(120, items.length + 32))
-        const beforeAssets = await Photos.fetchAssets({
-          mediaType: "image",
-          limit: snapLimit,
-        })
-        beforeIds = new Set((beforeAssets ?? []).map((a) => a.localIdentifier))
-      } catch (e: any) {
-        console.log("saveImagesBatchToPixivAlbum snapshot error:", e?.message ?? e)
+      if (trackAssets) {
+        try {
+          const snapLimit = Math.max(32, Math.min(120, items.length + 32))
+          const beforeAssets = await Photos.fetchAssets({
+            mediaType: "image",
+            limit: snapLimit,
+          })
+          beforeIds = new Set((beforeAssets ?? []).map((a) => a.localIdentifier))
+        } catch (e: any) {
+          console.log("saveImagesBatchToPixivAlbum snapshot error:", e?.message ?? e)
+        }
       }
 
-      // 2. 连续写入主相册
+      // 2. 连续写入主相册（透传每个文件名与相簿名）
       let savedCount = 0
       for (const it of items) {
         try {
           let ok = false
           if (typeof it.source === "string") {
-            ok = await Photos.savePhoto(it.source, { fileName: it.fileName })
+            ok = await Photos.savePhoto(it.source, photoSaveOptions(it.fileName))
           } else {
-            ok = await Photos.savePhoto(it.source, { fileName: it.fileName })
+            ok = await Photos.savePhoto(it.source, photoSaveOptions(it.fileName))
           }
           if (ok) savedCount++
         } catch (err: any) {
@@ -329,17 +381,19 @@ export async function saveImagesBatchToPixivAlbum(
         return { successCount: 0, totalCount: items.length }
       }
 
-      // 3. 批量差量反查一次并归入相簿
-      try {
-        const album = await getOrCreatePixivAlbum()
-        if (album) {
-          const newAssets = await findNewlySavedAssetsBatch(beforeIds, savedCount)
-          if (newAssets.length > 0) {
-            await album.addAssets(newAssets)
+      // 3. 批量差量反查一次并归入相簿（仅具备真实查询能力的宿主）
+      if (trackAssets) {
+        try {
+          const album = await getOrCreatePixivAlbum()
+          if (album) {
+            const newAssets = await findNewlySavedAssetsBatch(beforeIds, savedCount)
+            if (newAssets.length > 0) {
+              await album.addAssets(newAssets)
+            }
           }
+        } catch (albumErr: any) {
+          console.log("addAssets batch error (saved to main library):", albumErr?.message ?? albumErr)
         }
-      } catch (albumErr: any) {
-        console.log("addAssets batch error (saved to main library):", albumErr?.message ?? albumErr)
       }
 
       return { successCount: savedCount, totalCount: items.length }
