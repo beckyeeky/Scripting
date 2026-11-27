@@ -211,15 +211,53 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
     }
   }.getOrNull()
 
+  private fun isIllegalMediaNameChar(ch: Char): Boolean {
+    return ch.code < 0x20 || ch.code == 0x7F || ch in "<>:\"/\\|?*"
+  }
+
+  private fun sanitizeDisplayName(rawName: String?, fallbackExtension: String): String {
+    val base = (rawName ?: "").trim()
+      .substringAfterLast('/')
+      .substringAfterLast('\\')
+      .map { if (isIllegalMediaNameChar(it)) '_' else it }
+      .joinToString("")
+      .replace(Regex("_+"), "_")
+      .trim()
+    val dot = base.lastIndexOf('.')
+    val rawStem = if (dot > 0) base.substring(0, dot) else base
+    val stem = rawStem.trim(' ', '.', '_').take(60).trim(' ', '.', '_')
+    return if (stem.isEmpty()) "" else "$stem.$fallbackExtension"
+  }
+
+  private fun sanitizeAlbumName(rawName: String?): String {
+    val cleaned = (rawName ?: "").trim()
+      .map { if (isIllegalMediaNameChar(it)) '_' else it }
+      .joinToString("")
+      .replace(Regex("_+"), "_")
+      .trim(' ', '.', '_')
+      .take(60)
+      .trim(' ', '.', '_')
+    return cleaned.ifEmpty { "Pix-Scripting" }
+  }
+
   @ReactMethod
-  fun saveMediaToGallery(filePath: String, mediaType: String, albumName: String, promise: Promise) {
+  fun saveMediaToGallery(
+    filePath: String,
+    mediaType: String,
+    albumName: String,
+    fileName: String?,
+    promise: Promise,
+  ) {
     workerPool.execute {
       try {
         val cleanPath = normalizeFilePath(filePath)
         val src = File(cleanPath)
         require(src.exists() && src.isFile) { "Media file does not exist" }
         val isVideo = mediaType == "video" || cleanPath.endsWith(".mp4", ignoreCase = true)
-        val ext = src.extension.lowercase().ifEmpty { if (isVideo) "mp4" else "jpg" }
+        val sourceExt = src.extension.lowercase().ifEmpty { if (isVideo) "mp4" else "jpg" }
+        val displayName = sanitizeDisplayName(fileName, sourceExt)
+          .ifEmpty { src.name.ifEmpty { "pix_${System.currentTimeMillis()}.$sourceExt" } }
+        val ext = displayName.substringAfterLast('.', sourceExt).lowercase()
         val mime = when (ext) {
           "png" -> "image/png"
           "gif" -> "image/gif"
@@ -227,8 +265,7 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
           "mp4" -> "video/mp4"
           else -> "image/jpeg"
         }
-        val cleanAlbum = albumName.trim().ifEmpty { "Pix-Scripting" }
-        val fileName = src.name.ifEmpty { "pix_${System.currentTimeMillis()}.$ext" }
+        val cleanAlbum = sanitizeAlbumName(albumName)
         val resolver = reactContext.contentResolver
 
         val collection = if (isVideo) {

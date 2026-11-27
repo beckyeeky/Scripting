@@ -11,6 +11,11 @@ import {
 import { polyfillAtob } from "./polyfills"
 import { ScriptingCrypto, ScriptingData, setNativeFsBridgeForData } from "./dataAndCrypto"
 import { scriptingFetch, ScriptingResponse } from "./fetchAndHttp"
+import {
+  mediaExtensionFromPath,
+  resolvePhotoAlbumName,
+  sanitizeAlbumFileName,
+} from "./photoAlbumNaming"
 
 const {
   PixFileSystem,
@@ -771,6 +776,10 @@ const ScriptingSafari = {
 }
 
 const ScriptingPhotos = {
+  // Android 无 PhotoKit 资产反查能力：fetchAssets 恒为空，显式标记以关闭共享层的空轮询
+  supportsAssetLookup: false,
+  // Android 原生保存直接按 fileName + RELATIVE_PATH 写入，支持保存时指定相册
+  supportsAlbumOptions: true,
   async fetchAlbums(_opts?: any): Promise<any[]> {
     return [{ title: "Pix-Scripting", localIdentifier: "pix-scripting-album" }]
   },
@@ -780,7 +789,7 @@ const ScriptingPhotos = {
   async fetchAssets(_opts?: any): Promise<any[]> {
     return []
   },
-  async savePhoto(source: any, opts?: { fileName?: string }): Promise<boolean> {
+  async savePhoto(source: any, opts?: { fileName?: string; albumName?: string }): Promise<boolean> {
     if (!PixImageMedia?.saveMediaToGallery) return false
     let filePath: string | null = null
     if (typeof source === "string") {
@@ -788,19 +797,38 @@ const ScriptingPhotos = {
     } else if (source instanceof ScriptingUIImage && source.filePath) {
       filePath = source.filePath
     } else if (source instanceof ScriptingData) {
-      const tmp = `${dirs.temp}/save_${Date.now()}_${opts?.fileName || "photo.jpg"}`
+      const tempName = sanitizeAlbumFileName(opts?.fileName, "jpg") ?? `photo_${Date.now()}.jpg`
+      const tmp = `${dirs.temp}/save_${Date.now()}_${tempName}`
       ScriptingFileManager.writeAsDataSync(tmp, source)
       filePath = tmp
     } else if (source && typeof source === "object" && source.filePath) {
       filePath = source.filePath
     }
     if (!filePath) return false
-    await PixImageMedia.saveMediaToGallery(filePath, "image", "Pix-Scripting")
+    const fileName = sanitizeAlbumFileName(
+      opts?.fileName,
+      mediaExtensionFromPath(filePath, "image"),
+    )
+    await PixImageMedia.saveMediaToGallery(
+      filePath,
+      "image",
+      resolvePhotoAlbumName(opts?.albumName),
+      fileName,
+    )
     return true
   },
-  async saveVideo(videoPath: string, _opts?: { fileName?: string }): Promise<boolean> {
+  async saveVideo(videoPath: string, opts?: { fileName?: string; albumName?: string }): Promise<boolean> {
     if (!PixImageMedia?.saveMediaToGallery || !videoPath) return false
-    await PixImageMedia.saveMediaToGallery(videoPath, "video", "Pix-Scripting")
+    const fileName = sanitizeAlbumFileName(
+      opts?.fileName,
+      mediaExtensionFromPath(videoPath, "video"),
+    )
+    await PixImageMedia.saveMediaToGallery(
+      videoPath,
+      "video",
+      resolvePhotoAlbumName(opts?.albumName),
+      fileName,
+    )
     return true
   },
   async pickPhotos(limit: number = 1): Promise<ScriptingUIImage[]> {
