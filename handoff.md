@@ -1,5 +1,18 @@
 # 项目交接
 
+## 第三轮：P2（2026-11-27，已合并，未发版）
+
+基线 `176d126`（alpha.5 发布后），4 个 worktree 并行：
+
+1. **隐私遮罩**：设置「内容过滤与隐私 → 禁止截屏与后台预览」，`FLAG_SECURE` 经 `PixSecureScreen` 单例排队下发，`MainActivity.onCreate/onResume` 补应用；OAuth 登录 Dialog 也继承；键名 `pix_privacy_screen_guard_v1` 存 SharedPreferences。
+2. **脱敏诊断导出**：`diagnostics.ts` 递归脱敏（token/secret/cookie/password/authorization、Bearer/JWT、敏感 URL 参数、32+ 位 hex/base64），40 条内存环形错误缓冲 + 设置白名单快照；写 cacheDir 后经 FileProvider `ACTION_SEND` 分享，设置页新增入口。
+3. **SAF 自定义导出目录**：`ACTION_OPEN_DOCUMENT_TREE` + `takePersistableUriPermission`，原生 `writeToExportDirectory` 按 DocumentsContract 写入、重名递增；EPUB/TXT/MP4/GIF/ZIP/CBZ 等导出链优先走所选目录，失效/失败回退并提示。
+4. **瘦身**：release `ndk.abiFilters=arm64-v8a,armeabi-v7a`（debug 不变），`minifyEnabled+shrinkResources` 默认开启、`-PenableR8=false` 可回滚；`proguard-rules.pro` 补 bridge/WebView JSBridge/Hermes/OkHttp/WorkManager keep 规则。
+
+**验证**：根测试 235/235；Android 测试 **134/134**；CI debug `46015144622` success。R8 release 用临时 tag `android-v1.8.14.4-alpha.6-r8check` 实际跑通 `assembleRelease`（仅发布步骤因 tag 与 version.properties 不一致被拦，已删 tag）；产物 **23,156,612 字节**（alpha.5 为 49,406,815，-53%），`lib/` 只剩 arm64-v8a / armeabi-v7a 各 9 个 so。
+
+**注意**：release 不再含 x86/x86_64（模拟器/Chromebook 需用 debug 包）；混淆后崩溃栈需保留 `mapping.txt`；Kotlin 仅 CI 编译，真机未验。
+
 ## 当前发布：Android 预览版 v1.8.14.4-alpha.5（2026-11-27，已发布）
 
 - Tag `android-v1.8.14.4-alpha.5` → `9138209`；CD run `46011848461` success，`isPrerelease=true`、`isDraft=false`、`--latest=false`，iOS `v1.8.14.4-pixivreader` 仍是 Latest。
