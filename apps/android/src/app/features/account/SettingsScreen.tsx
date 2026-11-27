@@ -512,7 +512,7 @@ export function SettingsScreen() {
           />
           <ToggleRow
             title="首图大卡片模式"
-            subtitle="在支持的信息流中以大卡高亮首条推荐作品"
+            subtitle="探索与排行信息流在双列布局下以大卡高亮首条作品"
             value={settings.heroFirstFeedCard}
             onValueChange={(val) => patch({ heroFirstFeedCard: val })}
             isLast={true}

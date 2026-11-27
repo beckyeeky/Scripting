@@ -44,6 +44,12 @@ import { useAppNav } from "../../navigation/NavContext"
 import { useOverlay } from "../../overlay/OverlayHost"
 import { effectiveBottomInset, useSafeInsets } from "../../theme/insets"
 import { useAppTheme } from "../../theme/ThemeProvider"
+import {
+  filterNovelsByMinTextLength,
+  formatMinTextLengthLabel,
+  minTextLengthForLongNovelFilter,
+  NOVEL_LONG_FORM_MIN_TEXT_LENGTH,
+} from "../feeds/novelLengthFilter"
 import { openExternalUrl } from "./mediaHelpers"
 
 type TagFeedKind = "illust" | "novel" | "pixivision"
@@ -80,6 +86,9 @@ export function TagFeedScreen({
   const { display: displayTag, queryKey } = useMemo(() => parseDisplayTag(tag), [tag])
   const [kind, setKind] = useState<TagFeedKind>(initialKind)
   const [sort, setSort] = useState<TagSort>("date_desc")
+  // 仅作用于小说列表；与 iOS v1.8.14.3 一样按 Pixiv text_length 过滤。
+  const [onlyLongNovel, setOnlyLongNovel] = useState(false)
+  const novelMinTextLength = minTextLengthForLongNovelFilter(onlyLongNovel)
   const [tagInfo, setTagInfo] = useState<PixivTagDetail | null>(null)
   const [wikiExpanded, setWikiExpanded] = useState(false)
   const [blocked, setBlocked] = useState<boolean>(() => isTagBlocked(displayTag))
@@ -111,8 +120,12 @@ export function TagFeedScreen({
     [],
   )
   const novelFilter = useCallback(
-    (items: PixivNovel[]) => items.filter((it) => isNovelContentVisible(it)),
-    [],
+    (items: PixivNovel[]) =>
+      filterNovelsByMinTextLength(
+        items.filter((it) => isNovelContentVisible(it)),
+        novelMinTextLength,
+      ),
+    [novelMinTextLength],
   )
 
   const illustFeed = usePixivFeed<PixivIllustration>({
@@ -133,7 +146,7 @@ export function TagFeedScreen({
 
   const novelFeed = usePixivFeed<PixivNovel>({
     enabled: kind === "novel",
-    deps: [displayTag, sort],
+    deps: [displayTag, sort, novelMinTextLength],
     filter: novelFilter,
     fetcher: (token) =>
       searchNovels(
@@ -251,6 +264,37 @@ export function TagFeedScreen({
                   { value: "popular_desc", label: "热门" },
                   { value: "date_asc", label: "最早" },
                 ]}
+                trailing={
+                  kind === "novel" ? (
+                    <Pressable
+                      accessibilityRole="switch"
+                      accessibilityLabel="仅看 8,000 字以上小说"
+                      accessibilityState={{ checked: onlyLongNovel }}
+                      onPress={() => {
+                        try {
+                          triggerHaptic("selection")
+                        } catch {}
+                        setOnlyLongNovel((v) => !v)
+                      }}
+                      style={[
+                        styles.longNovelChip,
+                        {
+                          backgroundColor: onlyLongNovel ? accent : colors.fill,
+                          borderColor: onlyLongNovel ? accent : colors.glassBorder,
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.longNovelChipText,
+                          { color: onlyLongNovel ? "#FFFFFF" : colors.text },
+                        ]}
+                      >
+                        {formatMinTextLengthLabel(NOVEL_LONG_FORM_MIN_TEXT_LENGTH)}
+                      </Text>
+                    </Pressable>
+                  ) : undefined
+                }
               />
             ) : null}
           </View>
@@ -283,6 +327,11 @@ export function TagFeedScreen({
           onRefresh={() => void novelFeed.refresh()}
           onLoadMore={() => void novelFeed.loadMore()}
           emptyTitle={`#${displayTag} 暂无小说`}
+          emptySubtitle={
+            onlyLongNovel
+              ? "已开启「≥8,000 字」过滤，再次点击顶部胶囊可关闭"
+              : undefined
+          }
           ListHeaderComponent={encyclopediaHeader}
         />
       ) : pixivisionFeed.loading && pixivisionFeed.items.length === 0 ? (
@@ -371,6 +420,16 @@ const styles = StyleSheet.create({
   segWrap: {
     paddingHorizontal: 14,
     paddingBottom: 6,
+  },
+  longNovelChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  longNovelChipText: {
+    fontSize: 12,
+    fontWeight: "600",
   },
   wikiCard: {
     marginHorizontal: 12,

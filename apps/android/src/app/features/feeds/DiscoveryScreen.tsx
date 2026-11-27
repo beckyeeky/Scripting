@@ -50,9 +50,11 @@ const MODE_CHIPS: ReadonlyArray<ChipItem<ExploreMode>> = [
 function DiscoveryIllustFeed({
   mode,
   kind,
+  heroFirst,
 }: {
   mode: "recommended" | "latest"
   kind: "illustration" | "manga"
+  heroFirst: boolean
 }) {
   const feed = usePixivFeed<PixivIllustration>({
     fetcher: (token) =>
@@ -71,6 +73,7 @@ function DiscoveryIllustFeed({
       error={feed.error}
       loadMoreError={feed.loadMoreError}
       hasMore={feed.hasMore}
+      heroFirst={heroFirst}
       emptyTitle={mode === "recommended" ? "暂无推荐作品" : "暂无最新作品"}
       emptySubtitle="下拉刷新或检查过滤与屏蔽设置"
       onRefresh={() => void feed.refresh()}
@@ -224,7 +227,11 @@ export function DiscoveryScreen() {
         ) : kind === "novel" ? (
           <DiscoveryNovelFeed mode={mode} />
         ) : (
-          <DiscoveryIllustFeed mode={mode} kind={kind} />
+          <DiscoveryIllustFeed
+            mode={mode}
+            kind={kind}
+            heroFirst={settings.heroFirstFeedCard}
+          />
         )}
       </View>
     </View>

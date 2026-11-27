@@ -72,6 +72,10 @@ import {
   getDefaultAdvancedSearchParams,
   SearchAdvancedSheet,
 } from "./SearchAdvancedSheet"
+import {
+  formatMinTextLengthLabel,
+  matchesMinTextLength,
+} from "./novelLengthFilter"
 
 const AUTOCOMPLETE_DEBOUNCE_MS = 280
 
@@ -277,9 +281,8 @@ function SearchNovelResults({
     fetchMore: (nextURL, token) => nextNovels(nextURL, token),
     filter: (items) => {
       const bl = loadBlocklist()
-      const minLen = params.minTextLength || 0
       return items.filter((item) => {
-        if (minLen > 0 && (item.text_length ?? 0) < minLen) return false
+        if (!matchesMinTextLength(item.text_length, params.minTextLength)) return false
         return isNovelContentVisible(item, effectiveSettings, bl)
       })
     },
@@ -525,6 +528,9 @@ export function SearchScreen() {
       (advParams.minTextLength && advParams.minTextLength > 0),
   )
 
+  const novelLengthLabel =
+    scope === "novel" ? formatMinTextLengthLabel(advParams.minTextLength) : null
+
   function executeSearch(
     rawWord: string,
     overrideScope?: SearchScope,
@@ -761,6 +767,19 @@ export function SearchScreen() {
               >
                 <Text style={[styles.filterPillText, { color: accent }]}>
                   收藏 ≥ {advParams.bookmarkThreshold}
+                </Text>
+              </Pressable>
+            ) : null}
+
+            {novelLengthLabel ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`移除长篇字数筛选 ${novelLengthLabel}`}
+                onPress={() => setAdvParams((prev) => ({ ...prev, minTextLength: 0 }))}
+                style={[styles.filterPill, { backgroundColor: accentSoft, borderColor: accent }]}
+              >
+                <Text style={[styles.filterPillText, { color: accent }]}>
+                  {novelLengthLabel} ✕
                 </Text>
               </Pressable>
             ) : null}
