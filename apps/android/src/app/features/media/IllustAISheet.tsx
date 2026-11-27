@@ -27,11 +27,13 @@ import {
   ScriptingFileManager,
   ScriptingImageRenderer,
 } from "../../../scripting/hostGlobals"
+import { PolyfillAbortController } from "../../../scripting/polyfills"
 import { ActionButton, SegmentedControl } from "../../components"
 import { useAppNav } from "../../navigation/NavContext"
 import { useOverlay } from "../../overlay/OverlayHost"
 import { effectiveBottomInset, useSafeInsets } from "../../theme/insets"
 import { useAppTheme } from "../../theme/ThemeProvider"
+import { computeContainedRect, computeStageAspectRatio, mapBubbleBoxToRect } from "./ocrLayout"
 import { copyToClipboard, getIllustPageCount, shareItems, toFileUri } from "./mediaHelpers"
 
 const { PixImageMedia } = NativeModules
@@ -85,17 +87,21 @@ export function IllustAISheet({
   const [genImage, setGenImage] = useState<{ base64: string; mediaType: string } | null>(null)
   const [savingGen, setSavingGen] = useState(false)
 
-  const signalRef = useRef<{ aborted: boolean }>({ aborted: false })
+  const abortRef = useRef<PolyfillAbortController | null>(null)
   const cleanCaption = useMemo(() => cleanHtmlCaption(illust.caption), [illust.caption])
 
   const abortRunning = useCallback(() => {
-    signalRef.current.aborted = true
+    // PolyfillAbortController 的 signal 暴露 onAbort/addEventListener，
+    // fetchAndHttp 依赖它调用 PixHttp.abortRequest；普通对象不会真正断开原生请求。
+    abortRef.current?.abort()
+    abortRef.current = null
     setRunning(false)
   }, [])
 
   useEffect(() => {
     return () => {
-      signalRef.current.aborted = true
+      abortRef.current?.abort()
+      abortRef.current = null
     }
   }, [])
 
@@ -116,30 +122,33 @@ export function IllustAISheet({
       return
     }
     abortRunning()
-    const sig = { aborted: false }
-    signalRef.current = sig
+    const ctrl = new PolyfillAbortController()
+    abortRef.current = ctrl
     setRunning(true)
     setError(null)
     setCaptionResult("")
     try {
       const out = await streamTranslateText(cleanCaption, {
-        signal: sig,
+        signal: ctrl.signal,
         onChunk: (txt) => {
-          if (!sig.aborted) setCaptionResult(txt)
+          if (!ctrl.signal.aborted) setCaptionResult(txt)
         },
       })
-      if (!sig.aborted && out) setCaptionResult(out)
+      if (!ctrl.signal.aborted && out) setCaptionResult(out)
     } catch (err: any) {
-      if (!sig.aborted) setError(err?.message ?? "翻译失败")
+      if (err?.name !== "AbortError" && !ctrl.signal.aborted) setError(err?.message ?? "翻译失败")
     } finally {
-      if (!sig.aborted) setRunning(false)
+      if (abortRef.current === ctrl) {
+        abortRef.current = null
+        setRunning(false)
+      }
     }
   }, [abortRunning, cleanCaption])
 
   const runOcrAnalyze = useCallback(async () => {
     abortRunning()
-    const sig = { aborted: false }
-    signalRef.current = sig
+    const ctrl = new PolyfillAbortController()
+    abortRef.current = ctrl
     setRunning(true)
     setError(null)
     setOcrText("")
@@ -147,47 +156,53 @@ export function IllustAISheet({
     setHiddenIndices(new Set())
     try {
       const out = await streamVisionTranslateImage(illust, pageIndex, {
-        signal: sig,
+        signal: ctrl.signal,
         onChunk: (txt) => {
-          if (!sig.aborted) setOcrText(txt)
+          if (!ctrl.signal.aborted) setOcrText(txt)
         },
         onImageReady: (filePath) => {
-          if (!sig.aborted) setOcrImagePath(filePath)
+          if (!ctrl.signal.aborted) setOcrImagePath(filePath)
         },
         onBubblesParsed: (bubbles) => {
-          if (!sig.aborted) setOcrBubbles(bubbles)
+          if (!ctrl.signal.aborted) setOcrBubbles(bubbles)
         },
       })
-      if (!sig.aborted && out) setOcrText(out)
+      if (!ctrl.signal.aborted && out) setOcrText(out)
     } catch (err: any) {
-      if (!sig.aborted) setError(err?.message ?? "漫画气泡识别失败")
+      if (err?.name !== "AbortError" && !ctrl.signal.aborted) setError(err?.message ?? "漫画气泡识别失败")
     } finally {
-      if (!sig.aborted) setRunning(false)
+      if (abortRef.current === ctrl) {
+        abortRef.current = null
+        setRunning(false)
+      }
     }
   }, [abortRunning, illust, pageIndex])
 
   const runImageGenTranslate = useCallback(async () => {
     abortRunning()
-    const sig = { aborted: false }
-    signalRef.current = sig
+    const ctrl = new PolyfillAbortController()
+    abortRef.current = ctrl
     setRunning(true)
     setError(null)
     setGenStatus("正在发送图片到多模态生图模型…")
     setGenImage(null)
     try {
       await streamGenerateTranslatedImage(illust, pageIndex, {
-        signal: sig,
+        signal: ctrl.signal,
         onChunk: (txt) => {
-          if (!sig.aborted) setGenStatus(txt)
+          if (!ctrl.signal.aborted) setGenStatus(txt)
         },
         onImageGenerated: (img) => {
-          if (!sig.aborted) setGenImage(img)
+          if (!ctrl.signal.aborted) setGenImage(img)
         },
       })
     } catch (err: any) {
-      if (!sig.aborted) setError(err?.message ?? "重绘汉化失败")
+      if (err?.name !== "AbortError" && !ctrl.signal.aborted) setError(err?.message ?? "重绘汉化失败")
     } finally {
-      if (!sig.aborted) setRunning(false)
+      if (abortRef.current === ctrl) {
+        abortRef.current = null
+        setRunning(false)
+      }
     }
   }, [abortRunning, illust, pageIndex])
 
@@ -302,7 +317,9 @@ export function IllustAISheet({
     setImageBox({ width, height })
   }, [])
 
-  const aspectRatio = Math.max(0.45, Math.min(2.2, naturalSize.width / Math.max(1, naturalSize.height)))
+  const stageAspectRatio = computeStageAspectRatio(naturalSize)
+  // 气泡与预览共用同一套 contain 绘制几何，长条漫两侧留白不再导致坐标错位。
+  const ocrDrawRect = computeContainedRect(imageBox, naturalSize)
   const cleanedOcrMarkdown = useMemo(() => cleanOCRDisplayMarkdown(ocrText), [ocrText])
   const aiConfigured = isAIAvailable()
 
@@ -438,7 +455,7 @@ export function IllustAISheet({
           {ocrImagePath ? (
             <View style={[styles.ocrCanvasWrap, { borderColor: colors.glassBorder }]}>
               <View
-                style={[styles.ocrStage, { aspectRatio }]}
+                style={[styles.ocrStage, { aspectRatio: stageAspectRatio }]}
                 onLayout={handleImageBoxLayout}
               >
                 <Image
@@ -452,14 +469,12 @@ export function IllustAISheet({
                     }
                   }}
                 />
-                {showOverlay && imageBox.width > 0 && imageBox.height > 0
+                {showOverlay && ocrDrawRect.width > 0 && ocrDrawRect.height > 0
                   ? ocrBubbles.map((bubble, idx) => {
                       if (hiddenIndices.has(idx)) return null
-                      const [ymin, xmin, ymax, xmax] = bubble.box_2d
-                      const left = (xmin / 1000) * imageBox.width
-                      const top = (ymin / 1000) * imageBox.height
-                      const width = Math.max(24, ((xmax - xmin) / 1000) * imageBox.width)
-                      const height = Math.max(18, ((ymax - ymin) / 1000) * imageBox.height)
+                      const mapped = mapBubbleBoxToRect(bubble.box_2d, ocrDrawRect)
+                      if (!mapped) return null
+                      const { left, top, width, height } = mapped
                       const isTransparent = bubble.shape === "transparent"
                       const radius =
                         bubble.shape === "ellipse"
@@ -643,7 +658,7 @@ export function IllustAISheet({
 
           {genImage ? (
             <View style={[styles.ocrCanvasWrap, { borderColor: colors.glassBorder }]}>
-              <View style={[styles.ocrStage, { aspectRatio }]}>
+              <View style={[styles.ocrStage, { aspectRatio: stageAspectRatio }]}>
                 <Image
                   source={{ uri: `data:${genImage.mediaType};base64,${genImage.base64}` }}
                   style={StyleSheet.absoluteFill}
