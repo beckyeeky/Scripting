@@ -96,19 +96,26 @@ jobs:
           dest="apps/android/dist/android-v${version}"
           test -s "$dest/Pix-Scripting-Android.apk"
           test -s "$dest/SHA256SUMS"
+          mapping="apps/android/android/app/build/outputs/mapping/release/mapping.txt"
+          assets=("$dest/Pix-Scripting-Android.apk" "$dest/SHA256SUMS")
+          if [[ -f "$mapping" ]]; then
+            cp "$mapping" "$dest/mapping.txt"
+            (cd "$dest" && sha256sum mapping.txt >> SHA256SUMS)
+            assets+=("$dest/mapping.txt")
+          fi
           notes_file="docs/releases/android-${version}.md"
           if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "$dest/Pix-Scripting-Android.apk" "$dest/SHA256SUMS" \
+            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
               --prerelease --latest=false --title "Pix-Scripting Android $version"
           else
             if [[ -f "$notes_file" ]]; then
-              gh release create "$GITHUB_REF_NAME" "$dest/Pix-Scripting-Android.apk" "$dest/SHA256SUMS" \
+              gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
                 --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false \
                 --title "Pix-Scripting Android $version" --notes-file "$notes_file"
             else
-              gh release create "$GITHUB_REF_NAME" "$dest/Pix-Scripting-Android.apk" "$dest/SHA256SUMS" \
+              gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
                 --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease --latest=false \
                 --title "Pix-Scripting Android $version" --generate-notes
             fi
