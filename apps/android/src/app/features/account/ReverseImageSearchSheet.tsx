@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react"
+import React, { useEffect, useRef, useState } from "react"
 import {
   ActivityIndicator,
   Image,
+  NativeModules,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,7 +24,7 @@ import {
   removeSauceNaoApiKey,
   type SauceNaoKeyEntry,
 } from "../../../../../../Pix-Scripting/src/store/sauceNaoStore"
-import { ScriptingPhotos, ScriptingSafari } from "../../../scripting/hostGlobals"
+import { ScriptingPhotos, ScriptingSafari, ScriptingUIImage } from "../../../scripting/hostGlobals"
 import {
   ActionButton,
   SectionCard,
@@ -41,7 +42,45 @@ function maskKey(key: string): string {
   return `${clean.slice(0, 6)}••••${clean.slice(-4)}`
 }
 
-export function ReverseImageSearchSheet({ onClose }: { onClose: () => void }) {
+const PREVIEW_SCHEME = /^(file|content|https?):\/\//
+
+function toPreviewUri(path: string): string {
+  return PREVIEW_SCHEME.test(path) ? path : `file://${path}`
+}
+
+/**
+ * Normalizes an image for `searchImageBySauceNAO`.
+ *
+ * The shared search helper assumes `preparingThumbnail` is synchronous (iOS host),
+ * but the Android host implements it as async. Encoding a bounded JPEG through the
+ * native image module first keeps the upload small and avoids that broken branch.
+ */
+function toSearchableImage(source: any): ScriptingUIImage | null {
+  const filePath = typeof source === "string" ? source : source?.filePath
+  if (!filePath) return null
+
+  const nativeImage = (NativeModules as any)?.PixImageMedia
+  if (nativeImage?.encodeImageToBase64Sync) {
+    try {
+      const base64 = nativeImage.encodeImageToBase64Sync(filePath, "jpeg", 82, 800)
+      if (base64) {
+        const encoded = ScriptingUIImage.fromBase64String(base64)
+        if (encoded) return encoded
+      }
+    } catch {}
+  }
+
+  if (source instanceof ScriptingUIImage) return source
+  return ScriptingUIImage.fromFile(filePath)
+}
+
+export function ReverseImageSearchSheet({
+  onClose,
+  initialImagePath,
+}: {
+  onClose: () => void
+  initialImagePath?: string | null
+}) {
   const { colors, accent, accentSoft, isDark } = useAppTheme()
   const insets = useSafeInsets()
   const nav = useAppNav()
@@ -53,9 +92,12 @@ export function ReverseImageSearchSheet({ onClose }: { onClose: () => void }) {
   const [newKeyInput, setNewKeyInput] = useState("")
 
   const [selectedPreviewUri, setSelectedPreviewUri] = useState<string | null>(null)
+  const [pendingSharedImage, setPendingSharedImage] = useState<ScriptingUIImage | null>(null)
   const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
   const [response, setResponse] = useState<SauceNAOResponse | null>(null)
+  const initialImageHandledRef = useRef<string | null>(null)
+  const searchSeqRef = useRef(0)
 
   useEffect(() => {
     const sync = () => {
@@ -65,6 +107,33 @@ export function ReverseImageSearchSheet({ onClose }: { onClose: () => void }) {
     sync()
     return onSauceNaoKeyChanged(sync)
   }, [])
+
+  // Preload images staged from an Android ACTION_SEND intent: show the preview,
+  // then search immediately when a key exists (or explain what is missing).
+  useEffect(() => {
+    const path = typeof initialImagePath === "string" ? initialImagePath.trim() : ""
+    if (!path || initialImageHandledRef.current === path) return
+    initialImageHandledRef.current = path
+
+    setSelectedPreviewUri(toPreviewUri(path))
+    setPendingSharedImage(null)
+    setResponse(null)
+    setSearchError(null)
+
+    const image = toSearchableImage(path)
+    if (!image) {
+      setSearchError("无法读取分享的图片（可能已被清理或格式不受支持），请重新分享或从相册选择。")
+      return
+    }
+    setPendingSharedImage(image)
+
+    if (getSauceNaoEntries().length === 0) {
+      setShowKeyManager(true)
+      setSearchError("已载入分享的图片，请先添加 SauceNAO API Key 后再检索。")
+      return
+    }
+    void runSearch(image)
+  }, [initialImagePath])
 
   function handleAddKey() {
     const raw = newKeyInput.trim()
@@ -78,6 +147,12 @@ export function ReverseImageSearchSheet({ onClose }: { onClose: () => void }) {
     setEntries(getSauceNaoEntries())
     setStats(getSauceNaoQuotaStats())
     overlay.showToast("已添加 SauceNAO API Key", "success")
+
+    // A shared image is already waiting: adding the first key can search it directly.
+    const pending = pendingSharedImage
+    if (pending && !searching && !response) {
+      void runSearch(pending)
+    }
   }
 
   async function handleClearAllKeys() {
@@ -94,36 +169,18 @@ export function ReverseImageSearchSheet({ onClose }: { onClose: () => void }) {
     overlay.showToast("已清空密钥", "info")
   }
 
-  async function handlePickAndSearch() {
-    if (searching) return
-    if (getSauceNaoEntries().length === 0) {
-      setShowKeyManager(true)
-      setSearchError("请先添加一个 SauceNAO API Key 后再进行搜图。")
-      return
-    }
-
+  async function runSearch(image: ScriptingUIImage) {
+    const seq = ++searchSeqRef.current
     setSearchError(null)
+    setSearching(true)
+    setResponse(null)
     try {
-      const picked = await ScriptingPhotos.pickPhotos(1)
-      if (!picked || picked.length === 0) return
-      const img = picked[0]
-      if (img.filePath) {
-        setSelectedPreviewUri(
-          img.filePath.startsWith("file://") || img.filePath.startsWith("content://")
-            ? img.filePath
-            : `file://${img.filePath}`,
-        )
-      } else {
-        setSelectedPreviewUri(null)
-      }
+      triggerHaptic("light")
+    } catch {}
 
-      setSearching(true)
-      setResponse(null)
-      try {
-        triggerHaptic("light")
-      } catch {}
-
-      const res = await searchImageBySauceNAO(img)
+    try {
+      const res = await searchImageBySauceNAO(image)
+      if (seq !== searchSeqRef.current) return
       setResponse(res)
       setEntries(getSauceNaoEntries())
       setStats(getSauceNaoQuotaStats())
@@ -131,6 +188,7 @@ export function ReverseImageSearchSheet({ onClose }: { onClose: () => void }) {
         setSearchError("未找到相似作品，请尝试换一张更清晰的图。")
       }
     } catch (e: any) {
+      if (seq !== searchSeqRef.current) return
       const msg = e?.message ?? String(e)
       if (msg === "NEED_API_KEY") {
         setShowKeyManager(true)
@@ -141,8 +199,37 @@ export function ReverseImageSearchSheet({ onClose }: { onClose: () => void }) {
       setEntries(getSauceNaoEntries())
       setStats(getSauceNaoQuotaStats())
     } finally {
-      setSearching(false)
+      if (seq === searchSeqRef.current) setSearching(false)
     }
+  }
+
+  async function handlePickAndSearch() {
+    if (searching) return
+    if (getSauceNaoEntries().length === 0) {
+      setShowKeyManager(true)
+      setSearchError("请先添加一个 SauceNAO API Key 后再进行搜图。")
+      return
+    }
+
+    let picked: ScriptingUIImage[] = []
+    try {
+      picked = await ScriptingPhotos.pickPhotos(1)
+    } catch (e: any) {
+      setSearchError(`无法打开相册或读取所选图片：${e?.message ?? String(e)}`)
+      return
+    }
+    if (!picked || picked.length === 0) return
+
+    const image = toSearchableImage(picked[0])
+    if (!image) {
+      setSelectedPreviewUri(null)
+      setSearchError("无法读取所选图片（格式不受支持），请换一张图片重试。")
+      return
+    }
+
+    setSelectedPreviewUri(picked[0].filePath ? toPreviewUri(picked[0].filePath) : null)
+    setPendingSharedImage(null)
+    await runSearch(image)
   }
 
   function openArtwork(pixivId: number) {
@@ -201,10 +288,28 @@ export function ReverseImageSearchSheet({ onClose }: { onClose: () => void }) {
         ) : null}
 
         <ActionButton
-          title={searching ? "正在识别并溯源…" : "从相册选择图片搜图"}
-          onPress={() => void handlePickAndSearch()}
+          title={
+            searching
+              ? "正在识别并溯源…"
+              : pendingSharedImage
+                ? "检索分享的图片"
+                : "从相册选择图片搜图"
+          }
+          onPress={() =>
+            void (pendingSharedImage ? runSearch(pendingSharedImage) : handlePickAndSearch())
+          }
           loading={searching}
         />
+
+        {pendingSharedImage ? (
+          <Pressable
+            onPress={() => void handlePickAndSearch()}
+            disabled={searching}
+            style={[styles.switchImageBtn, searching && { opacity: 0.45 }]}
+          >
+            <Text style={[styles.switchImageText, { color: accent }]}>改从相册选择图片</Text>
+          </Pressable>
+        ) : null}
       </SectionCard>
 
       {/* Multi-Key Manager */}
@@ -507,6 +612,14 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "700",
+  },
+  switchImageBtn: {
+    alignSelf: "center",
+    paddingVertical: 2,
+  },
+  switchImageText: {
+    fontSize: 13,
+    fontWeight: "600",
   },
   hintText: {
     fontSize: 12,
