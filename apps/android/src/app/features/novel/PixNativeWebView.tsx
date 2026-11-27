@@ -157,10 +157,22 @@ export const PixNativeWebView = forwardRef<PixNativeWebViewHandle, PixNativeWebV
           const gen = Number(evt.generation) || 0
           const success = Boolean(evt.success)
           const crashed = Boolean(evt.crashed)
-          const pending = pendingLoadResolvers.current.get(gen)
-          if (pending) {
-            pendingLoadResolvers.current.delete(gen)
-            pending(success)
+          if (crashed) {
+            // Renderer process is gone (onRenderProcessGone). Fail every
+            // in-flight promise immediately instead of waiting for the
+            // load/eval timeouts, and clear the fallback queue: this native
+            // WebView instance is unusable and the owner must remount it.
+            pendingLoadResolvers.current.forEach((resolve) => resolve(false))
+            pendingLoadResolvers.current.clear()
+            pendingEvalResolvers.current.forEach((resolve) => resolve(null))
+            pendingEvalResolvers.current.clear()
+            setFallbackEvalQueue([])
+          } else {
+            const pending = pendingLoadResolvers.current.get(gen)
+            if (pending) {
+              pendingLoadResolvers.current.delete(gen)
+              pending(success)
+            }
           }
           onLoadComplete?.(gen, success, crashed)
         }}

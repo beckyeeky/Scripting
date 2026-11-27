@@ -82,9 +82,20 @@ import { NovelOutlineSearchSheet, type JumpAnchorTarget } from "./NovelOutlineSe
 import { NovelTranslationSheet } from "./NovelTranslationSheet"
 import { NovelTypographySheet } from "./NovelTypographySheet"
 import { PixNativeWebView, type PixNativeWebViewHandle } from "./PixNativeWebView"
+import {
+  EMPTY_CRASH_RECOVERY_STATE,
+  recoveryAnchorFromProgress,
+  shouldRebuildAfterCrash,
+  type NovelCrashRecoveryState,
+} from "./novelReaderRecovery"
 import { useNovelTranslationHook } from "./useNovelTranslationHook"
 
 const READER_THEME_KEY = "android_novel_reader_theme_v1"
+const READER_RESTORE_NOTICE_TIMEOUT_MS = 10_000
+
+type ReaderCrashNotice =
+  | { phase: "restoring"; attempt: number }
+  | { phase: "failed"; attempt: number }
 
 function loadStoredReaderTheme(): NovelReaderThemeId {
   const saved = ScriptingStorage.get<string>(READER_THEME_KEY)
@@ -129,6 +140,23 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
   )
   const [navigatingEpisode, setNavigatingEpisode] = useState(false)
   const [htmlReadyGen, setHtmlReadyGen] = useState(0)
+  // Crash recovery: rebuild the document with a fresh generation and remount
+  // the native WebView (a WebView whose renderer died cannot be reused).
+  const [recoveryDoc, setRecoveryDoc] = useState<{ html: string; generation: number } | null>(
+    null,
+  )
+  const [webViewEpoch, setWebViewEpoch] = useState(0)
+  const [crashNotice, setCrashNotice] = useState<ReaderCrashNotice | null>(null)
+  const crashRecoveryStateRef = useRef<NovelCrashRecoveryState>({
+    ...EMPTY_CRASH_RECOVERY_STATE,
+  })
+  const lastCrashGenerationRef = useRef(0)
+  const lastAnchorRef = useRef<{
+    page: number
+    chunkId: string | null
+    offset: number
+    quote: string
+  } | null>(null)
 
   useEffect(() => {
     return onNovelReaderSettingsChanged((next) => {
@@ -237,28 +265,36 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
     return map
   }, [props.novelId, chunks])
 
-  // Rebuild HTML only when structural layout/content changes (NOT on font size/theme/translation patch)
-  const { html, generation } = useMemo(() => {
-    const gen = ++ownerGenRef.current
-    const doc = buildNovelReaderHtml({
+  // Build a full reader document. Used both by the structural memo below and
+  // by crash recovery (with an explicit anchor + fresh owner generation).
+  const composeReaderHtml = (
+    ownerGeneration: number,
+    anchor: { chunkId?: string | null; page?: number; offset?: number; quote?: string } | null,
+  ) =>
+    buildNovelReaderHtml({
       novelId: props.novelId,
       title: props.title,
       chunks,
       settings: readerSettings,
       readerTheme,
       systemIsDark: isDark,
-      ownerGeneration: gen,
+      ownerGeneration,
       safeTopPx: insets.top,
       safeBottomPx: insets.bottom,
-      initialChunkId: initialJump?.chunkId ?? null,
-      initialPage: initialJump?.page ?? 1,
-      initialAnchor: initialJump,
+      initialChunkId: anchor?.chunkId ?? null,
+      initialPage: anchor?.page ?? 1,
+      initialAnchor: anchor,
       seriesTitle: props.seriesTitle ?? null,
       seriesPrev: props.seriesPrev ?? null,
       seriesNext: props.seriesNext ?? null,
       episodeNumber: props.episodeNumber ?? null,
       initialImages: offlineInitialImages,
     })
+
+  // Rebuild HTML only when structural layout/content changes (NOT on font size/theme/translation patch)
+  const { html, generation } = useMemo(() => {
+    const gen = ++ownerGenRef.current
+    const doc = composeReaderHtml(gen, initialJump)
     return { html: doc, generation: gen }
     // Intentionally omit fontSize/fontWeight/lineSpacing/fontId/readerTheme/isDark so they live-patch smoothly!
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -274,14 +310,25 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
     props.episodeNumber,
   ])
 
+  const activeGeneration = recoveryDoc?.generation ?? generation
+  const activeHtml = recoveryDoc?.html ?? html
+
+  // A structural rebuild replaces the recovered document; drop recovery state
+  // so the freshly built base document is used instead.
+  useEffect(() => {
+    setRecoveryDoc(null)
+    setCrashNotice(null)
+    crashRecoveryStateRef.current = { ...EMPTY_CRASH_RECOVERY_STATE }
+  }, [generation])
+
   // Live-patch typography & theme changes without reloading HTML
   useEffect(() => {
-    if (htmlReadyGen !== generation) return
+    if (htmlReadyGen !== activeGeneration) return
     const script = buildNovelTypographyPatchScript(readerSettings, readerTheme, isDark)
     void webViewRef.current?.evaluateJavaScript(script)
   }, [
     htmlReadyGen,
-    generation,
+    activeGeneration,
     readerSettings.fontId,
     readerSettings.fontSize,
     readerSettings.fontWeight,
@@ -293,17 +340,17 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
 
   // Live-patch translation updates without reloading HTML
   useEffect(() => {
-    if (htmlReadyGen !== generation) return
+    if (htmlReadyGen !== activeGeneration) return
     const script = buildNovelTranslationPatchScript(
       translation.snapshot,
       currentChunkIdRef.current,
     )
     void webViewRef.current?.evaluateJavaScript(script)
-  }, [htmlReadyGen, generation, translation.snapshot])
+  }, [htmlReadyGen, activeGeneration, translation.snapshot])
 
   // Async resolve & inject [uploadedimage:] and [pixivimage:] embedded images
   useEffect(() => {
-    if (htmlReadyGen !== generation) return
+    if (htmlReadyGen !== activeGeneration) return
     let cancelled = false
     const imageChunks = chunks.filter(
       (c) => (c.type === "uploadedimage" || c.type === "pixivimage") && !offlineInitialImages[c.id],
@@ -344,7 +391,7 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
     return () => {
       cancelled = true
     }
-  }, [htmlReadyGen, generation, chunks, offlineInitialImages, props.novelId, props.textEmbeddedImages])
+  }, [htmlReadyGen, activeGeneration, chunks, offlineInitialImages, props.novelId, props.textEmbeddedImages])
 
   const handleThemeChange = useCallback((next: NovelReaderThemeId) => {
     setReaderTheme(next)
@@ -354,9 +401,15 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
   const handleJumpToAnchor = useCallback((target: JumpAnchorTarget, toastText?: string) => {
     if (target.chunkId) currentChunkIdRef.current = target.chunkId
     if (target.page && target.page > 0) setCurrentPage(target.page)
+    lastAnchorRef.current = {
+      page: target.page && target.page > 0 ? target.page : currentPage,
+      chunkId: target.chunkId ?? currentChunkIdRef.current,
+      offset: typeof target.offset === "number" ? target.offset : 0,
+      quote: typeof target.quote === "string" ? target.quote : "",
+    }
     void webViewRef.current?.evaluateJavaScript(buildNovelJumpScript(target))
     if (toastText) overlay.showToast(toastText, "info")
-  }, [overlay])
+  }, [currentPage, overlay])
 
   const openSeriesEpisode = useCallback(
     async (targetId: number) => {
@@ -451,7 +504,16 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
         return
       }
       if (name === "readerReady") {
-        setHtmlReadyGen(ownerGenRef.current)
+        const ownerGeneration = Number(payload?.owner)
+        setHtmlReadyGen(
+          Number.isFinite(ownerGeneration) && ownerGeneration > 0
+            ? ownerGeneration
+            : ownerGenRef.current,
+        )
+        // A loaded document clears the transient notice, but the retry budget
+        // stays: a renderer that dies shortly after every load must not loop
+        // forever. nextRecoveryAttempt expires the budget after the window.
+        setCrashNotice((prev) => (prev?.phase === "restoring" ? null : prev))
         return
       }
       if (name === "onProgressChange") {
@@ -466,6 +528,22 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
         const chunkObj = chunks[chunkIndex]
         const chunkText = chunkObj?.type === "chapter" ? chunkObj.title : chunkObj?.text
         const anchor = anchorFromReaderMessage(payload, chunkText, contentVersion, props.novelId)
+        lastAnchorRef.current = {
+          page,
+          chunkId: chunkId ?? null,
+          offset:
+            typeof anchor?.offset === "number"
+              ? anchor.offset
+              : typeof payload?.offset === "number"
+                ? Math.max(0, payload.offset)
+                : 0,
+          quote:
+            typeof anchor?.quote === "string"
+              ? anchor.quote
+              : typeof payload?.quote === "string"
+                ? payload.quote
+                : "",
+        }
         recordNovelProgress(props.novelId, page, chunkId, false, {
           contentVersion,
           offset: anchor?.offset,
@@ -735,6 +813,66 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
     })
   }, [currentPage, nav, overlay, props.text, props.title])
 
+  // Never leave the "restoring" pill on screen forever if the reloaded
+  // document cannot reach readerReady; turn it into the retry card instead.
+  useEffect(() => {
+    if (crashNotice?.phase !== "restoring") return
+    const timer = setTimeout(() => {
+      setCrashNotice((prev) =>
+        prev?.phase === "restoring" ? { phase: "failed", attempt: prev.attempt } : prev,
+      )
+    }, READER_RESTORE_NOTICE_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [crashNotice])
+
+  const rebuildReaderAfterCrash = (manual: boolean) => {
+    if (manual) {
+      // A user-initiated retry gets a fresh budget; automatic retries stay capped.
+      crashRecoveryStateRef.current = { ...EMPTY_CRASH_RECOVERY_STATE }
+    }
+    const decision = shouldRebuildAfterCrash(
+      { success: false, crashed: true },
+      crashRecoveryStateRef.current,
+      Date.now(),
+    )
+    if (!decision.rebuild) {
+      setCrashNotice({ phase: "failed", attempt: decision.attempt })
+      return
+    }
+    crashRecoveryStateRef.current = decision.state
+
+    const saved = getNovelProgress(props.novelId)
+    const live = lastAnchorRef.current
+    const anchor = recoveryAnchorFromProgress({
+      page: currentPage,
+      chunkId: currentChunkIdRef.current ?? saved?.chunkId ?? null,
+      offset: live?.offset ?? saved?.offset ?? 0,
+      quote: live?.quote ?? saved?.quote ?? "",
+    })
+
+    // Persist synchronously before the reload: even if rebuilding fails, the
+    // reader keeps the position reached before the renderer died.
+    recordNovelProgress(props.novelId, anchor.page, anchor.chunkId ?? undefined, true, {
+      contentVersion,
+      offset: anchor.offset,
+      quote: anchor.quote,
+      chunkIndex: currentChunkIdxRef.current,
+    })
+
+    const nextGeneration = ++ownerGenRef.current
+    let nextHtml = ""
+    try {
+      nextHtml = composeReaderHtml(nextGeneration, anchor)
+    } catch {
+      setCrashNotice({ phase: "failed", attempt: decision.attempt })
+      return
+    }
+    setRecoveryDoc({ html: nextHtml, generation: nextGeneration })
+    // onRenderProcessGone leaves the native WebView unusable; remount it.
+    setWebViewEpoch((value) => value + 1)
+    setCrashNotice({ phase: "restoring", attempt: decision.attempt })
+  }
+
   const readerPalette = resolveReaderThemePalette(readerTheme, isDark)
   const displayTitle =
     translation.snapshot?.mode === "translated" && translation.snapshot.translatedTitle
@@ -750,15 +888,72 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
   return (
     <View style={[styles.root, { backgroundColor: readerPalette.bg }]}>
       <PixNativeWebView
+        key={webViewEpoch}
         ref={webViewRef}
-        initialHtml={html}
-        htmlGeneration={generation}
+        initialHtml={activeHtml}
+        htmlGeneration={activeGeneration}
         onScriptMessage={handleScriptMessage}
-        onLoadComplete={(gen, success) => {
+        onLoadComplete={(gen, success, crashed) => {
+          if (crashed) {
+            // Renderer death is not a user exit: rebuild the same document
+            // (up to the retry budget) instead of leaving a blank WebView.
+            if (gen > 0 && lastCrashGenerationRef.current === gen) return
+            if (gen > 0) lastCrashGenerationRef.current = gen
+            rebuildReaderAfterCrash(false)
+            return
+          }
           if (success) setHtmlReadyGen(gen)
         }}
         style={styles.webview}
       />
+
+      {crashNotice?.phase === "restoring" ? (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.recoveryBanner,
+            {
+              top: insets.top + (showHud ? 54 : 10),
+              backgroundColor: colors.glassBg,
+              borderColor: colors.glassBorder,
+            },
+          ]}
+        >
+          <Text style={[styles.recoveryBannerText, { color: colors.textSecondary }]}>
+            阅读器渲染异常，正在恢复阅读位置…
+          </Text>
+        </View>
+      ) : null}
+
+      {crashNotice?.phase === "failed" ? (
+        <View pointerEvents="box-none" style={styles.recoveryErrorLayer}>
+          <View
+            style={[
+              styles.recoveryErrorCard,
+              {
+                backgroundColor: colors.surfaceElevated,
+                borderColor: colors.separator,
+              },
+            ]}
+          >
+            <Text style={[styles.recoveryErrorTitle, { color: colors.text }]}>
+              阅读器渲染进程已停止
+            </Text>
+            <Text style={[styles.recoveryErrorBody, { color: colors.textSecondary }]}>
+              自动恢复失败。阅读进度已保留，重试后会回到原位置。
+            </Text>
+            <Pressable
+              onPress={() => rebuildReaderAfterCrash(true)}
+              style={({ pressed }) => [
+                styles.recoveryRetryBtn,
+                { backgroundColor: accent, opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <Text style={styles.recoveryRetryText}>重试恢复</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
 
       {/* Safe-area HUD Overlay: pointerEvents="box-none" so WebView receives all body touches/scrolls */}
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
@@ -1006,5 +1201,57 @@ const styles = StyleSheet.create({
   hudLabel: {
     fontSize: 11,
     fontWeight: "500",
+  },
+  recoveryBanner: {
+    position: "absolute",
+    alignSelf: "center",
+    maxWidth: "86%",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 14,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  recoveryBannerText: {
+    fontSize: 12,
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  recoveryErrorLayer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 28,
+  },
+  recoveryErrorCard: {
+    width: "100%",
+    maxWidth: 320,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 18,
+    gap: 8,
+  },
+  recoveryErrorTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  recoveryErrorBody: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  recoveryRetryBtn: {
+    marginTop: 4,
+    alignSelf: "flex-start",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  recoveryRetryText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
   },
 })
