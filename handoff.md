@@ -1,5 +1,21 @@
 # 项目交接
 
+## 进行中：P0 修复轮（2026-11-27，5 个 subagent 并行，未发版）
+
+基线 `a891da6`，5 个独立 worktree 分支并行开发后按序合并（无冲突）：
+
+1. **Ugoira 导出 MP4**（`fix/ugoira-mp4`，`47f113c`）：`encodeUgoiraMp4` 改为只走 `getInputImage` 的 Image plane 路径，移除同帧 `getInputBuffer`；按 `VideoCapabilities.supportedWidths/Heights` 与对齐要求等比规整尺寸；AVC 编码器硬件优先，configure/start 失败回退软编。`PixImageMediaModule.kt` +241/−104。
+2. **小说阅读器排版**（`fix/novel-reader-layout`，`0c558f3`）：竖排改为 html 单一滚动容器（body `overflow: visible`），进度/锚点按排版方向取 scrollX/rect.right，兼容 vertical-rl 负值；补 `.page-divider.paged-break` 分页样式（虚线页界 + 页码胶囊）；`showHud` 读取 `AppSettings.novelImmersiveReaderEnabled` 并订阅设置变化。
+3. **插画 AI 面板**（`fix/illust-ai-abort-ocr`，`766f0d3`）：三处 AI 调用改用 `PolyfillAbortController`，停止能真正触发 `PixHttp.abortRequest`，迟到分片不再覆写；新增 `ocrLayout.ts`（`computeContainedRect`/`mapBubbleBoxToRect`），OCR 预览按 contain 实际绘制区域换算气泡坐标，不再夹 [0.45, 2.2] 比例。
+4. **Web Cookie 同步**（`fix/web-cookie-sync`，`4a3d166`）：原生弹窗新增 `cookieSyncOnly` 与「完成同步」，移除永不匹配的 `pix-scripting://never-auto-close`；关闭/返回/系统 dismiss 先 `CookieManager.flush()` 并回传 `cookieHeader` 与逐域 cookies，JS 新增 `webCookieSync.ts` 做逐域归并与 PHPSESSID 校验。
+5. **系统分享 image/***（`fix/share-image-entry`，`5537544`）：`MainActivity` 把 `ACTION_SEND content://` 图片落为缓存文件，新增 `shareIntent.ts` 分类器与 `reverseImageSearchEntry.tsx`，接现有 SauceNAO 面板并可预填/自动检索；URI 读取失败有可见提示。
+
+**合并与门禁（`feat/android-app` @ merge `f685ceb`）**：根 `npm test` 235/235；`node scripts/syntax-check.cjs` 203 文件 0 语法错误；`apps/android` `tsc --noEmit` 0 错误；Android 测试 53/53（新增 novel-reader 6、illust-ai 3、share-intent 8、web-cookie 14 等）；`git diff --check` 通过。
+
+**未验证**：Kotlin 改动未本地编译（无 JDK/Android SDK），需 CI Gradle 构建；Metro bundle 在 root worktree 因 node_modules 软链 realpath 失败，非代码问题，已在真实工作区复跑；全部真机行为（Ugoira MP4、竖排滚动、停止中断、Cookie 回传、分享图片）仍需设备验收。
+
+**下一轮**：WebView `onRenderProcessGone` 崩溃自愈 + P1 四项（相册文件名/空轮询、小说详情离线插图与翻译入口、通知权限与前台保活、空转开关与 About 元信息）。
+
 ## 当前发布：Android 预览版 v1.8.14.4-alpha.4（2026-11-27，分支 `feat/android-app`，已发布；后续加固 `55d9791` 未发版）
 
 - **修复小说 AI 导读正文反复刷屏**：`apps/android/src/app/features/novel/NovelAISheet.tsx` 的 `onChunk` 把累计正文快照当成增量分片用 `prev + chunk` 拼接，导致每个分片都把当前全文追加一遍，表现为正文不断从头重来、越刷越长（看起来像无限循环提交）。改为整体替换为最新累计快照，导读总结与 AI 续写两条链路同时修正；与 iOS `aiSheet` 的 `throttler.flush` 语义保持一致。
