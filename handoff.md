@@ -1,13 +1,32 @@
 # 项目交接
 
-## 当前发布：Android 预览版 v1.8.14.4-alpha.4（2026-11-27，分支 `feat/android-app`，已发布 + 本地后续加固未发版）
+## 当前发布：Android 预览版 v1.8.14.4-alpha.4（2026-11-27，分支 `feat/android-app`，已发布；后续加固 `55d9791` 未发版）
 
 - **修复小说 AI 导读正文反复刷屏**：`apps/android/src/app/features/novel/NovelAISheet.tsx` 的 `onChunk` 把累计正文快照当成增量分片用 `prev + chunk` 拼接，导致每个分片都把当前全文追加一遍，表现为正文不断从头重来、越刷越长（看起来像无限循环提交）。改为整体替换为最新累计快照，导读总结与 AI 续写两条链路同时修正；与 iOS `aiSheet` 的 `throttler.flush` 语义保持一致。
 - **发布结果（`alpha.4`）**：提交 `abec8deca3295c17e0fe188ad392403c7673c7f4`，标签 `android-v1.8.14.4-alpha.4`，Prerelease `https://github.com/beckyeeky/Scripting/releases/tag/android-v1.8.14.4-alpha.4`（`isPrerelease=true`、`isDraft=false`、`--latest=false`，iOS `v1.8.14.4-pixivreader` 仍为 Latest）。CI Run `45931388852` 与 CD Run `45931391963` 均为 `success`；`Pix-Scripting-Android.apk` 大小 `49,369,951` 字节，SHA-256 `be72232cc2188df78d69018caa9fce5a6d33ecd1349d20f45e1f9a1bfa4e7764`。
-- **本地后续加固（未提交/未发版）**：为 `NovelAISheet.tsx` 的两处 `onChunk` 补充 `!ctrl.signal.aborted` 守卫，并将 `finally` 中的 `setRunning(false)` 移入 `if (abortRef.current === ctrl)` 保护，防止中止后迟到分片覆写正文或旧请求误清后续请求的 `running` 状态；在 `apps/android/tests/novel-ai-sheet-streaming.test.cjs` 新增相应回归用例（Android 测试 25 项）。
+- **后续加固（已提交未发版，`55d9791`）**：为 `NovelAISheet.tsx` 的两处 `onChunk` 补充 `!ctrl.signal.aborted` 守卫，并将 `finally` 中的 `setRunning(false)` 移入 `if (abortRef.current === ctrl)` 保护，防止中止后迟到分片覆写正文或旧请求误清后续请求的 `running` 状态；在 `apps/android/tests/novel-ai-sheet-streaming.test.cjs` 新增相应回归用例（Android 测试 25 项）。
 - **门禁**：`npm test` 235/235；`node scripts/syntax-check.cjs` 203 文件 0 语法错误；`npm --prefix apps/android run typecheck` 0 错误；Android 测试 25/25；Metro bundle 通过（2.6 MB，alpha.4 发布时运行）。
 - **版本**：`apps/android/version.properties` 为 `1.8.14.4-alpha.4`（`versionCode=4`），`docs/releases/android-1.8.14.4-alpha.4.md`。
 - **未验证**：真机上的流式观感、停止按钮、全文/单页切换与缓存行为，以及 `alpha.3` 原生 RN UI / WebView / Ugoira / SAF 全量真机验收。
+
+## Android 路线图（2026-11-27，ACP 咨询 Antigravity）
+
+完整分析见 [`docs/roadmap-android.md`](docs/roadmap-android.md)。摘要：
+
+**P0（alpha.5 前必须修，阻塞真机核心链路）**
+1. Ugoira MP4 编码：`encodeUgoiraMp4` 同循环先 `getInputImage` 再 `getInputBuffer`，会让 `Image` 失效；缺分辨率/16 对齐校验 → 真机大概率直接抛异常。
+2. 小说阅读器：竖排 `html/body` 双滚动容器导致进度失效；`paged` 模式 `.paged-break` 无 CSS；`novelImmersiveReaderEnabled` 开关空转；WebView `onRenderProcessGone` 后白屏不重建。
+3. `IllustAISheet`：signal 用纯对象 `{aborted:false}`，停止不断开原生请求；长条漫 OCR 预览 `contain` 黑边导致气泡坐标错位。
+4. Web Cookie 同步：网页登录点「关闭」走 `cancelled:true`，不回传 `cookieHeader`，反代域 Cookie 丢失。
+5. 系统分享 `image/*`：Manifest 声明了但 `App.tsx` 不分发，点分享静默无反应（或以图搜图接入）。
+
+**P1（beta 前）**：相册保存文件名/相册名与 600ms 空轮询；小说详情离线插图 + 翻译状态/导出元数据 + `≥8,000 字` 过滤；Android 13+ 通知权限与前台服务保活；空转开关与 `AboutScreen` 假包名/版本。
+
+**P2（beta 后期）**：隐私遮罩 `FLAG_SECURE`；脱敏诊断日志导出；SAF 自定义目录接通与 R8/ABI 瘦身。
+
+**阶段**：0 真机基线摸底（logcat 记录）→ 1 `alpha.5`（P0 清零 + 核心链路真机通过）→ 2 `beta.1`（P1 + 双机型/压力/覆盖升级）→ 3 `beta.2`（P2 + 文档收口）。
+
+**最可能翻车的 3 处**：Ugoira MP4（MediaCodec 缓冲/尺寸）、竖排阅读器（滚动容器 + 渲染进程回收）、PKCE 登录 WebView（`; wv` UA 被人机验证拦截 / 反代回调不匹配）。
 
 ## 上一发布：Android 原生 RN 界面架构重构 v1.8.14.4-alpha.3（2026-11-27，分支 `feat/android-app`，已发布）
 
