@@ -593,6 +593,7 @@ test("Android 原生界面全量渲染烟测：LoginScreen、AppShell 与全部 
         }),
         getWindowInsetsSync: () => ({ top: 28, bottom: 24, left: 0, right: 0, imeBottom: 0 }),
         setSystemBarStyle: () => {},
+        setSecureScreen: () => {},
         presentOAuthWebView: async () => ({ url: "" }),
         shareItems: async () => true,
         pickDocument: async () => null,
