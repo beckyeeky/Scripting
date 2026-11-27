@@ -23,7 +23,7 @@ import {
   onNovelProgressChanged,
 } from "../../../../../../Pix-Scripting/src/store/novelProgress"
 import type { PixivNovel, PixivNovelMarker } from "../../../../../../Pix-Scripting/src/types"
-import { ScriptingShareSheet } from "../../../scripting/hostGlobals"
+import { deliverExportFile, exportDeliveryMessage } from "../../../scripting/exportDirectory"
 import {
   ChipBar,
   EmptyView,
@@ -159,7 +159,11 @@ export function NovelLibraryScreen() {
               author: rec.author || "Pixiv",
               content: doc,
             })
-            if (outPath) await ScriptingShareSheet.present([outPath])
+            if (outPath) {
+              const delivery = await deliverExportFile(outPath, { fallback: "share" })
+              const message = exportDeliveryMessage(delivery)
+              overlay.showToast(message?.text ?? "TXT 已导出", message?.tone ?? "success")
+            }
           } else {
             overlay.showToast("正在生成 EPUB…", "info")
             const epubPath = await exportNovelToEpub({
@@ -170,7 +174,11 @@ export function NovelLibraryScreen() {
               coverUrl: rec.coverUrl ?? undefined,
               chapters: [{ id: rec.novelId, title: rec.title, text: rec.text }],
             })
-            if (epubPath) await ScriptingShareSheet.present([epubPath])
+            if (epubPath) {
+              const delivery = await deliverExportFile(epubPath, { fallback: "share" })
+              const message = exportDeliveryMessage(delivery)
+              overlay.showToast(message?.text ?? "EPUB 已生成", message?.tone ?? "success")
+            }
           }
         } catch (err: any) {
           overlay.showToast(`导出失败：${err?.message ?? err}`, "error")

@@ -10,7 +10,7 @@ import {
   View,
   type LayoutChangeEvent,
 } from "react-native"
-import { exportUgoiraToAlbum, exportUgoiraZip } from "../../../../../../Pix-Scripting/src/downloader/ugoiraExporter"
+import { exportUgoiraZip } from "../../../../../../Pix-Scripting/src/downloader/ugoiraExporter"
 import { imageUrlOf, resolveIllustUnderlayUrl } from "../../../../../../Pix-Scripting/src/image/imageLoader"
 import { triggerHaptic } from "../../../../../../Pix-Scripting/src/platform/haptics"
 import type { PixivIllustration } from "../../../../../../Pix-Scripting/src/types"
@@ -20,6 +20,8 @@ import {
   type UgoiraFramesResult,
 } from "../../../../../../Pix-Scripting/src/ugoira/ugoira"
 import { clampedAspectRatio, PixImage } from "../../components"
+import { deliverExportFile, exportDeliveryMessage } from "../../../scripting/exportDirectory"
+import { exportUgoiraToDirectoryOrAlbum } from "../../../scripting/ugoiraExport"
 import { useOverlay } from "../../overlay/OverlayHost"
 import { useAppTheme } from "../../theme/ThemeProvider"
 import { toFileUri } from "./mediaHelpers"
@@ -198,21 +200,31 @@ export function UgoiraPlayer({ illust }: UgoiraPlayerProps) {
       } catch {}
       setExportStatus(kind === "mp4" ? "正在合成 MP4…" : kind === "gif" ? "正在合成 GIF…" : "正在打包 ZIP…")
       try {
-        const res =
-          kind === "zip"
-            ? await exportUgoiraZip(illust, (msg) => setExportStatus(msg))
-            : await exportUgoiraToAlbum(illust, (msg) => setExportStatus(msg), kind)
-        if (res.success) {
-          try {
-            triggerHaptic("success")
-          } catch {}
-          overlay.showToast(
-            kind === "zip" ? "动图原始 ZIP 已保存至下载目录" : `已导出 ${kind.toUpperCase()} 至系统相册`,
-            "success",
-          )
+        if (kind === "zip") {
+          const res = await exportUgoiraZip(illust, (msg) => setExportStatus(msg))
+          if (res.success && res.mp4Path) {
+            const delivery = await deliverExportFile(res.mp4Path, { fallback: "none" })
+            const message = exportDeliveryMessage(delivery)
+            overlay.showToast(message?.text ?? "动图原始 ZIP 已保存至下载目录", message?.tone ?? "success")
+          } else {
+            overlay.showToast(res.error || "导出失败", "error")
+            return
+          }
         } else {
-          overlay.showToast(res.error || "导出失败", "error")
+          const res = await exportUgoiraToDirectoryOrAlbum(illust, (msg) => setExportStatus(msg), kind)
+          if (res.success) {
+            overlay.showToast(
+              res.message ?? (res.destination === "saf" ? "已保存到自定义导出目录" : "已导出至系统相册"),
+              "success",
+            )
+          } else {
+            overlay.showToast(res.error || "导出失败", "error")
+            return
+          }
         }
+        try {
+          triggerHaptic("success")
+        } catch {}
       } catch (err: any) {
         overlay.showToast(err?.message ?? "导出异常", "error")
       } finally {

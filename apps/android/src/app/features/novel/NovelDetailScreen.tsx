@@ -43,7 +43,8 @@ import {
 } from "../../../../../../Pix-Scripting/src/store/novelProgress"
 import type { PixivNovel, PixivNovelDetail } from "../../../../../../Pix-Scripting/src/types"
 import { buildOfflineImageTasks, uploadedImageUrl } from "../../../../../../Pix-Scripting/src/ui/novelOfflineCapture"
-import { ScriptingPasteboard, ScriptingShareSheet } from "../../../scripting/hostGlobals"
+import { ScriptingPasteboard } from "../../../scripting/hostGlobals"
+import { deliverExportFile, exportDeliveryMessage } from "../../../scripting/exportDirectory"
 import {
   ActionButton,
   ErrorView,
@@ -366,8 +367,9 @@ export function NovelDetailScreen({
           })
           const outPath = exportNovelToText({ title, author, content: doc })
           if (outPath) {
-            overlay.showToast("TXT 已导出", "success")
-            await ScriptingShareSheet.present([outPath])
+            const delivery = await deliverExportFile(outPath, { fallback: "share" })
+            const message = exportDeliveryMessage(delivery)
+            overlay.showToast(message?.text ?? "TXT 已导出", message?.tone ?? "success")
           } else {
             overlay.showToast("TXT 导出失败", "error")
           }
@@ -403,8 +405,9 @@ export function NovelDetailScreen({
           ],
         })
         if (epubPath) {
-          overlay.showToast("EPUB 已生成", "success")
-          await ScriptingShareSheet.present([epubPath])
+          const delivery = await deliverExportFile(epubPath, { fallback: "share" })
+          const message = exportDeliveryMessage(delivery)
+          overlay.showToast(message?.text ?? "EPUB 已生成", message?.tone ?? "success")
         } else {
           overlay.showToast("EPUB 生成失败", "error")
         }
