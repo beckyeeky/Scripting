@@ -1,5 +1,13 @@
 # 项目交接
 
+## 当前发布：Android 预览版 v1.8.14.4-alpha.6（2026-11-27，已发布）
+
+- Tag `android-v1.8.14.4-alpha.6` → `f54ac79`；CD run `46018541062` success，`isPrerelease=true`、`isDraft=false`、`--latest=false`，iOS `v1.8.14.4-pixivreader` 仍是 Latest。
+- 内容：P2 四项（隐私遮罩、脱敏诊断导出、SAF 自定义导出目录、R8/ABI 瘦身），详见 `docs/releases/android-1.8.14.4-alpha.6.md`。
+- APK **23,156,612 字节**（alpha.5 为 49,406,815，-53%），SHA-256 `81f7c542661032cd18d4aa8540cfc4ff296395b2d59b7646ceb895f0bf781e38`；附件新增 `mapping.txt`（11,165,505 字节）并纳入 `SHA256SUMS`，校验通过；`unzip -t` 无错。
+- 包名 `com.pixscripting.preview`，`versionCode=6`；release 仅含 arm64-v8a / armeabi-v7a。
+- 安装：https://github.com/beckyeeky/Scripting/releases/tag/android-v1.8.14.4-alpha.6
+
 ## 第三轮：P2（2026-11-27，已合并，未发版）
 
 基线 `176d126`（alpha.5 发布后），4 个 worktree 并行：
