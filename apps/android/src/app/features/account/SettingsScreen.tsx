@@ -73,6 +73,7 @@ import {
 } from "../../settings/privacyScreenGuardRuntime"
 import { effectiveBottomInset, useSafeInsets } from "../../theme/insets"
 import { useAppTheme } from "../../theme/ThemeProvider"
+import { exportDiagnosticsLog } from "./diagnosticsExport"
 import { buildCookieHostList, resolveWebCookieSyncResult } from "./webCookieSync"
 
 const { PixSystemBridge } = NativeModules
@@ -131,6 +132,7 @@ export function SettingsScreen() {
   const [syncingCookie, setSyncingCookie] = useState(false)
   const [exportingSync, setExportingSync] = useState(false)
   const [importingFile, setImportingFile] = useState(false)
+  const [exportingDiagnostics, setExportingDiagnostics] = useState(false)
 
   useEffect(() => {
     const syncS = () => {
@@ -334,6 +336,30 @@ export function SettingsScreen() {
       overlay.showToast("已复制跨设备同步 JSON 到剪贴板", "success")
     } catch (e: any) {
       overlay.showToast(e?.message ?? "复制失败", "error")
+    }
+  }
+
+  async function handleExportDiagnostics() {
+    if (exportingDiagnostics) return
+    const ok = await overlay.confirm({
+      title: "导出诊断日志",
+      message:
+        "将生成已脱敏的 JSON（应用版本、系统版本、关键设置与最近错误），并打开系统分享面板。分享给开发者前请自行确认内容不含隐私信息。",
+      confirmLabel: "生成并分享",
+    })
+    if (!ok) return
+    setExportingDiagnostics(true)
+    try {
+      const result = await exportDiagnosticsLog()
+      if (result.shared) {
+        overlay.showToast("诊断日志已生成，请在分享面板选择发送方式", "success")
+      } else {
+        overlay.showToast("诊断日志已生成，但未打开分享面板", "error")
+      }
+    } catch (e: any) {
+      overlay.showToast(`导出诊断日志失败：${e?.message ?? String(e)}`, "error")
+    } finally {
+      setExportingDiagnostics(false)
     }
   }
 
@@ -867,7 +893,20 @@ export function SettingsScreen() {
           />
         </SectionCard>
 
-        {/* 8. Reset */}
+        {/* 8. Diagnostics */}
+        <SectionHeader title="诊断与支持" />
+        <SectionCard>
+          <SettingRow
+            title="导出诊断日志"
+            subtitle="生成脱敏 JSON（版本、系统、关键设置与最近错误）；分享给开发者前请自行确认内容"
+            value={exportingDiagnostics ? "导出中…" : undefined}
+            showChevron={true}
+            isLast={true}
+            onPress={() => void handleExportDiagnostics()}
+          />
+        </SectionCard>
+
+        {/* 9. Reset */}
         <View style={styles.resetWrap}>
           <ActionButton
             title="恢复所有默认设置"

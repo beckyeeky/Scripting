@@ -9,6 +9,7 @@ import {
 } from "../../../../../../Pix-Scripting/src/api/aiService"
 import { ActionButton, SegmentedControl, ThemedTextInput } from "../../components"
 import { useOverlay } from "../../overlay/OverlayHost"
+import { recordDiagnosticError } from "../../../scripting/diagnostics"
 import { ScriptingPasteboard } from "../../../scripting/hostGlobals"
 import { PolyfillAbortController } from "../../../scripting/polyfills"
 import { effectiveBottomInset, useSafeInsets } from "../../theme/insets"
@@ -94,6 +95,11 @@ export function NovelAISheet({
       }
     } catch (err: any) {
       if (err?.name !== "AbortError" && !ctrl.signal.aborted) {
+        recordDiagnosticError({
+          kind: "ai",
+          code: err?.code || err?.name || "AI_NOVEL_TASK_FAILED",
+          message: err?.message ?? String(err),
+        })
         setError(err?.message ?? String(err))
       }
     } finally {

@@ -346,6 +346,46 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
+  /**
+   * 以固定 MIME 分享单个文件。诊断日志需要 text/json，而 shareItems 依赖
+   * ContentResolver 推断（.json 通常得到 application/json），因此单列入口。
+   */
+  @ReactMethod
+  fun shareFile(filePath: String, mimeType: String, chooserTitle: String, promise: Promise) {
+    val activity = currentActivity
+    if (activity == null) {
+      promise.reject("E_SHARE", "No active Activity")
+      return
+    }
+    try {
+      val source = File(normalizeFilePath(filePath))
+      if (!source.exists() || !source.isFile) {
+        promise.reject("E_SHARE", "File not found: $filePath")
+        return
+      }
+      val target = ensureShareableFile(source)
+      val authority = "${reactContext.packageName}.fileprovider"
+      val uri = FileProvider.getUriForFile(reactContext, authority, target)
+      val intent = Intent(Intent.ACTION_SEND).apply {
+        type = mimeType.ifBlank { "application/octet-stream" }
+        putExtra(Intent.EXTRA_STREAM, uri)
+        clipData = ClipData.newRawUri("Pix-Scripting", uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+      }
+      activity.runOnUiThread {
+        runCatching {
+          activity.startActivity(Intent.createChooser(intent, chooserTitle))
+        }.onSuccess {
+          promise.resolve(true)
+        }.onFailure { error ->
+          promise.reject("E_SHARE", error.message ?: "Share failed", error)
+        }
+      }
+    } catch (e: Exception) {
+      promise.reject("E_SHARE", e.message ?: "Share failed", e)
+    }
+  }
+
   private fun ensureShareableFile(src: File): File {
     val filesRoot = reactContext.filesDir.canonicalPath
     val cacheRoot = reactContext.cacheDir.canonicalPath

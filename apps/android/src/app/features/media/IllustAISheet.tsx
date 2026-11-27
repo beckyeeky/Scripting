@@ -23,6 +23,7 @@ import { saveImageToPixivAlbum } from "../../../../../../Pix-Scripting/src/downl
 import { triggerHaptic } from "../../../../../../Pix-Scripting/src/platform/haptics"
 import type { PixivIllustration } from "../../../../../../Pix-Scripting/src/types"
 import { ScriptingData } from "../../../scripting/dataAndCrypto"
+import { recordDiagnosticError } from "../../../scripting/diagnostics"
 import {
   ScriptingFileManager,
   ScriptingImageRenderer,
@@ -37,6 +38,15 @@ import { computeContainedRect, computeStageAspectRatio, mapBubbleBoxToRect } fro
 import { copyToClipboard, getIllustPageCount, shareItems, toFileUri } from "./mediaHelpers"
 
 const { PixImageMedia } = NativeModules
+
+function recordAIError(err: any, fallbackCode: string): void {
+  if (err?.name === "AbortError") return
+  recordDiagnosticError({
+    kind: "ai",
+    code: err?.code || err?.name || fallbackCode,
+    message: err?.message ?? String(err),
+  })
+}
 
 export type IllustAIMode = "caption" | "ocr" | "imageGen"
 
@@ -136,7 +146,10 @@ export function IllustAISheet({
       })
       if (!ctrl.signal.aborted && out) setCaptionResult(out)
     } catch (err: any) {
-      if (err?.name !== "AbortError" && !ctrl.signal.aborted) setError(err?.message ?? "翻译失败")
+      if (err?.name !== "AbortError" && !ctrl.signal.aborted) {
+        recordAIError(err, "AI_CAPTION_TRANSLATE_FAILED")
+        setError(err?.message ?? "翻译失败")
+      }
     } finally {
       if (abortRef.current === ctrl) {
         abortRef.current = null
@@ -169,7 +182,10 @@ export function IllustAISheet({
       })
       if (!ctrl.signal.aborted && out) setOcrText(out)
     } catch (err: any) {
-      if (err?.name !== "AbortError" && !ctrl.signal.aborted) setError(err?.message ?? "漫画气泡识别失败")
+      if (err?.name !== "AbortError" && !ctrl.signal.aborted) {
+        recordAIError(err, "AI_OCR_FAILED")
+        setError(err?.message ?? "漫画气泡识别失败")
+      }
     } finally {
       if (abortRef.current === ctrl) {
         abortRef.current = null
@@ -197,7 +213,10 @@ export function IllustAISheet({
         },
       })
     } catch (err: any) {
-      if (err?.name !== "AbortError" && !ctrl.signal.aborted) setError(err?.message ?? "重绘汉化失败")
+      if (err?.name !== "AbortError" && !ctrl.signal.aborted) {
+        recordAIError(err, "AI_IMAGE_GEN_FAILED")
+        setError(err?.message ?? "重绘汉化失败")
+      }
     } finally {
       if (abortRef.current === ctrl) {
         abortRef.current = null

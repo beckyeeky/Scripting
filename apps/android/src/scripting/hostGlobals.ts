@@ -71,6 +71,7 @@ const dirs = PixFileSystem?.getDirectoriesSync?.() ?? {
   temp: "/tmp/pix-tmp",
   appGroup: "/tmp/pix-group",
   icloud: "/tmp/pix-docs",
+  cache: "/tmp/pix-tmp/cache",
 }
 
 // 原生 BuildConfig 元信息（只读）。bridge 缺失时返回 null，由调用方决定回退来源。
@@ -117,6 +118,8 @@ const ScriptingFileManager = {
   temporaryDirectory: dirs.temp,
   appGroupDocumentsDirectory: dirs.appGroup,
   iCloudDocumentsDirectory: dirs.icloud,
+  // Android 专属缓存目录；旧 bridge 未返回 cache 时退回临时目录。
+  cacheDirectory: dirs.cache ?? dirs.temp,
   isiCloudEnabled: false,
 
   existsSync(path: string): boolean {
@@ -763,6 +766,22 @@ const ScriptingShareSheet = {
   async present(items: string[]): Promise<boolean> {
     if (!PixSystemBridge?.shareItems) return false
     return Boolean(await PixSystemBridge.shareItems(items || []))
+  },
+  // 诊断日志等需要固定 MIME 的场景：走原生 FileProvider + ACTION_SEND。
+  async presentFile(
+    filePath: string,
+    opts?: { mimeType?: string; title?: string },
+  ): Promise<boolean> {
+    if (!PixSystemBridge?.shareFile) {
+      return await ScriptingShareSheet.present([filePath])
+    }
+    return Boolean(
+      await PixSystemBridge.shareFile(
+        filePath,
+        opts?.mimeType || "application/octet-stream",
+        opts?.title || "分享",
+      ),
+    )
   },
 }
 

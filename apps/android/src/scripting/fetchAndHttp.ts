@@ -1,10 +1,29 @@
 import { DeviceEventEmitter, NativeModules } from "react-native"
 import { decodeUtf8, encodeUtf8 } from "./polyfills"
 import { base64ToBytes, bytesToBase64, ScriptingData } from "./dataAndCrypto"
+import { recordDiagnosticError } from "./diagnostics"
 
 const { PixHttp, PixFileSystem } = NativeModules
 
 let requestSeq = 1
+
+function describeRequestTarget(url: string): string {
+  try {
+    const parsed = new URL(url)
+    return `${parsed.host}${parsed.pathname}`.slice(0, 200)
+  } catch {
+    return String(url || "").replace(/[?#].*$/, "").slice(0, 200)
+  }
+}
+
+function recordHttpFailure(method: string, url: string, status: number): void {
+  if (!Number.isFinite(status) || status < 400) return
+  recordDiagnosticError({
+    kind: "http",
+    code: `HTTP_${status}`,
+    message: `${method} ${describeRequestTarget(url)} → ${status}`,
+  })
+}
 
 function getHeaderIgnoreCase(headers: Record<string, string>, name: string): string | undefined {
   const lower = name.toLowerCase()
@@ -353,6 +372,11 @@ export function isStreamCandidateRequest(
 
 export async function scriptingFetch(url: string, init: any = {}): Promise<ScriptingResponse> {
   if (!PixHttp) {
+    recordDiagnosticError({
+      kind: "http",
+      code: "HTTP_BRIDGE_MISSING",
+      message: "PixHttp native module unavailable",
+    })
     throw new Error("PixHttp native module unavailable")
   }
   const signal = init?.signal
@@ -441,6 +465,7 @@ export async function scriptingFetch(url: string, init: any = {}): Promise<Scrip
         ])
         if (resMeta?.isStream === false) {
           channel.dispose()
+          recordHttpFailure(method, resMeta.url || url, resMeta.status)
           return new ScriptingResponse({
             status: resMeta.status,
             url: resMeta.url || url,
@@ -520,6 +545,7 @@ export async function scriptingFetch(url: string, init: any = {}): Promise<Scrip
         }
       }
 
+      recordHttpFailure(currentMethod, res.url || currentUrl, res.status)
       return new ScriptingResponse({
         status: res.status,
         url: res.url || currentUrl,
@@ -530,10 +556,17 @@ export async function scriptingFetch(url: string, init: any = {}): Promise<Scrip
       })
     }
   } catch (err: any) {
-    if (err?.code === "AbortError" || err?.name === "AbortError") {
+    const aborted = err?.code === "AbortError" || err?.name === "AbortError"
+    if (aborted) {
       throw Object.assign(new Error("Aborted"), { name: "AbortError" })
     }
-    if (err?.code === "TimeoutError" || err?.name === "TimeoutError") {
+    const timedOut = err?.code === "TimeoutError" || err?.name === "TimeoutError"
+    recordDiagnosticError({
+      kind: "http",
+      code: timedOut ? "HTTP_TIMEOUT" : String(err?.code || err?.name || "HTTP_NETWORK_ERROR"),
+      message: `${method} ${describeRequestTarget(url)}: ${err?.message ?? String(err)}`,
+    })
+    if (timedOut) {
       throw Object.assign(new Error(err.message || "Request timed out"), { name: "TimeoutError" })
     }
     throw err
