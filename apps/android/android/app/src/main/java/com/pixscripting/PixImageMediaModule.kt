@@ -7,8 +7,10 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.media.Image
 import android.media.MediaCodec
 import android.media.MediaCodecInfo
+import android.media.MediaCodecList
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.net.Uri
@@ -390,6 +392,179 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
+  private data class UgoiraEncoderTarget(val width: Int, val height: Int)
+
+  private fun ugoiraAvcEncoderCandidates(): List<MediaCodecInfo> {
+    val encoders = runCatching {
+      MediaCodecList(MediaCodecList.REGULAR_CODECS).codecInfos.filter { info ->
+        info.isEncoder && info.supportedTypes.any { type ->
+          type.equals(MediaFormat.MIMETYPE_VIDEO_AVC, ignoreCase = true)
+        }
+      }
+    }.getOrDefault(emptyList<MediaCodecInfo>())
+    // Prefer hardware encoders; fall back to software (OMX.google / c2.android) last.
+    return encoders.filterNot { isSoftwareAvcEncoder(it) } + encoders.filter { isSoftwareAvcEncoder(it) }
+  }
+
+  private fun isSoftwareAvcEncoder(info: MediaCodecInfo): Boolean {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) return info.isSoftwareOnly
+    val name = info.name.lowercase()
+    return name.startsWith("omx.google.") ||
+      name.startsWith("c2.android.") ||
+      name.startsWith("omx.ffmpeg.") ||
+      name.contains(".software.")
+  }
+
+  private fun resolveUgoiraEncoderTarget(
+    info: MediaCodecInfo,
+    sourceWidth: Int,
+    sourceHeight: Int,
+  ): UgoiraEncoderTarget? {
+    val capabilities = runCatching {
+      info.getCapabilitiesForType(MediaFormat.MIMETYPE_VIDEO_AVC)
+    }.getOrNull() ?: return null
+    if (!capabilities.colorFormats.contains(MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)) {
+      return null
+    }
+    val videoCapabilities = capabilities.videoCapabilities ?: return null
+    val (width, height) = fitUgoiraVideoSize(videoCapabilities, sourceWidth, sourceHeight) ?: return null
+    return UgoiraEncoderTarget(width, height)
+  }
+
+  /**
+   * Fits a source frame into an encoder's advertised size range, scaling proportionally and
+   * rounding both dimensions up to the codec alignment (at least 2, so every frame is even).
+   */
+  private fun fitUgoiraVideoSize(
+    capabilities: MediaCodecInfo.VideoCapabilities,
+    sourceWidth: Int,
+    sourceHeight: Int,
+  ): Pair<Int, Int>? {
+    if (sourceWidth <= 0 || sourceHeight <= 0) return null
+    val widthRange = runCatching { capabilities.supportedWidths }.getOrNull() ?: return null
+    val heightRange = runCatching { capabilities.supportedHeights }.getOrNull() ?: return null
+    val widthAlignment = normalizedAlignment(capabilities.widthAlignment)
+    val heightAlignment = normalizedAlignment(capabilities.heightAlignment)
+    val minWidth = alignUp(widthRange.lower, widthAlignment)
+    val maxWidth = alignDown(widthRange.upper, widthAlignment)
+    val minHeight = alignUp(heightRange.lower, heightAlignment)
+    val maxHeight = alignDown(heightRange.upper, heightAlignment)
+    if (minWidth > maxWidth || minHeight > maxHeight) return null
+
+    var scale = 1.0
+    if (sourceWidth > maxWidth || sourceHeight > maxHeight) {
+      scale = min(maxWidth.toDouble() / sourceWidth, maxHeight.toDouble() / sourceHeight)
+    }
+    if (sourceWidth * scale < minWidth || sourceHeight * scale < minHeight) {
+      scale = max(minWidth.toDouble() / sourceWidth, minHeight.toDouble() / sourceHeight)
+    }
+    var width = alignUp((sourceWidth * scale).roundToInt(), widthAlignment).coerceIn(minWidth, maxWidth)
+    var height = alignUp((sourceHeight * scale).roundToInt(), heightAlignment).coerceIn(minHeight, maxHeight)
+
+    // Some encoders cap the pixel count or aspect ratio beyond the simple width/height ranges.
+    repeat(64) {
+      if (runCatching { capabilities.isSizeSupported(width, height) }.getOrDefault(false)) {
+        return width to height
+      }
+      val nextWidth = max(minWidth, alignDown(width * 95 / 100, widthAlignment))
+      val nextHeight = max(minHeight, alignDown(height * 95 / 100, heightAlignment))
+      if (nextWidth == width && nextHeight == height) return null
+      width = nextWidth
+      height = nextHeight
+    }
+    return null
+  }
+
+  private fun normalizedAlignment(alignment: Int): Int {
+    val base = max(2, alignment)
+    return if (base % 2 == 0) base else base * 2
+  }
+
+  private fun alignUp(value: Int, alignment: Int): Int = ((value + alignment - 1) / alignment) * alignment
+
+  private fun alignDown(value: Int, alignment: Int): Int = (value / alignment) * alignment
+
+  private fun decodeUgoiraFrame(
+    path: String,
+    targetWidth: Int,
+    targetHeight: Int,
+    out: IntArray,
+  ): Boolean {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(path, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return false
+    var sampleSize = 1
+    while (bounds.outWidth / (sampleSize * 2) >= targetWidth && bounds.outHeight / (sampleSize * 2) >= targetHeight) {
+      sampleSize *= 2
+    }
+    val options = BitmapFactory.Options().apply {
+      inSampleSize = sampleSize
+      inPreferredConfig = Bitmap.Config.ARGB_8888
+    }
+    val decoded = BitmapFactory.decodeFile(path, options) ?: return false
+    var scaled: Bitmap? = null
+    return try {
+      if (decoded.width != targetWidth || decoded.height != targetHeight) {
+        scaled = Bitmap.createScaledBitmap(decoded, targetWidth, targetHeight, true)
+      }
+      (scaled ?: decoded).getPixels(out, 0, targetWidth, 0, 0, targetWidth, targetHeight)
+      true
+    } finally {
+      if (scaled != null && scaled !== decoded) scaled.recycle()
+      decoded.recycle()
+    }
+  }
+
+  /**
+   * Writes one ARGB frame into the encoder's flexible-YUV Image. Only Image planes are used;
+   * getInputBuffer is never called for this index because that would invalidate the Image.
+   */
+  private fun writeUgoiraImage(image: Image, argb: IntArray, width: Int, height: Int) {
+    val planes = image.planes
+    require(planes.size >= 3) { "Encoder input image exposes ${planes.size} planes" }
+    val yPlane = planes[0]
+    val uPlane = planes[1]
+    val vPlane = planes[2]
+    val yBuffer = yPlane.buffer
+    val uBuffer = uPlane.buffer
+    val vBuffer = vPlane.buffer
+
+    for (row in 0 until height) {
+      var yIndex = row * yPlane.rowStride
+      var pixelIndex = row * width
+      repeat(width) {
+        val color = argb[pixelIndex++]
+        val r = (color ushr 16) and 0xFF
+        val g = (color ushr 8) and 0xFF
+        val b = color and 0xFF
+        val y = (((66 * r + 129 * g + 25 * b + 128) shr 8) + 16).coerceIn(0, 255)
+        yBuffer.put(yIndex, y.toByte())
+        yIndex += yPlane.pixelStride
+      }
+    }
+
+    val uvWidth = width / 2
+    val uvHeight = height / 2
+    for (uvRow in 0 until uvHeight) {
+      var uIndex = uvRow * uPlane.rowStride
+      var vIndex = uvRow * vPlane.rowStride
+      var pixelIndex = uvRow * 2 * width
+      repeat(uvWidth) {
+        val color = argb[pixelIndex]
+        val r = (color ushr 16) and 0xFF
+        val g = (color ushr 8) and 0xFF
+        val b = color and 0xFF
+        val u = (((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128).coerceIn(0, 255)
+        val v = (((112 * r - 94 * g - 18 * b + 128) shr 8) + 128).coerceIn(0, 255)
+        uBuffer.put(uIndex, u.toByte())
+        vBuffer.put(vIndex, v.toByte())
+        uIndex += uPlane.pixelStride
+        vIndex += vPlane.pixelStride
+        pixelIndex += 2
+      }
+    }
+  }
+
   @ReactMethod
   fun encodeUgoiraMp4(framesDir: String, framesJson: String, outputPath: String, promise: Promise) {
     workerPool.execute {
@@ -400,28 +575,57 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
       try {
         val frames = JSONArray(framesJson)
         require(frames.length() > 0) { "Empty frames" }
-        val firstObj = frames.getJSONObject(0)
-        val firstBmp = BitmapFactory.decodeFile(File(framesDir, firstObj.getString("file")).absolutePath)
-          ?: error("Cannot decode first ugoira frame")
-        val width = (firstBmp.width + 1) and -2
-        val height = (firstBmp.height + 1) and -2
-        firstBmp.recycle()
+        val firstPath = File(framesDir, frames.getJSONObject(0).getString("file")).absolutePath
+        val firstBounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(firstPath, firstBounds)
+        require(firstBounds.outWidth > 0 && firstBounds.outHeight > 0) {
+          "Cannot decode first ugoira frame"
+        }
 
         val outFile = File(outputPath)
         outFile.parentFile?.mkdirs()
         tmpOut = File(outFile.parentFile, ".tmp-${outFile.name}-${System.nanoTime()}")
         if (tmpOut.exists()) tmpOut.delete()
 
-        val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
-          setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
-          setInteger(MediaFormat.KEY_BIT_RATE, 4_000_000)
-          setInteger(MediaFormat.KEY_FRAME_RATE, 30)
-          setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+        var activeTarget: UgoiraEncoderTarget? = null
+        var configureError: Exception? = null
+        for (info in ugoiraAvcEncoderCandidates()) {
+          val candidate = resolveUgoiraEncoderTarget(info, firstBounds.outWidth, firstBounds.outHeight)
+            ?: continue
+          val format = MediaFormat.createVideoFormat(
+            MediaFormat.MIMETYPE_VIDEO_AVC,
+            candidate.width,
+            candidate.height,
+          ).apply {
+            setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
+            setInteger(MediaFormat.KEY_BIT_RATE, 4_000_000)
+            setInteger(MediaFormat.KEY_FRAME_RATE, 30)
+            setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1)
+          }
+          val candidateCodec = try {
+            MediaCodec.createByCodecName(info.name)
+          } catch (e: Exception) {
+            configureError = e
+            continue
+          }
+          try {
+            candidateCodec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
+            candidateCodec.start()
+            codec = candidateCodec
+            activeTarget = candidate
+            break
+          } catch (e: Exception) {
+            configureError = e
+            runCatching { candidateCodec.stop() }
+            runCatching { candidateCodec.release() }
+          }
         }
-
-        codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
-        codec.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
-        codec.start()
+        val encoderError = "No usable AVC encoder (${configureError?.message ?: "no compatible encoder"})"
+        val selectedCodec = codec ?: error(encoderError)
+        val target = activeTarget ?: error(encoderError)
+        val width = target.width
+        val height = target.height
+        val yuvFrameBytes = width * height * 3 / 2
 
         muxer = MediaMuxer(tmpOut.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         val bufferInfo = MediaCodec.BufferInfo()
@@ -433,7 +637,7 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
           var emptyPolls = 0
           val maxEmptyPolls = if (waitForEos) 400 else 1 // ~4s max wait for EOS
           while (!outputDone) {
-            val outIndex = codec!!.dequeueOutputBuffer(bufferInfo, timeoutUs)
+            val outIndex = selectedCodec.dequeueOutputBuffer(bufferInfo, timeoutUs)
             when {
               outIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
                 if (!waitForEos) break
@@ -444,19 +648,19 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
               outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                 emptyPolls = 0
                 check(!muxerStarted)
-                trackIndex = muxer!!.addTrack(codec!!.outputFormat)
+                trackIndex = muxer!!.addTrack(selectedCodec.outputFormat)
                 muxer!!.start()
                 muxerStarted = true
               }
               outIndex >= 0 -> {
                 emptyPolls = 0
-                val encodedData = codec!!.getOutputBuffer(outIndex)
+                val encodedData = selectedCodec.getOutputBuffer(outIndex)
                 if (encodedData != null && (bufferInfo.flags and MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0 && bufferInfo.size > 0 && muxerStarted) {
                   encodedData.position(bufferInfo.offset)
                   encodedData.limit(bufferInfo.offset + bufferInfo.size)
                   muxer!!.writeSampleData(trackIndex, encodedData, bufferInfo)
                 }
-                codec!!.releaseOutputBuffer(outIndex, false)
+                selectedCodec.releaseOutputBuffer(outIndex, false)
                 if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
                   outputDone = true
                   break
@@ -466,73 +670,16 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
           }
         }
 
-        val yuvFrameBytes = width * height * 3 / 2
-
-        fun queueYuvFrame(argb: IntArray, bmpW: Int, bmpH: Int, ptsUs: Long) {
+        fun queueYuvFrame(argb: IntArray, ptsUs: Long) {
           var attempts = 0
           while (attempts < 400) {
-            val inIndex = codec!!.dequeueInputBuffer(10_000)
+            val inIndex = selectedCodec.dequeueInputBuffer(10_000)
             if (inIndex >= 0) {
-              val img = runCatching { codec!!.getInputImage(inIndex) }.getOrNull()
-              val buf = codec!!.getInputBuffer(inIndex) ?: error("Encoder input buffer unavailable")
-              val queuedSize: Int
-              if (img != null && img.planes.size >= 3) {
-                val yPlane = img.planes[0]
-                val uPlane = img.planes[1]
-                val vPlane = img.planes[2]
-                val yBuf = yPlane.buffer
-                val uBuf = uPlane.buffer
-                val vBuf = vPlane.buffer
-                val yRowStride = yPlane.rowStride
-                val yPixStride = yPlane.pixelStride
-                val uRowStride = uPlane.rowStride
-                val uPixStride = uPlane.pixelStride
-                val vRowStride = vPlane.rowStride
-                val vPixStride = vPlane.pixelStride
-
-                for (row in 0 until height) {
-                  for (col in 0 until width) {
-                    val px = if (col < bmpW && row < bmpH) argb[row * bmpW + col] else Color.BLACK
-                    val r = (px ushr 16) and 0xFF
-                    val g = (px ushr 8) and 0xFF
-                    val b = px and 0xFF
-                    val yVal = (((66 * r + 129 * g + 25 * b + 128) shr 8) + 16).coerceIn(0, 255)
-                    yBuf.put(row * yRowStride + col * yPixStride, yVal.toByte())
-                    if ((row and 1) == 0 && (col and 1) == 0) {
-                      val uVal = (((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128).coerceIn(0, 255)
-                      val vVal = (((112 * r - 94 * g - 18 * b + 128) shr 8) + 128).coerceIn(0, 255)
-                      val uvRow = row ushr 1
-                      val uvCol = col ushr 1
-                      uBuf.put(uvRow * uRowStride + uvCol * uPixStride, uVal.toByte())
-                      vBuf.put(uvRow * vRowStride + uvCol * vPixStride, vVal.toByte())
-                    }
-                  }
-                }
-                queuedSize = min(buf.capacity(), max(yuvFrameBytes, buf.limit()))
-              } else {
-                // Fallback when encoder does not expose Image planes: pack NV12 (YUV420SemiPlanar) directly
-                buf.clear()
-                val ySize = width * height
-                val outArr = ByteArray(yuvFrameBytes)
-                var uvIndex = ySize
-                for (row in 0 until height) {
-                  for (col in 0 until width) {
-                    val px = if (col < bmpW && row < bmpH) argb[row * bmpW + col] else Color.BLACK
-                    val r = (px ushr 16) and 0xFF
-                    val g = (px ushr 8) and 0xFF
-                    val b = px and 0xFF
-                    outArr[row * width + col] = (((66 * r + 129 * g + 25 * b + 128) shr 8) + 16).coerceIn(0, 255).toByte()
-                    if ((row and 1) == 0 && (col and 1) == 0 && uvIndex + 1 < outArr.size) {
-                      outArr[uvIndex++] = (((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128).coerceIn(0, 255).toByte()
-                      outArr[uvIndex++] = (((112 * r - 94 * g - 18 * b + 128) shr 8) + 128).coerceIn(0, 255).toByte()
-                    }
-                  }
-                }
-                val copyLen = min(buf.capacity(), outArr.size)
-                buf.put(outArr, 0, copyLen)
-                queuedSize = copyLen
-              }
-              codec!!.queueInputBuffer(inIndex, 0, queuedSize, ptsUs, 0)
+              // Use only the Image plane path. Calling getInputBuffer here would invalidate it.
+              val image = selectedCodec.getInputImage(inIndex)
+                ?: error("Encoder did not expose an input image")
+              writeUgoiraImage(image, argb, width, height)
+              selectedCodec.queueInputBuffer(inIndex, 0, yuvFrameBytes, ptsUs, 0)
               drainEncoder(false)
               return
             }
@@ -542,35 +689,25 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
           error("MP4 encoder timed out waiting for input buffer")
         }
 
+        val frameArgb = IntArray(width * height)
         var ptsUs = 0L
-        var lastArgb: IntArray? = null
-        var lastBmpW = width
-        var lastBmpH = height
         for (i in 0 until frames.length()) {
           val fObj = frames.getJSONObject(i)
           val framePath = File(framesDir, fObj.getString("file")).absolutePath
           val delayMs = max(10, fObj.optInt("delay", 50))
-          val bmp = BitmapFactory.decodeFile(framePath) ?: error("Missing frame $framePath")
-          val argb = IntArray(bmp.width * bmp.height)
-          bmp.getPixels(argb, 0, bmp.width, 0, 0, bmp.width, bmp.height)
-          val bw = bmp.width
-          val bh = bmp.height
-          bmp.recycle()
-
-          queueYuvFrame(argb, bw, bh, ptsUs)
+          if (!decodeUgoiraFrame(framePath, width, height, frameArgb)) {
+            error("Missing frame $framePath")
+          }
+          queueYuvFrame(frameArgb, ptsUs)
           ptsUs += delayMs * 1000L
-          lastArgb = argb
-          lastBmpW = bw
-          lastBmpH = bh
         }
-        if (lastArgb != null) {
-          queueYuvFrame(lastArgb, lastBmpW, lastBmpH, ptsUs)
-        }
+        // Keep the final frame on screen for its own delay before EOS.
+        queueYuvFrame(frameArgb, ptsUs)
         var eosQueued = false
         for (attempt in 0 until 400) {
-          val eosIdx = codec!!.dequeueInputBuffer(10_000)
+          val eosIdx = selectedCodec.dequeueInputBuffer(10_000)
           if (eosIdx >= 0) {
-            codec!!.queueInputBuffer(eosIdx, 0, 0, ptsUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
+            selectedCodec.queueInputBuffer(eosIdx, 0, 0, ptsUs, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
             eosQueued = true
             break
           }
@@ -578,8 +715,8 @@ class PixImageMediaModule(private val reactContext: ReactApplicationContext) :
         }
         if (!eosQueued) error("MP4 encoder timed out queuing EOS")
         drainEncoder(true)
-        codec.stop()
-        codec.release()
+        selectedCodec.stop()
+        selectedCodec.release()
         codec = null
         if (muxerStarted) muxer.stop()
         muxerStarted = false
