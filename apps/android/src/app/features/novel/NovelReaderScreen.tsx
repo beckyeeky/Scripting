@@ -66,6 +66,7 @@ import { useOverlay } from "../../overlay/OverlayHost"
 import { effectiveBottomInset, useSafeInsets } from "../../theme/insets"
 import { useAppTheme } from "../../theme/ThemeProvider"
 import { NovelAISheet } from "./NovelAISheet"
+import { resolveNovelExportMetadata } from "./novelExportMetadata"
 import {
   buildNovelImagePatchScript,
   buildNovelJumpScript,
@@ -159,6 +160,11 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
   const chunks = useMemo(
     () => parseNovelToChunks(props.text, props.textEmbeddedImages),
     [props.text, props.textEmbeddedImages],
+  )
+  // 导出元数据：详情页/书库传入真实作者与标签，旧调用缺失时才回退占位
+  const exportMeta = useMemo(
+    () => resolveNovelExportMetadata({ route: props }),
+    [props.author, props.tags, props.isR18],
   )
   const contentVersion = useMemo(
     () => computeNovelContentVersion(props.text),
@@ -369,6 +375,9 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
         let nextPrev: { id: number; title?: string } | null = null
         let nextNext: { id: number; title?: string } | null = null
         let nextEp: number | null = offline?.episodeNumber ?? null
+        let nextAuthor: string | undefined = offline?.author ?? props.author
+        let nextTags: string[] | undefined = offline?.tags ?? props.tags
+        let nextIsR18 = Boolean(props.isR18)
 
         try {
           const [detail, viewer] = await Promise.all([
@@ -390,6 +399,13 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
               ? { id: detail.series_next.id, title: detail.series_next.title }
               : null
             nextEp = detail.episode_number ?? nextEp
+            const meta = resolveNovelExportMetadata({
+              detail,
+              route: { author: nextAuthor, tags: nextTags, isR18: nextIsR18 },
+            })
+            nextAuthor = meta.author
+            nextTags = meta.tags
+            nextIsR18 = meta.isR18
           }
         } catch (err) {
           if (!nextText) throw err
@@ -407,6 +423,9 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
           text: nextText,
           coverUrl: nextCover,
           textEmbeddedImages: nextEmbedded,
+          author: nextAuthor,
+          tags: nextTags,
+          isR18: nextIsR18,
           seriesId: nextSeriesId,
           seriesTitle: nextSeriesTitle,
           seriesPrev: nextPrev,
@@ -419,7 +438,7 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
         setNavigatingEpisode(false)
       }
     },
-    [navigatingEpisode, nav, overlay, props.seriesId, props.seriesTitle],
+    [navigatingEpisode, nav, overlay, props.author, props.isR18, props.seriesId, props.seriesTitle, props.tags],
   )
 
   const handleScriptMessage = useCallback(
@@ -501,6 +520,8 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
         coverUrl: props.coverUrl ?? null,
         seriesId: props.seriesId ?? null,
         episodeNumber: props.episodeNumber ?? null,
+        author: props.author,
+        tags: props.tags,
       })
       if (!saved) {
         overlay.showToast("离线保存失败", "error")
@@ -586,14 +607,14 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
       if (chosen.includes("TXT")) {
         const doc = buildNovelPlainTextDocument({
           title: exportTitle,
-          author: "",
+          author: exportMeta.author,
           caption: props.caption,
           text: exportText,
           sourceUrl: `https://www.pixiv.net/novel/show.php?id=${props.novelId}`,
         })
         const outPath = exportNovelToText({
           title: exportTitle,
-          author: "Pixiv",
+          author: exportMeta.author,
           content: doc,
         })
         if (outPath) {
@@ -616,9 +637,11 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
       const epubPath = await exportNovelToEpub({
         id: props.novelId,
         title: exportTitle,
-        author: "Pixiv",
+        author: exportMeta.author,
         seriesTitle: props.seriesTitle ?? undefined,
         description: props.caption,
+        tags: exportMeta.tags,
+        isR18: exportMeta.isR18,
         coverUrl: props.coverUrl ?? undefined,
         chapters: [
           {
@@ -639,7 +662,7 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
     } catch (err: any) {
       overlay.showToast(`导出失败：${err?.message ?? err}`, "error")
     }
-  }, [chunks, isOfflineSaved, overlay, props, saveOffline])
+  }, [chunks, exportMeta, isOfflineSaved, overlay, props, saveOffline])
 
   const openOutlineSearch = useCallback(
     (initialTab: "outline" | "search") => {

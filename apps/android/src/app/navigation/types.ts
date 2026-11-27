@@ -47,6 +47,10 @@ export type Route =
       text: string
       coverUrl?: string | null
       textEmbeddedImages?: Record<string, TextEmbeddedImage>
+      /** 导出元数据：详情页/书库传入真实作者，缺失时才回退 */
+      author?: string
+      tags?: string[]
+      isR18?: boolean
       initialPage?: number
       initialChunkId?: string | null
       seriesId?: number | null
