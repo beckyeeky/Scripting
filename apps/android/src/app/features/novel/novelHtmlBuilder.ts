@@ -534,8 +534,9 @@ export function buildNovelReaderHtml(opts: BuildNovelReaderHtmlOptions): string 
 
   const layoutCss = isVertical
     ? `
-    html, body {
-      height: 100vh;
+    /* 竖排：只让 html（视口滚动器）承担滚动，body 保持 visible，避免 Chromium 双滚动容器 */
+    html {
+      height: 100%;
       overflow-x: auto;
       overflow-y: hidden;
       writing-mode: vertical-rl;
@@ -543,9 +544,17 @@ export function buildNovelReaderHtml(opts: BuildNovelReaderHtmlOptions): string 
       text-orientation: mixed;
       -webkit-text-orientation: mixed;
     }
+    body {
+      height: 100%;
+      overflow: visible;
+      writing-mode: vertical-rl;
+      -webkit-writing-mode: vertical-rl;
+      text-orientation: mixed;
+      -webkit-text-orientation: mixed;
+    }
     .reader-container {
       box-sizing: border-box;
-      height: 100vh;
+      height: 100%;
       padding: calc(var(--safe-top) + 32px) 24px calc(var(--safe-bottom) + 32px) 24px;
     }
     .vertical-header {
@@ -660,6 +669,36 @@ export function buildNovelReaderHtml(opts: BuildNovelReaderHtmlOptions): string 
     }
     `
 
+  // 分页模式此前只挂 .paged-break 类而无任何样式；这里给出可见页界（页码胶囊 + 断点）
+  const pagedBreakChrome = isVertical
+    ? `margin: 0 2em;
+      padding-right: 26px;
+      border-right: 2px dashed var(--border-color);`
+    : `margin: 48px 0 34px 0;
+      padding-top: 26px;
+      border-top: 2px dashed var(--border-color);`
+  const pagedCss = isPaged
+    ? `
+    .page-divider.paged-break {
+      ${pagedBreakChrome}
+      break-before: page;
+      page-break-before: always;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+    .page-divider.paged-break span {
+      display: inline-block;
+      padding: 7px 18px;
+      border: 1px solid var(--border-color);
+      border-radius: 999px;
+      background: var(--card-color);
+      color: var(--muted-color);
+      font-size: 0.78em;
+      letter-spacing: 0.14em;
+    }
+    `
+    : ""
+
   return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -690,6 +729,7 @@ export function buildNovelReaderHtml(opts: BuildNovelReaderHtmlOptions): string 
       overflow-wrap: anywhere;
     }
     ${layoutCss}
+    ${pagedCss}
     .novel-series-tag {
       font-size: 0.8em;
       color: var(--accent-color);
@@ -815,16 +855,83 @@ ${NOVEL_READER_RUNTIME_JS}
         window.scrollTo(0, 0);
       };
 
+      // 竖排的滚动轴是横向（vertical-rl 下 scrollX 为 0 或负值），横排仍是纵向
+      function scrollAxisMetrics() {
+        var root = document.scrollingElement || document.documentElement;
+        var viewport = isVertical
+          ? (window.innerWidth || (root && root.clientWidth) || 0)
+          : (window.innerHeight || (root && root.clientHeight) || 0);
+        var content = root ? (isVertical ? root.scrollWidth : root.scrollHeight) : 0;
+        var max = Math.max(1, content - viewport);
+        var position = 0;
+        if (isVertical) {
+          // 单一滚动容器应为 html/视口；同时兜底 body，兼容 Chromium 的 RTL 负值约定
+          var candidates = [
+            typeof window.scrollX === "number" ? window.scrollX : 0,
+            root ? root.scrollLeft : 0,
+            document.body ? document.body.scrollLeft : 0
+          ];
+          for (var i = 0; i < candidates.length; i++) {
+            var value = typeof candidates[i] === "number" ? candidates[i] : 0;
+            if (Math.abs(value) > Math.abs(position)) position = value;
+          }
+          position = Math.abs(position);
+        } else {
+          position = Math.max(
+            0,
+            (typeof window.scrollY === "number" ? window.scrollY : 0) ||
+              (root ? root.scrollTop : 0) ||
+              (document.body ? document.body.scrollTop : 0) ||
+              0
+          );
+        }
+        return { position: position, max: max, ratio: Math.max(0, Math.min(1, position / max)) };
+      }
+
+      // 与 NovelReaderRuntime.computeAnchor 同构，但按排版方向选取阅读边（竖排取 rect.right）
+      function computeAxisAnchor(entryEl, readingEdge) {
+        if (!entryEl) return null;
+        var runtime = window.NovelReaderRuntime;
+        var chunkId = entryEl.getAttribute
+          ? entryEl.getAttribute("data-chunk-id") || entryEl.id
+          : entryEl.id;
+        if (!chunkId) return null;
+        var parts = runtime && runtime.subElements ? runtime.subElements(entryEl) : [entryEl];
+        var textOf = runtime && runtime.textOf
+          ? runtime.textOf
+          : function (el) { return el.innerText || el.textContent || ""; };
+        var offset = 0;
+        var best = 0;
+        var bestDistance = Infinity;
+        for (var i = 0; i < parts.length; i++) {
+          var rect = parts[i].getBoundingClientRect ? parts[i].getBoundingClientRect() : { top: 0, right: 0 };
+          var edge = isVertical
+            ? (rect && typeof rect.right === "number" ? rect.right : 0)
+            : (rect && typeof rect.top === "number" ? rect.top : 0);
+          var distance = Math.abs(edge - readingEdge);
+          if (distance < bestDistance) { bestDistance = distance; best = offset; }
+          offset += textOf(parts[i]).length + 1;
+        }
+        var text = textOf(entryEl);
+        var start = Math.min(Math.max(0, best), Math.max(0, text.length - 1));
+        var quote = "";
+        if (text.length > 0) {
+          while (start < text.length && /\\s/.test(text.charAt(start))) start++;
+          quote = text.substr(start, 40).replace(/\\s+/g, " ").trim();
+        }
+        return { chunkId: chunkId, offset: best, quote: quote };
+      }
+
       function reportProgress() {
         var chunks = window.NovelReaderRuntime ? window.NovelReaderRuntime.chunkElements() : [];
         if (!chunks.length) return;
+        var readingEdge = isVertical ? window.innerWidth * 0.85 : 80;
         var chosen = chunks[0];
         var bestDist = Infinity;
-        var refPos = isVertical ? window.innerWidth * 0.85 : 80;
         for (var i = 0; i < chunks.length; i++) {
           var rect = chunks[i].getBoundingClientRect();
-          var pos = isVertical ? rect.right : rect.top;
-          var dist = Math.abs(pos - refPos);
+          var edge = isVertical ? rect.right : rect.top;
+          var dist = Math.abs(edge - readingEdge);
           if (dist < bestDist) {
             bestDist = dist;
             chosen = chunks[i];
@@ -833,12 +940,8 @@ ${NOVEL_READER_RUNTIME_JS}
         var chunkId = chosen.getAttribute("data-chunk-id") || chosen.id;
         var chunkIndex = parseInt(chosen.getAttribute("data-chunk-index") || "0", 10) || 0;
         var page = parseInt(chosen.getAttribute("data-page") || "1", 10) || 1;
-        var computed = window.NovelReaderRuntime ? window.NovelReaderRuntime.computeAnchor(chosen, 80) : null;
-        var maxScroll = isVertical
-          ? Math.max(1, document.documentElement.scrollWidth - window.innerWidth)
-          : Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
-        var curScroll = isVertical ? Math.abs(window.scrollX) : Math.max(0, window.scrollY);
-        var ratio = Math.max(0, Math.min(1, curScroll / maxScroll));
+        var computed = computeAxisAnchor(chosen, readingEdge);
+        var metrics = scrollAxisMetrics();
         postNovelMessage("onProgressChange", {
           novelId: novelId,
           page: page,
@@ -846,7 +949,7 @@ ${NOVEL_READER_RUNTIME_JS}
           chunkIndex: chunkIndex,
           offset: computed ? computed.offset : 0,
           quote: computed ? computed.quote : "",
-          ratio: ratio
+          ratio: metrics.ratio
         });
       }
 

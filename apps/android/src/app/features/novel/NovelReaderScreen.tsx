@@ -45,6 +45,7 @@ import {
   onNovelReaderSettingsChanged,
   type NovelReaderSettings,
 } from "../../../../../../Pix-Scripting/src/store/novelReaderSettings"
+import { loadSettings, onSettingsChanged } from "../../../../../../Pix-Scripting/src/store/settings"
 import {
   anchorFromReaderMessage,
   readerJumpPayload,
@@ -104,7 +105,11 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
     props.initialChunkId ?? getNovelProgress(props.novelId)?.chunkId ?? null,
   )
   const currentChunkIdxRef = useRef<number>(0)
-  const [showHud, setShowHud] = useState(true)
+  // novelImmersiveReaderEnabled 在 AppSettings（设置页「小说沉浸阅读模式」），默认开启时才隐藏上下栏
+  const immersiveReaderRef = useRef<boolean>(loadSettings().novelImmersiveReaderEnabled)
+  const [showHud, setShowHud] = useState<boolean>(
+    () => !loadSettings().novelImmersiveReaderEnabled,
+  )
   const [readerSettings, setReaderSettings] = useState<NovelReaderSettings>(() =>
     loadNovelReaderSettings(),
   )
@@ -127,6 +132,15 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
   useEffect(() => {
     return onNovelReaderSettingsChanged((next) => {
       setReaderSettings(next)
+    })
+  }, [])
+
+  useEffect(() => {
+    return onSettingsChanged(() => {
+      const next = loadSettings().novelImmersiveReaderEnabled
+      if (next === immersiveReaderRef.current) return
+      immersiveReaderRef.current = next
+      setShowHud(!next)
     })
   }, [])
 
@@ -412,6 +426,8 @@ export function NovelReaderScreen(props: Extract<Route, { name: "novelReader" }>
     (name: string, payload: any, _gen: number) => {
       if (payload?.owner != null && payload.owner !== ownerGenRef.current) return
       if (name === "toggleControls") {
+        // 未开启沉浸模式时上下栏常驻，轻触正文不隐藏
+        if (!immersiveReaderRef.current) return
         setShowHud((v) => !v)
         return
       }

@@ -228,3 +228,305 @@ test("buildNovelTranslationPatchScript / Typography / Image / Jump 脚本结构�
   assert.ok(jumpScript.includes("NovelReaderRuntime.jumpToAnchor"))
   assert.ok(jumpScript.includes("chunk-4"))
 })
+
+const MESSAGE_NAMES = [
+  "onProgressChange",
+  "readerReady",
+  "toggleControls",
+  "openLink",
+  "openIllust",
+  "jumpToPage",
+  "onSeriesNav",
+]
+
+function makeChunkElement(spec) {
+  return {
+    id: spec.id,
+    innerText: spec.text || "",
+    textContent: spec.text || "",
+    getAttribute(name) {
+      return Object.prototype.hasOwnProperty.call(spec.attrs, name) ? spec.attrs[name] : null
+    },
+    getBoundingClientRect() {
+      return spec.rect
+    },
+  }
+}
+
+/**
+ * 在 vm 中执行 buildNovelReaderHtml 注入的内联脚本，用替身 DOM/滚动容器捕获进度消息。
+ * 只替换宿主边界（DOM 与 NovelReaderRuntime），进度与锚点换算仍走生成脚本的真实实现。
+ */
+function runReaderDocumentScript(html, env) {
+  const match = html.match(/<script>([\s\S]*?)<\/script>/)
+  assert.ok(match, "reader inline script not found")
+
+  const messages = []
+  const scrollListeners = []
+  const timers = []
+  const handlers = {}
+  for (const name of MESSAGE_NAMES) {
+    handlers[name] = {
+      postMessage(payload) {
+        messages.push({ name, payload: JSON.parse(JSON.stringify(payload)) })
+      },
+    }
+  }
+
+  const chunks = env.chunks.map(makeChunkElement)
+  const root = {
+    scrollWidth: env.scrollWidth,
+    scrollHeight: env.scrollHeight,
+    scrollLeft: env.rootScrollLeft || 0,
+    scrollTop: env.rootScrollTop || 0,
+    clientWidth: env.innerWidth,
+    clientHeight: env.innerHeight,
+    style: { setProperty() {} },
+  }
+  const body = {
+    scrollLeft: env.bodyScrollLeft || 0,
+    scrollTop: env.bodyScrollTop || 0,
+    style: {},
+  }
+  const windowObj = {
+    innerWidth: env.innerWidth,
+    innerHeight: env.innerHeight,
+    scrollX: env.scrollX || 0,
+    scrollY: env.scrollY || 0,
+    addEventListener(type, handler) {
+      if (type === "scroll") scrollListeners.push(handler)
+    },
+    scrollTo() {},
+    webkit: { messageHandlers: handlers },
+    setTimeout(fn) {
+      timers.push(fn)
+      return timers.length
+    },
+    clearTimeout() {},
+    getSelection() {
+      return null
+    },
+  }
+  windowObj.window = windowObj
+
+  const documentObj = {
+    readyState: "complete",
+    documentElement: root,
+    body,
+    scrollingElement: root,
+    getElementById(id) {
+      return chunks.find((el) => el.id === id) || null
+    },
+    querySelectorAll() {
+      return []
+    },
+    addEventListener() {},
+  }
+
+  const context = vm.createContext({
+    window: windowObj,
+    document: documentObj,
+    setTimeout: windowObj.setTimeout,
+    clearTimeout: windowObj.clearTimeout,
+    console,
+    Math,
+    Date,
+    JSON,
+    Object,
+    Array,
+    String,
+    Number,
+    Boolean,
+    RegExp,
+    parseInt,
+    Infinity,
+  })
+  vm.runInContext(match[1], context, { filename: "novel-reader-inline.js" })
+
+  // 用确定性替身替换运行时，只验证生成脚本的阅读边/滚动轴换算
+  const runtime = {
+    chunkElements: () => chunks,
+    computeAnchor: () => ({ offset: 999, quote: "stub" }),
+    subElements: (el) => [el],
+    textOf: (el) => el.innerText || "",
+    noteScroll() {},
+    markProgrammatic() {},
+    jumpToAnchor: () => ({ matched: "start", chunkId: null }),
+    scrollElementIntoView: () => true,
+  }
+  windowObj.NovelReaderRuntime = runtime
+
+  for (const listener of scrollListeners) listener()
+  assert.ok(timers.length > 0, "scroll listener did not schedule a progress report")
+  timers[timers.length - 1]()
+
+  return messages.filter((m) => m.name === "onProgressChange").map((m) => m.payload)
+}
+
+function buildSettings(overrides) {
+  return { ...DEFAULT_SETTINGS, ...overrides }
+}
+
+test("竖排只输出单一滚动容器，进度按横向滚动轴（含 RTL 负值/body 兜底）换算", () => {
+  const builder = loadNovelHtmlBuilder()
+  const raw = ["第一页正文", "[newpage]", "第二页正文"].join("\n")
+  const chunks = builder.parseNovelToChunks(raw)
+  const verticalHtml = builder.buildNovelReaderHtml({
+    novelId: 7,
+    title: "縦書き",
+    chunks,
+    settings: buildSettings({ layoutDirection: "vertical" }),
+    readerTheme: "light",
+    systemIsDark: false,
+    ownerGeneration: 3,
+  })
+
+  // html 是唯一滚动容器；body 不再声明 overflow-x/height:100vh
+  assert.equal(
+    (verticalHtml.match(/overflow-x: auto/g) || []).length,
+    1,
+    "vertical document must declare exactly one horizontal scroll container",
+  )
+  assert.ok(verticalHtml.includes("body {\n      height: 100%;\n      overflow: visible;"))
+  assert.ok(!verticalHtml.includes("html, body {\n      height: 100vh;"))
+
+  // 横排行为保持不变
+  const horizontalHtml = builder.buildNovelReaderHtml({
+    novelId: 7,
+    title: "横向",
+    chunks,
+    settings: buildSettings({ layoutDirection: "horizontal" }),
+    readerTheme: "light",
+    systemIsDark: false,
+    ownerGeneration: 4,
+  })
+  assert.ok(horizontalHtml.includes("overflow-x: hidden"))
+  assert.ok(horizontalHtml.includes("overflow-y: auto"))
+  assert.equal((horizontalHtml.match(/overflow-x: auto/g) || []).length, 0)
+
+  const chunkSpecs = [
+    {
+      id: "chunk-1",
+      text: "第一页正文",
+      attrs: { "data-chunk-id": "chunk-1", "data-chunk-index": "0", "data-page": "1" },
+      rect: { top: 0, right: 500, left: 380, bottom: 800 },
+    },
+    {
+      id: "chunk-2",
+      text: "第二页正文",
+      attrs: { "data-chunk-id": "chunk-2", "data-chunk-index": "1", "data-page": "2" },
+      rect: { top: 0, right: 340, left: 180, bottom: 800 },
+    },
+  ]
+
+  // 竖排：right=340 命中 innerWidth*0.85，scrollX=-1800 / (4000-400) = 0.5
+  const verticalMessages = runReaderDocumentScript(verticalHtml, {
+    innerWidth: 400,
+    innerHeight: 800,
+    scrollWidth: 4000,
+    scrollHeight: 800,
+    scrollX: -1800,
+    rootScrollLeft: -1800,
+    chunks: chunkSpecs,
+  })
+  assert.equal(verticalMessages.length, 1)
+  assert.equal(verticalMessages[0].chunkId, "chunk-2")
+  assert.equal(verticalMessages[0].page, 2)
+  assert.equal(verticalMessages[0].ratio, 0.5)
+  assert.equal(verticalMessages[0].quote, "第二页正文")
+
+  // 只有 body.scrollLeft 有值时也能拿到真实进度（900/3600 = 0.25）
+  const bodyFallbackMessages = runReaderDocumentScript(verticalHtml, {
+    innerWidth: 400,
+    innerHeight: 800,
+    scrollWidth: 4000,
+    scrollHeight: 800,
+    scrollX: 0,
+    rootScrollLeft: 0,
+    bodyScrollLeft: -900,
+    chunks: chunkSpecs,
+  })
+  assert.equal(bodyFallbackMessages[0].ratio, 0.25)
+
+  // 横排：仍按 rect.top / scrollY 计算（450/1200 = 0.375）
+  const horizontalMessages = runReaderDocumentScript(horizontalHtml, {
+    innerWidth: 400,
+    innerHeight: 600,
+    scrollWidth: 400,
+    scrollHeight: 1800,
+    scrollY: 450,
+    chunks: [
+      { ...chunkSpecs[0], rect: { top: 10, right: 400, left: 0, bottom: 200 } },
+      { ...chunkSpecs[1], rect: { top: 74, right: 400, left: 0, bottom: 260 } },
+    ],
+  })
+  assert.equal(horizontalMessages.length, 1)
+  assert.equal(horizontalMessages[0].chunkId, "chunk-2")
+  assert.equal(horizontalMessages[0].ratio, 0.375)
+})
+
+test("paged 模式输出可见分页样式，continuous 模式不输出 paged-break", () => {
+  const builder = loadNovelHtmlBuilder()
+  const chunks = builder.parseNovelToChunks(["第一页正文", "[newpage]", "第二页正文"].join("\n"))
+
+  const pagedHtml = builder.buildNovelReaderHtml({
+    novelId: 8,
+    title: "分页",
+    chunks,
+    settings: buildSettings({ pageDisplayMode: "paged" }),
+    readerTheme: "light",
+    systemIsDark: false,
+    ownerGeneration: 5,
+  })
+  assert.ok(pagedHtml.includes('class="page-divider paged-break"'))
+  assert.ok(pagedHtml.includes(".page-divider.paged-break {"))
+  assert.ok(pagedHtml.includes("break-before: page"))
+  assert.ok(pagedHtml.includes("page-break-before: always"))
+  assert.ok(pagedHtml.includes("border-radius: 999px"))
+  // 分页只改分隔样式，不改变 chunk 结构（翻译原位替换依赖这些节点）
+  assert.ok(pagedHtml.includes('class="text-chunk-block" data-chunk-id="chunk-0"'))
+  assert.ok(pagedHtml.includes("window.NovelReaderRuntime"))
+
+  const continuousHtml = builder.buildNovelReaderHtml({
+    novelId: 8,
+    title: "连续",
+    chunks,
+    settings: buildSettings({ pageDisplayMode: "continuous" }),
+    readerTheme: "light",
+    systemIsDark: false,
+    ownerGeneration: 6,
+  })
+  assert.ok(continuousHtml.includes('class="page-divider"'))
+  assert.ok(!continuousHtml.includes("paged-break"))
+
+  // 竖排分页同样有页界，且不影响竖排单一滚动容器
+  const verticalPagedHtml = builder.buildNovelReaderHtml({
+    novelId: 8,
+    title: "縦書き分頁",
+    chunks,
+    settings: buildSettings({ layoutDirection: "vertical", pageDisplayMode: "paged" }),
+    readerTheme: "dark",
+    systemIsDark: true,
+    ownerGeneration: 7,
+  })
+  assert.ok(verticalPagedHtml.includes('class="page-divider paged-break"'))
+  assert.equal((verticalPagedHtml.match(/overflow-x: auto/g) || []).length, 1)
+})
+
+test("NovelReaderScreen 的 HUD 初始值与设置项 novelImmersiveReaderEnabled 接线", () => {
+  const screenPath = path.resolve(
+    __dirname,
+    "../src/app/features/novel/NovelReaderScreen.tsx",
+  )
+  const source = fs.readFileSync(screenPath, "utf8")
+
+  // 初始值来自设置项，而不是硬编码 useState(true)
+  assert.ok(source.includes("loadSettings().novelImmersiveReaderEnabled"))
+  assert.ok(source.includes("() => !loadSettings().novelImmersiveReaderEnabled"))
+  assert.ok(!source.includes("const [showHud, setShowHud] = useState(true)"))
+  // 设置变化时生效（订阅 onSettingsChanged 并刷新 HUD）
+  assert.ok(source.includes("onSettingsChanged("))
+  assert.ok(source.includes("if (next === immersiveReaderRef.current) return"))
+  // 未开启沉浸时轻触正文不应隐藏上下栏
+  assert.ok(source.includes("if (!immersiveReaderRef.current) return"))
+})
