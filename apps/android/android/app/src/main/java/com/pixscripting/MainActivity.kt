@@ -38,6 +38,7 @@ data class PendingAppIntent(
   val url: String?,
   val text: String?,
   val files: List<SharedFileEntry>,
+  val failedFileCount: Int = 0,
   val receivedAt: Long,
 )
 
@@ -205,13 +206,15 @@ object PixIntentHolder {
       }
       val text = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()?.takeIf { it.isNotBlank() }
       val files = uris.mapNotNull { uri -> stageContentUri(context, uri) }
-      if (files.isEmpty() && text == null) return false
+      val failedFileCount = (uris.size - files.size).coerceAtLeast(0)
+      if (files.isEmpty() && text == null && failedFileCount == 0) return false
       synchronized(lock) {
         latest = PendingAppIntent(
           kind = "share",
           url = null,
           text = text,
           files = files,
+          failedFileCount = failedFileCount,
           receivedAt = System.currentTimeMillis(),
         )
       }
@@ -231,6 +234,7 @@ object PixIntentHolder {
     val map = Arguments.createMap()
     map.putString("kind", entry.kind)
     map.putDouble("receivedAt", entry.receivedAt.toDouble())
+    map.putInt("failedFileCount", entry.failedFileCount)
     if (entry.url != null) map.putString("url", entry.url) else map.putNull("url")
     if (entry.text != null) map.putString("text", entry.text) else map.putNull("text")
     val arr = Arguments.createArray()

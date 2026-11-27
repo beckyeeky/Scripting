@@ -38,6 +38,8 @@ import { AppShell } from "./src/app/navigation/AppShell"
 import { NavProvider } from "./src/app/navigation/NavContext"
 import { parseDeepLinkUrl } from "./src/app/navigation/routeParser"
 import { OverlayProvider, useOverlay } from "./src/app/overlay/OverlayHost"
+import { openReverseImageSearch } from "./src/app/features/account/reverseImageSearchEntry"
+import { resolveIncomingIntent } from "./src/app/intents/shareIntent"
 import { LoginScreen } from "./src/app/screens/LoginScreen"
 import { ThemeProvider, useAppTheme } from "./src/app/theme/ThemeProvider"
 
@@ -150,61 +152,80 @@ function AppBootstrapStage({
   useEffect(() => {
     if (!bootstrapped) return
 
+    const handleImported = (message: string, authChanged: boolean) => {
+      overlayRef.current.showToast(message, "success")
+      if (authChanged) onLoggedInChanged(session.isAuthenticated)
+    }
+
     const handleIncomingIntent = (intent: any) => {
       if (!intent) return
-      if (intent.kind === "url" && intent.url) {
-        const route = parseDeepLinkUrl(intent.url)
-        if (route) {
-          seedIfRoute(route)
-          requestPixivRoute(route)
-        }
-        void PixSystemBridge?.clearIntent?.()
-        return
-      }
-      if (intent.kind === "share") {
-        const firstFile = Array.isArray(intent.files) ? intent.files[0] : null
-        if (firstFile?.filePath) {
-          const lower = String(firstFile.name || firstFile.filePath).toLowerCase()
-          if (lower.endsWith(".zip")) {
+      try {
+        const plan = resolveIncomingIntent(intent)
+        switch (plan.type) {
+          case "url": {
+            const route = parseDeepLinkUrl(plan.url)
+            if (route) {
+              seedIfRoute(route)
+              requestPixivRoute(route)
+            }
+            break
+          }
+          case "share-image": {
+            // System gallery share: the native bridge already staged the content://
+            // URI into the app cache, so hand that path straight to SauceNAO.
+            openReverseImageSearch(overlayRef.current, { initialImagePath: plan.filePath })
+            break
+          }
+          case "share-archive": {
             overlayRef.current.openIosImport({
-              initialZipPath: firstFile.filePath,
-              onImported: (msg, authChanged) => {
-                overlayRef.current.showToast(msg, "success")
-                if (authChanged) onLoggedInChanged(session.isAuthenticated)
-              },
+              initialZipPath: plan.filePath,
+              onImported: handleImported,
             })
-          } else if (
-            lower.endsWith(".json") ||
-            String(firstFile.mimeType || "").includes("json") ||
-            String(firstFile.mimeType || "").startsWith("text/")
-          ) {
+            break
+          }
+          case "share-json":
+          case "share-text-file": {
             try {
-              const content = ScriptingFileManager.readAsStringSync(firstFile.filePath)
+              const content = ScriptingFileManager.readAsStringSync(plan.filePath)
               overlayRef.current.openIosImport({
                 initialJsonText: content,
-                onImported: (msg, authChanged) => {
-                  overlayRef.current.showToast(msg, "success")
-                  if (authChanged) onLoggedInChanged(session.isAuthenticated)
-                },
+                onImported: handleImported,
               })
-            } catch {}
+            } catch (e: any) {
+              overlayRef.current.showToast(
+                `无法读取分享的配置文件：${e?.message ?? String(e)}`,
+                "error",
+              )
+            }
+            break
           }
-        } else if (typeof intent.text === "string" && intent.text.trim()) {
-          const text = intent.text.trim()
-          const route = parseDeepLinkUrl(text)
-          if (route) {
-            seedIfRoute(route)
-            requestPixivRoute(route)
-          } else if (text.startsWith("{")) {
-            overlayRef.current.openIosImport({
-              initialJsonText: text,
-              onImported: (msg, authChanged) => {
-                overlayRef.current.showToast(msg, "success")
-                if (authChanged) onLoggedInChanged(session.isAuthenticated)
-              },
-            })
+          case "share-text": {
+            const route = parseDeepLinkUrl(plan.text)
+            if (route) {
+              seedIfRoute(route)
+              requestPixivRoute(route)
+            } else if (plan.text.startsWith("{")) {
+              overlayRef.current.openIosImport({
+                initialJsonText: plan.text,
+                onImported: handleImported,
+              })
+            } else {
+              overlayRef.current.showToast(
+                "分享的文本既不是 Pixiv 链接，也不是可导入的配置。",
+                "error",
+              )
+            }
+            break
           }
+          case "share-unreadable":
+          case "share-unsupported": {
+            overlayRef.current.showToast(plan.message, "error")
+            break
+          }
+          default:
+            break
         }
+      } finally {
         void PixSystemBridge?.clearIntent?.()
       }
     }

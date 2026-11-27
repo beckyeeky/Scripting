@@ -26,7 +26,7 @@ import { useOverlay } from "../../overlay/OverlayHost"
 import { effectiveBottomInset, useSafeInsets } from "../../theme/insets"
 import { useAppTheme } from "../../theme/ThemeProvider"
 import { AccountSwitcherSheet } from "./AccountSwitcherSheet"
-import { ReverseImageSearchSheet } from "./ReverseImageSearchSheet"
+import { openReverseImageSearch } from "./reverseImageSearchEntry"
 
 export function MoreScreen() {
   const { colors, accent, accentSoft, settings } = useAppTheme()
@@ -131,13 +131,8 @@ export function MoreScreen() {
     })
   }
 
-  function openReverseImageSearch() {
-    overlay.presentSheet({
-      id: "reverse-image-search",
-      title: "以图搜图 (SauceNAO)",
-      fullHeight: true,
-      render: (close) => <ReverseImageSearchSheet onClose={close} />,
-    })
+  function openReverseImageSearchSheet() {
+    openReverseImageSearch(overlay)
   }
 
   return (
@@ -284,7 +279,7 @@ export function MoreScreen() {
             iconColor={accent}
             showChevron={true}
             isLast={true}
-            onPress={openReverseImageSearch}
+            onPress={openReverseImageSearchSheet}
           />
         </SectionCard>
 
