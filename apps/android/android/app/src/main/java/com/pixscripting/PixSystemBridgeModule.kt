@@ -185,6 +185,22 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
     }
   }
 
+  // ---------- Privacy screen guard (FLAG_SECURE) ----------
+
+  /**
+   * 由 JS 在启动恢复与开关变化时下发。Activity 未就绪时只记录期望值，
+   * MainActivity#onCreate/onResume 会通过 PixSecureScreen.applyPending 应用，
+   * 因此冷启动或 Activity 重建时不会漏掉遮罩。
+   */
+  @ReactMethod
+  fun setSecureScreen(enabled: Boolean) {
+    PixSecureScreen.setDesired(enabled)
+    val activity = currentActivity ?: return
+    activity.runOnUiThread {
+      PixSecureScreen.applyTo(activity, enabled)
+    }
+  }
+
   @ReactMethod
   fun getInitialIntent(promise: Promise) {
     val item = PixIntentHolder.getLatest()
@@ -694,6 +710,10 @@ class PixSystemBridgeModule(private val reactContext: ReactApplicationContext) :
 
       dialog.window?.let { win ->
         win.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        // 登录 WebView 是独立 Window，Activity 上的 FLAG_SECURE 不覆盖它。
+        if (PixSecureScreen.requested() == true) {
+          win.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
         @Suppress("DEPRECATION")
         win.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         WindowCompat.setDecorFitsSystemWindows(win, false)

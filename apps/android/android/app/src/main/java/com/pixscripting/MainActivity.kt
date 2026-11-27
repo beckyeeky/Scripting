@@ -346,6 +346,8 @@ class MainActivity : ReactActivity() {
     DefaultReactActivityDelegate(this, mainComponentName, fabricEnabled)
 
   override fun onCreate(savedInstanceState: Bundle?) {
+    // 先于首帧补上已排队的隐私遮罩，避免冷启动时最近任务快照泄露内容。
+    PixSecureScreen.applyPending(this)
     runCatching { PixIntentHolder.capture(this, intent) }
     super.onCreate(savedInstanceState)
 
@@ -372,6 +374,8 @@ class MainActivity : ReactActivity() {
 
   override fun onResume() {
     super.onResume()
+    // 设置可能在 Activity 不可见时下发（或 Activity 刚被重建），回前台时补应用。
+    PixSecureScreen.applyPending(this)
     window?.decorView?.let { ViewCompat.requestApplyInsets(it) }
   }
 

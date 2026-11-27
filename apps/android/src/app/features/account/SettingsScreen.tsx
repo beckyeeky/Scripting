@@ -66,6 +66,11 @@ import {
 } from "../../components"
 import { useAppNav } from "../../navigation/NavContext"
 import { useOverlay } from "../../overlay/OverlayHost"
+import {
+  clearPrivacyScreenGuard,
+  loadPrivacyScreenGuard,
+  updatePrivacyScreenGuard,
+} from "../../settings/privacyScreenGuardRuntime"
 import { effectiveBottomInset, useSafeInsets } from "../../theme/insets"
 import { useAppTheme } from "../../theme/ThemeProvider"
 import { buildCookieHostList, resolveWebCookieSyncResult } from "./webCookieSync"
@@ -111,6 +116,10 @@ export function SettingsScreen() {
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings())
   const [cacheBytes, setCacheBytes] = useState<number>(() => cacheUsageBytes())
   const [hasWebCookie, setHasWebCookie] = useState<boolean>(() => Boolean(session.webCookie))
+  // 隐私遮罩独立于共享 AppSettings：只属于 Android 原生 FLAG_SECURE，不参与 iOS 同步。
+  const [privacyScreenGuard, setPrivacyScreenGuard] = useState<boolean>(() =>
+    loadPrivacyScreenGuard(),
+  )
 
   // Editable network inputs
   const [customApi, setCustomApi] = useState(settings.customApiBaseUrl)
@@ -146,6 +155,18 @@ export function SettingsScreen() {
 
   function patch(partial: Partial<AppSettings>) {
     updateSettings(partial)
+    try {
+      triggerHaptic("selection")
+    } catch {}
+  }
+
+  function handlePrivacyScreenGuardChange(enabled: boolean) {
+    setPrivacyScreenGuard(enabled)
+    const delivered = updatePrivacyScreenGuard(enabled)
+    if (!delivered) {
+      // 值已写入 SharedPreferences；bridge 暂不可用时启动恢复会重放。
+      overlay.showToast("设置已保存，但原生遮罩暂未生效", "info")
+    }
     try {
       triggerHaptic("selection")
     } catch {}
@@ -348,6 +369,8 @@ export function SettingsScreen() {
     })
     if (!ok) return
     resetSettings()
+    clearPrivacyScreenGuard()
+    setPrivacyScreenGuard(false)
     overlay.showToast("已恢复默认设置", "success")
   }
 
@@ -406,6 +429,12 @@ export function SettingsScreen() {
             subtitle="查看画师主页和我的收藏时不受 R18/AI 开关隐藏"
             value={settings.exemptFilterForPersonal}
             onValueChange={(val) => patch({ exemptFilterForPersonal: val })}
+          />
+          <ToggleRow
+            title="禁止截屏与后台预览"
+            subtitle="开启后系统截图、录屏与最近任务预览显示为空白；保存到相册与分享图片不受影响"
+            value={privacyScreenGuard}
+            onValueChange={handlePrivacyScreenGuardChange}
           />
           <ToggleRow
             title="记录本地浏览历史"

@@ -41,7 +41,12 @@ import { OverlayProvider, useOverlay } from "./src/app/overlay/OverlayHost"
 import { openReverseImageSearch } from "./src/app/features/account/reverseImageSearchEntry"
 import { resolveIncomingIntent } from "./src/app/intents/shareIntent"
 import { LoginScreen } from "./src/app/screens/LoginScreen"
+import { syncPrivacyScreenGuardOnLaunch } from "./src/app/settings/privacyScreenGuardRuntime"
 import { ThemeProvider, useAppTheme } from "./src/app/theme/ThemeProvider"
+
+// P2-1：冷启动尽早恢复 FLAG_SECURE。Activity 未就绪时原生侧会排队，
+// MainActivity#onCreate/onResume 再应用，因此这里不依赖首帧时机。
+syncPrivacyScreenGuardOnLaunch()
 
 const { PixSystemBridge } = NativeModules
 
@@ -277,6 +282,8 @@ export default function App(): React.JSX.Element {
   const dismissOverlayRef = useRef<() => boolean>(() => false)
 
   useEffect(() => {
+    // 模块初始化时 bridge 可能尚未注册；挂载后再重放一次已存设置（幂等）。
+    syncPrivacyScreenGuardOnLaunch()
     let translationUID = resolveEffectiveUID()
 
     const stopAuth = session.onAuthChanged(() => {
