@@ -44,6 +44,7 @@ export function NovelTranslationSheet({
   const [glossaryDraft, setGlossaryDraft] = useState(snap?.glossary ?? "")
   const [glossaryLocked, setGlossaryLocked] = useState(Boolean(snap?.glossaryLocked))
   const [showGlossaryEditor, setShowGlossaryEditor] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
 
   useEffect(() => {
     if (!showGlossaryEditor) {
@@ -56,6 +57,12 @@ export function NovelTranslationSheet({
     ? Object.values(snap.blocks).filter((b) => b.status === "error")
     : []
   const progressRatio = snap && snap.total > 0 ? Math.min(1, snap.done / snap.total) : 0
+  // 摘要/术语失败与对齐告警只放在折叠详情里，主状态仍以翻译进度为准
+  const contextErrors: string[] = []
+  if (snap?.summaryError) contextErrors.push(`标题、简介与摘要：${snap.summaryError}`)
+  if (snap?.glossaryError) contextErrors.push(`术语表：${snap.glossaryError}`)
+  const alignmentWarnings = translation.alignmentWarnings
+  const hasDetails = contextErrors.length > 0 || alignmentWarnings.length > 0
 
   const phaseText =
     snap?.phase === "summary"
@@ -161,6 +168,45 @@ export function NovelTranslationSheet({
           <Text style={[styles.metaText, { color: colors.textTertiary }]}>
             {translation.providerNotice}
           </Text>
+        ) : null}
+        {hasDetails ? (
+          <>
+            <Pressable
+              onPress={() => setShowDetails((v) => !v)}
+              style={[styles.detailToggle, { borderTopColor: colors.separator }]}
+            >
+              <Text
+                style={[
+                  styles.detailToggleText,
+                  { color: contextErrors.length > 0 ? colors.orange : colors.textSecondary },
+                ]}
+              >
+                {contextErrors.length > 0
+                  ? `上下文生成有 ${contextErrors.length} 项错误`
+                  : `对齐提示 ${alignmentWarnings.length} 条`}
+              </Text>
+              <Text style={[styles.detailToggleAction, { color: accent }]}>
+                {showDetails ? "收起详情" : "查看详情"}
+              </Text>
+            </Pressable>
+            {showDetails ? (
+              <View style={styles.detailBody}>
+                {contextErrors.map((text) => (
+                  <Text key={text} style={[styles.metaWarn, { color: colors.orange }]}>
+                    {text}
+                  </Text>
+                ))}
+                {alignmentWarnings.map((text, index) => (
+                  <Text
+                    key={`${index}-${text}`}
+                    style={[styles.metaText, { color: colors.textSecondary }]}
+                  >
+                    {text}
+                  </Text>
+                ))}
+              </View>
+            ) : null}
+          </>
         ) : null}
       </View>
 
@@ -371,6 +417,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     fontWeight: "500",
+  },
+  detailToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    gap: 8,
+  },
+  detailToggleText: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  detailToggleAction: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  detailBody: {
+    gap: 5,
   },
   actionRow: {
     flexDirection: "row",

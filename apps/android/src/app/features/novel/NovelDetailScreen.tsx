@@ -3,6 +3,7 @@ import { Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from "r
 import { cleanHtmlCaption } from "../../../../../../Pix-Scripting/src/api/aiService"
 import {
   addNovelBookmark,
+  illustrationDetail,
   novelDetail,
   novelViewerData,
   relatedNovels,
@@ -12,7 +13,7 @@ import {
 import { session } from "../../../../../../Pix-Scripting/src/api/session"
 import { exportNovelToEpub } from "../../../../../../Pix-Scripting/src/downloader/epubExporter"
 import { exportNovelToText } from "../../../../../../Pix-Scripting/src/downloader/novelTextExporter"
-import { novelThumbUrlOf } from "../../../../../../Pix-Scripting/src/image/imageLoader"
+import { imageUrlOf, loadImage, novelThumbUrlOf } from "../../../../../../Pix-Scripting/src/image/imageLoader"
 import { triggerHaptic } from "../../../../../../Pix-Scripting/src/platform/haptics"
 import {
   getCachedNovelBookmark,
@@ -28,6 +29,10 @@ import {
   synthesizeOfflineNovelDetail,
 } from "../../../../../../Pix-Scripting/src/store/novelOfflineLibrary"
 import {
+  offlineImageSummaryText,
+  persistOfflineImages,
+} from "../../../../../../Pix-Scripting/src/store/novelOfflineImages"
+import {
   buildEpisodeOutline,
   outlineEntryLabel,
 } from "../../../../../../Pix-Scripting/src/store/novelOutline"
@@ -37,7 +42,7 @@ import {
   type NovelReadingProgress,
 } from "../../../../../../Pix-Scripting/src/store/novelProgress"
 import type { PixivNovel, PixivNovelDetail } from "../../../../../../Pix-Scripting/src/types"
-import { uploadedImageUrl } from "../../../../../../Pix-Scripting/src/ui/novelOfflineCapture"
+import { buildOfflineImageTasks, uploadedImageUrl } from "../../../../../../Pix-Scripting/src/ui/novelOfflineCapture"
 import { ScriptingPasteboard, ScriptingShareSheet } from "../../../scripting/hostGlobals"
 import {
   ActionButton,
@@ -55,6 +60,7 @@ import { useOverlay } from "../../overlay/OverlayHost"
 import { effectiveBottomInset, useSafeInsets } from "../../theme/insets"
 import { useAppTheme } from "../../theme/ThemeProvider"
 import { NovelAISheet } from "./NovelAISheet"
+import { isNovelR18, resolveNovelExportMetadata } from "./novelExportMetadata"
 import { parseNovelToChunks } from "./novelHtmlBuilder"
 
 export function NovelDetailScreen({
@@ -219,6 +225,7 @@ export function NovelDetailScreen({
         return
       }
       const detFull = detail && "series_prev" in detail ? (detail as PixivNovelDetail) : null
+      const exportMeta = resolveNovelExportMetadata({ detail })
       nav.push({
         name: "novelReader",
         novelId: novelID,
@@ -227,6 +234,9 @@ export function NovelDetailScreen({
         text: novelText,
         coverUrl,
         textEmbeddedImages: viewer?.textEmbeddedImages,
+        author: exportMeta.author,
+        tags: exportMeta.tags,
+        isR18: exportMeta.isR18,
         initialPage: override?.initialPage,
         initialChunkId: override?.initialChunkId,
         seriesId: detail?.series?.id ?? null,
@@ -264,29 +274,76 @@ export function NovelDetailScreen({
     }
   }, [bookmarkBusy, isBookmarked, novelID, overlay])
 
-  const handleSaveOffline = useCallback(() => {
+  const handleSaveOffline = useCallback(async () => {
     if (!novelText) {
       overlay.showToast("正文尚未加载完成", "info")
       return
     }
+    const author = detail?.user?.name
     const saved = saveOfflineEpisode({
       novelId: novelID,
       title: detail?.title || viewer?.title || `小说 ${novelID}`,
       text: novelText,
-      author: detail?.user?.name,
+      author,
       seriesId: detail?.series?.id ?? null,
       episodeNumber: detail?.episode_number ?? null,
       caption: detail?.caption ? cleanHtmlCaption(detail.caption) : null,
       coverUrl,
       tags: (detail?.tags || []).map((t) => t.name).filter(Boolean),
     })
-    if (saved) {
-      setIsOfflineSaved(true)
-      overlay.showToast("已保存到离线书库", "success")
-    } else {
+    if (!saved) {
       overlay.showToast("离线保存失败", "error")
+      return
     }
-  }, [coverUrl, detail, novelID, novelText, overlay, viewer?.title])
+    setIsOfflineSaved(true)
+
+    // 正文落盘后再保存正文插图，行为与阅读器内「保存到离线书库」一致
+    let tasks
+    try {
+      tasks = await buildOfflineImageTasks({
+        chunks,
+        embeddedImages: viewer?.textEmbeddedImages,
+        resolveIllustUrl: async (illustId, pageIdx) => {
+          try {
+            const illust = await session.call((tk) => illustrationDetail(illustId, tk))
+            return imageUrlOf(illust, pageIdx, "large") || imageUrlOf(illust, pageIdx, "medium") || null
+          } catch {
+            return null
+          }
+        },
+      })
+    } catch (err: any) {
+      overlay.showToast(
+        `正文已离线，插图任务生成失败：${err?.message ?? err}`,
+        "info",
+      )
+      return
+    }
+    if (tasks.length === 0) {
+      overlay.showToast("已保存到离线书库", "success")
+      return
+    }
+    overlay.showToast(`正文已离线，正在保存 ${tasks.length} 张插图…`, "info")
+    try {
+      const summary = await persistOfflineImages({
+        novelId: novelID,
+        tasks,
+        loadBytes: (url) => loadImage(url, 40),
+      })
+      overlay.showToast(
+        `已离线保存 · ${offlineImageSummaryText(summary)}`,
+        summary.failed > 0 || summary.missing > 0 || summary.skipped > 0
+          ? "info"
+          : "success",
+      )
+    } catch (err: any) {
+      // 正文已落盘；图片失败时明确说明，不谎称整篇完整离线
+      overlay.showToast(
+        `正文已离线，插图保存失败：${err?.message ?? err}`,
+        "info",
+      )
+    }
+  }, [chunks, coverUrl, detail, novelID, novelText, overlay, viewer?.textEmbeddedImages, viewer?.title])
 
   const handleExport = useCallback(
     async (kind: "epub" | "txt") => {
@@ -295,7 +352,8 @@ export function NovelDetailScreen({
         return
       }
       const title = detail?.title || `小说_${novelID}`
-      const author = detail?.user?.name || "Pixiv"
+      const exportMeta = resolveNovelExportMetadata({ detail })
+      const author = exportMeta.author
       const caption = detail?.caption ? cleanHtmlCaption(detail.caption) : undefined
       try {
         if (kind === "txt") {
@@ -330,9 +388,9 @@ export function NovelDetailScreen({
           authorId: detail?.user?.id,
           seriesTitle: detail?.series?.title,
           description: caption,
-          tags: (detail?.tags || []).map((t) => t.name),
+          tags: exportMeta.tags,
           createdDate: detail?.create_date,
-          isR18: (detail?.x_restrict ?? 0) > 0,
+          isR18: exportMeta.isR18,
           coverUrl: coverUrl ?? undefined,
           chapters: [
             {
@@ -408,7 +466,7 @@ export function NovelDetailScreen({
   }
 
   const cleanCaption = detail?.caption ? cleanHtmlCaption(detail.caption) : ""
-  const isR18 = (detail?.x_restrict ?? 0) > 0
+  const isR18 = isNovelR18(detail)
   const isAI = Boolean(detail && "novel_ai_type" in detail && detail.novel_ai_type === 2)
   const detFull = detail && "series_prev" in detail ? (detail as PixivNovelDetail) : null
 

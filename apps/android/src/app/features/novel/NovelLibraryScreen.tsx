@@ -38,6 +38,7 @@ import { useAppNav } from "../../navigation/NavContext"
 import { useOverlay } from "../../overlay/OverlayHost"
 import { effectiveBottomInset, useSafeInsets } from "../../theme/insets"
 import { useAppTheme } from "../../theme/ThemeProvider"
+import { isNovelR18 } from "./novelExportMetadata"
 
 type LibraryTab = "offline" | "markers" | "bookmarks"
 
@@ -116,6 +117,9 @@ export function NovelLibraryScreen() {
         caption: rec.caption ?? undefined,
         text: rec.text,
         coverUrl: rec.coverUrl ?? null,
+        author: rec.author,
+        tags: rec.tags,
+        isR18: isNovelR18({ tags: (rec.tags ?? []).map((name) => ({ name })) }),
         seriesId: rec.seriesId ?? null,
         episodeNumber: rec.episodeNumber ?? null,
       })
